@@ -1,6 +1,6 @@
 // The Screen view: the film, the scrubber with notes, and the agent beside it.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
+import { ArrowLeft, AudioLines, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
 import { JobsTray } from '@/components/JobsTray'
 import { Button } from '@/components/ui/button'
 import { Tip } from '@/components/ui/tooltip'
@@ -8,6 +8,7 @@ import { Kbd } from '@/components/ui/kbd'
 import { useAgent } from '@/lib/agui'
 import { cn, mediaUrl, timecode } from '@/lib/utils'
 import { AgentPanel } from './AgentPanel'
+import { TranscriptPanel } from './TranscriptPanel'
 import { Scrubber } from './Scrubber'
 import { Stage, type StageHandle } from './Stage'
 import type { Anchor, Box, Project } from '../../../shared/types'
@@ -24,6 +25,8 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   const [drawing, setDrawing] = useState(false)
   const [compare, setCompare] = useState<'after' | 'before'>('after')
   const [over, setOver] = useState(false)
+  const [showTranscript, setShowTranscript] = useState(() => localStorage.getItem('manul.transcript') !== '0')
+  useEffect(() => { try { localStorage.setItem('manul.transcript', showTranscript ? '1' : '0') } catch { /* private mode */ } }, [showTranscript])
   const sentFirst = useRef(false)
 
   useEffect(() => window.manul.project.onChange(np => { if (np.dir === p.dir) setP(np) }), [p.dir])
@@ -54,6 +57,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
       if (e.key === ' ') { e.preventDefault(); if (v) v.paused ? v.play() : v.pause() }
       else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); noteHere() }
       else if (e.key === 'b' || e.key === 'B') { e.preventDefault(); v?.pause(); setDrawing(d => !d) }
+      else if (e.key === 't' || e.key === 'T') { e.preventDefault(); setShowTranscript(x => !x) }
       else if (e.key === 'ArrowLeft' && v) seek(Math.max(0, v.currentTime - (e.shiftKey ? 5 : 1)))
       else if (e.key === 'ArrowRight' && v) seek(Math.min(duration, v.currentTime + (e.shiftKey ? 5 : 1)))
       else if (e.key === 'Escape') { setAnchor(undefined); setDrawing(false) }
@@ -99,6 +103,17 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
       </div>
 
       <div className="flex min-h-0 flex-1">
+        {showTranscript && (
+          <div className="w-[300px] shrink-0 border-r border-line bg-panel">
+            <TranscriptPanel
+              project={p}
+              media={onScreen.path}
+              time={time}
+              onSeek={seek}
+              onRange={r => { stage.current?.video?.pause(); setAnchor({ ...r, box: anchor?.box }); input.current?.focus() }}
+            />
+          </div>
+        )}
         {/* the film */}
         <div className={cn('flex min-w-0 flex-1 flex-col gap-2 p-3', over && 'bg-amber-soft')}>
           {proposal && (
@@ -148,6 +163,9 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             </Button>
             <span className="tabular text-xs text-dim">{timecode(time)} <span className="text-faint">/ {timecode(duration)}</span></span>
             <span className="flex-1" />
+            <Tip label={<>Transcript <Kbd>T</Kbd></>}>
+              <Button size="sm" variant={showTranscript ? 'secondary' : 'ghost'} onClick={() => setShowTranscript(x => !x)}><AudioLines />Transcript</Button>
+            </Tip>
             <Tip label={<>Note at the playhead <Kbd>N</Kbd></>}>
               <Button size="sm" variant="ghost" onClick={noteHere}><MessageSquarePlus />Note</Button>
             </Tip>
@@ -166,6 +184,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
         {/* the agent */}
         <div className="w-[360px] shrink-0 border-l border-line bg-panel">
           <AgentPanel
+            project={p.dir}
             agent={agent}
             anchor={anchor}
             onClearAnchor={() => { setAnchor(undefined); setDrawing(false) }}

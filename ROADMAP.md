@@ -109,6 +109,8 @@ pro editors can take a Manul rough cut into their own editor.
 - **macOS:** Homebrew cask. Needs an **Apple Developer ID**, signing and notarization, because Homebrew is dropping apps
   that macOS Gatekeeper blocks.
 - **Linux:** `.deb` in our own apt repository (and AppImage).
+- **Speech recognition:** whisper.cpp already on the computer is found and used (paths saved, changeable, "Detect again");
+  otherwise Manul downloads faster-whisper. One transcription at a time.
 - **Linux needs fallbacks** for macOS-only pieces: VideoToolbox → VAAPI/x264, whisper on Metal → whisper on the CPU or CUDA.
 - **ffmpeg licence:** a GPL build (x264) ships as a separate binary with a source offer, or an LGPL build with hardware encoders
   only. 💬 Decide which.
@@ -124,12 +126,12 @@ pro editors can take a Manul rough cut into their own editor.
 - [x] Generic tool card + per-tool card registry
 - [~] Capability router (chat · image · voice · transcription) + bring-your-own-key keystore (keystore + Keys tabs done)
 - [ ] Local usage meter (provider, model, tokens or characters, cost) for every request
-- [ ] Bundled ffmpeg/ffprobe; **Tools page** (installed, size, update, remove); on-demand installer with checksums
+- [x] Bundled ffmpeg/ffprobe; **Tools page** (installed, size, update, remove); on-demand installer with checksums
 - [ ] First-run setup checks (dependency doctor)
 - [ ] Email GSAP/Webflow for a written OK on Manul's use (AI-written GSAP + drag-to-edit clips)
 
 ### Phase 1: MVP (v0.1)
-- [ ] Import: drop a file or link → read details, make a preview copy, transcribe, split into scenes, tag
+- [~] Import: drop a file or link → read details, make a preview copy, transcribe, split into scenes, tag (details + transcription done)
 - [x] Start screen: request plus video in one step
 - [x] Screen view: player, scrubber notes, agent input at the playhead
 - [~] Notes on the picture: element pick, box on the frame, timestamp/range (box + time + range done)
@@ -141,7 +143,7 @@ pro editors can take a Manul rough cut into their own editor.
 - [ ] Make room on the timeline: split at a point and open a gap so the agent can insert (or propose an insertion) in between
 - [ ] Slide editing by hand: drag, resize and edit text/images/shapes on the picture, written back to the HTML
 - [ ] Slide editing by the agent: pick an element, then a note scoped to that element; the agent changes only it
-- [ ] Transcript panel with text-based editing
+- [x] Transcript panel with text-based editing (click to seek, drag to select a range, fillers marked, find)
 - [ ] Tracks drawer (timeline, mix, inspector)
 - [ ] Agent browser with take-over
 - [ ] Bring in your own footage, images and extra videos anywhere

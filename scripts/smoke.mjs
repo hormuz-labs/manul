@@ -13,8 +13,14 @@ const prompt = process.argv[3]
 mkdirSync(out, { recursive: true })
 const userData = mkdtempSync(join(tmpdir(), 'manul-ud-'))
 const video = join(out, 'test-clip.mp4')
+// speech with fillers when macOS `say` exists (so the transcript and "cut the ums" can be exercised), else a tone
+let audio = ['-f', 'lavfi', '-i', 'sine=frequency=330:duration=12']
+try {
+  execFileSync('say', ['-o', join(out, 'speech.aiff'), 'Um, hello there. Uh, today we are, um, testing the Manul video editor. Uh, it should cut these fillers.'])
+  audio = ['-i', join(out, 'speech.aiff')]
+} catch { /* not macOS */ }
 execFileSync(require('ffmpeg-static'), ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30:duration=12',
-  '-f', 'lavfi', '-i', 'sine=frequency=330:duration=12', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', video])
+  ...audio, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', video])
 
 const app = await electron.launch({ args: ['.', `--user-data-dir=${userData}`], env: { ...process.env, MANUL_PROJECTS: join(out, 'projects') } })
 const win = await app.firstWindow()
@@ -37,6 +43,11 @@ await win.locator('button:has(svg.lucide-arrow-up)').click()
 await win.waitForSelector('video', { timeout: 15000 }).catch(async e => { await win.screenshot({ path: join(out, 'fail.png') }); throw e })
 await win.waitForTimeout(1500)
 await win.screenshot({ path: join(out, '3-project.png') })
+// the transcript appears when speech recognition is available (found on this machine or installed)
+if (await win.getByText(/^\d+ fillers$/).waitFor({ timeout: 60000 }).then(() => true, () => false)) {
+  await win.screenshot({ path: join(out, '3b-transcript.png') })
+  console.log('transcript: ok')
+}
 
 // a box note at 4 s
 await win.evaluate(() => { const v = document.querySelector('video'); v.currentTime = 4 })
@@ -51,8 +62,7 @@ await win.waitForTimeout(300)
 await win.screenshot({ path: join(out, '4-box.png') })
 
 if (prompt) {
-  await win.keyboard.type('Blur this area for the whole video')
-  await win.keyboard.press('Enter')
+  await win.keyboard.press('Escape')
   for (let i = 0; i < 90; i++) {
     await win.waitForTimeout(2000)
     if (await win.locator('text=Proposed:').count()) break

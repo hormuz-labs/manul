@@ -58,6 +58,8 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       `- Edit with the ffmpeg tool (bundled; also on PATH for bash). Read the current version, write new files to renders/. Never overwrite media/.\n` +
       `- For anything about speech (cut ums or pauses, remove a sentence, find a moment, captions) read the transcript tool first and cut on word times. ` +
       `To cut many pieces, build one ffmpeg command with trim/atrim + concat (or select/aselect) from the word times; keep ~0.05 s of air around cuts.\n` +
+      `- Get it right in one render: plan every cut from the transcript first. Check a render at most once (e.g. the transcript of the output) ` +
+      `and only when unsure; never re-render just to polish. The user will ask if they want more.\n` +
       `- When a cut is ready, call propose_version: the user sees it as a before/after and accepts or rejects it. One proposal per request.\n` +
       `- Notes arrive as "[note <id> @ start–end, box x,y,w,h]" plus a still of the frame with the box drawn on it. The box is in 0–1 fractions of the picture ` +
       `(x,y = top-left). Act on exactly that moment and region; when done, call resolve_note with a one-line reply.\n` +

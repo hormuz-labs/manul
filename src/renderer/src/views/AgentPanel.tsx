@@ -2,10 +2,11 @@
 // (rendered by tool), question cards, and the input, anchored to whatever is selected on the film.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Message } from '@ag-ui/core'
-import { ArrowUp, Check, Clapperboard, Crosshair, Eye, FileSearch, Loader2, MessageSquareText, Square, Terminal, TriangleAlert, Wrench, X } from 'lucide-react'
+import { ArrowUp, AudioLines, Check, Clapperboard, Crosshair, Eye, FileSearch, Loader2, MessageSquareText, Square, Terminal, TriangleAlert, Wrench, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { resultsOf, type AgentState } from '@/lib/agui'
+import { ConsentCard, useConsents } from '@/components/ConsentStack'
 import { cn, timecode } from '@/lib/utils'
 import type { Anchor } from '../../../shared/types'
 
@@ -24,6 +25,7 @@ const TOOL: Record<string, { icon: ReactNode; title: (a: Record<string, any>) =>
   },
   propose_version: { icon: <Check />, title: a => `Proposed “${a.title || 'a new cut'}”` },
   resolve_note: { icon: <MessageSquareText />, title: a => a.reply ? `Note: ${a.reply}` : 'Resolved a note' },
+  transcript: { icon: <AudioLines />, title: a => a.search ? `Searched the transcript for “${a.search}”` : 'Read the transcript' },
   seek: { icon: <Crosshair />, title: a => `Showed you ${timecode(a.t || 0)}` },
   bash: { icon: <Terminal />, title: a => `$ ${String(a.command || '').split('\n')[0].slice(0, 60)}` },
   read: { icon: <FileSearch />, title: a => `Read ${String(a.path || '').split('/').pop()}` },
@@ -96,7 +98,8 @@ function Item({ m, results, busy, onAnswer, laterUser }: { m: Message; results: 
   return null
 }
 
-export function AgentPanel({ agent, anchor, onClearAnchor, onSend, onStop, ready, onKeys, inputRef }: {
+export function AgentPanel({ project, agent, anchor, onClearAnchor, onSend, onStop, ready, onKeys, inputRef }: {
+  project: string
   agent: AgentState
   anchor?: Anchor
   onClearAnchor(): void
@@ -107,11 +110,12 @@ export function AgentPanel({ agent, anchor, onClearAnchor, onSend, onStop, ready
   inputRef: React.RefObject<HTMLTextAreaElement | null>
 }) {
   const [text, setText] = useState('')
+  const consents = useConsents().filter(c => c.project === project)
   const scroller = useRef<HTMLDivElement>(null)
   const results = resultsOf(agent.messages)
   const shown = agent.messages.filter(m => m.role === 'user' || m.role === 'assistant')
 
-  useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' }) }, [agent.messages.length, agent.streaming?.text.length, Object.keys(agent.pending).length])
+  useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' }) }, [agent.messages.length, agent.streaming?.text.length, Object.keys(agent.pending).length, consents.length])
 
   const submit = () => { const t = text.trim(); if (!t) return; onSend(t); setText('') }
   const anchorLabel = anchor && `${timecode(anchor.t0)}${anchor.t1 != null ? `–${timecode(anchor.t1)}` : ''}${anchor.box ? ' · box' : ''}`
@@ -139,6 +143,7 @@ export function AgentPanel({ agent, anchor, onClearAnchor, onSend, onStop, ready
         {shown.map((m, i) => <Item key={m.id} m={m} results={results} busy={agent.busy} onAnswer={onSend} laterUser={shown.slice(i + 1).some(x => x.role === 'user')} />)}
         {Object.entries(agent.pending).map(([id, p]) => <ToolCard key={id} call={{ id, name: p.name, args: parse(p.args) }} state="streaming" />)}
         {agent.streaming?.text && <div className="whitespace-pre-wrap leading-relaxed text-fg/95">{agent.streaming.text}</div>}
+        {consents.map(c => <ConsentCard key={c.id} c={c} />)}
         {agent.error && (
           <div className="flex gap-2 rounded-lg border border-bad/30 bg-bad/10 p-2.5 text-xs text-bad"><TriangleAlert className="mt-px size-3.5 shrink-0" /><span data-selectable>{agent.error}</span></div>
         )}
