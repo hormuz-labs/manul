@@ -7,7 +7,7 @@ export function buildMenu(win: () => BrowserWindow | null) {
   const mac = process.platform === 'darwin'
   const template: MenuItemConstructorOptions[] = [
     ...(mac ? [{ label: 'Manul', submenu: [
-      { role: 'about' }, { type: 'separator' },
+      cmd('about', 'About Manul'), cmd('update.check', 'Check for Updates…'), { type: 'separator' },
       cmd('settings', 'Settings…', 'CmdOrCtrl+,'), cmd('settings.tools', 'Tools…'), { type: 'separator' },
       { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' },
     ] } as MenuItemConstructorOptions] : []),

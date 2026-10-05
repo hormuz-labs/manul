@@ -1,19 +1,21 @@
 // Settings: one place for keys, models, skills, memory and tools.
 import * as D from '@radix-ui/react-dialog'
-import { Brain, KeyRound, Package, Sparkles, X } from 'lucide-react'
+import { Brain, Info, KeyRound, Package, Sparkles, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { KeysPanel } from './KeysPanel'
 import { MemoryPanel } from './MemoryPanel'
+import { AboutPanel } from './AboutPanel'
 import { SkillsPanel } from './SkillsPanel'
 import { ToolsPanel } from './ToolsPanel'
 
-export type Section = 'keys' | 'skills' | 'memory' | 'tools'
+export type Section = 'keys' | 'skills' | 'memory' | 'tools' | 'about'
 const SECTIONS: { id: Section; label: string; icon: ReactNode; panel: () => ReactNode }[] = [
   { id: 'keys', label: 'Keys', icon: <KeyRound />, panel: () => <KeysPanel /> },
   { id: 'skills', label: 'Skills', icon: <Sparkles />, panel: () => <SkillsPanel /> },
   { id: 'memory', label: 'Memory', icon: <Brain />, panel: () => <MemoryPanel /> },
   { id: 'tools', label: 'Tools', icon: <Package />, panel: () => <ToolsPanel /> },
+  { id: 'about', label: 'About', icon: <Info />, panel: () => <AboutPanel /> },
 ]
 
 export function SettingsDialog({ section, onSection, onClose }: { section: Section | null; onSection(s: Section): void; onClose(): void }) {

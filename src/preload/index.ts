@@ -7,6 +7,8 @@ type SkillState = { skills: { id: string; name: string; description: string; pat
 
 type ModelInfo = { provider: string; providerLabel: string; modelId: string; name: string; context?: number; price?: { input: number; output: number }; images: boolean; reasoning: boolean }
 
+type UpdateState = { mode: string; why?: string; status: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'none' | 'error'; version?: string; progress?: number; error?: string }
+
 const on = <T extends unknown[]>(ch: string) => (fn: (...args: T) => void) => {
   const h = (_e: unknown, ...args: unknown[]) => fn(...(args as T))
   ipcRenderer.on(ch, h)
@@ -92,6 +94,13 @@ const api = {
     onEvent: on<[string, BaseEvent]>('agui'),
     onReady: on<[]>('agent:ready'),
   },
+  updates: {
+    state: () => ipcRenderer.invoke('update:state') as Promise<UpdateState | undefined>,
+    check: () => ipcRenderer.invoke('update:check') as Promise<UpdateState | undefined>,
+    install: () => ipcRenderer.invoke('update:install'),
+    onChange: on<[UpdateState]>('update'),
+  },
+  notices: () => ipcRenderer.invoke('app:notices'),
   onSeek: on<[string, number]>('seek'),
   onMenu: on<[string]>('menu'),
   onNotice: on<[string]>('notice'),

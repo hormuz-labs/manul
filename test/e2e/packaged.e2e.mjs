@@ -40,6 +40,12 @@ try {
   await app.evaluate(({ dialog }, f) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: f }) }, join(tmp, 'out.mp4'))
   const ex = await win.evaluate(dir => window.manul.export.run(dir, { preset: 'square', captions: 'none' }), p.dir)
   assert.ok(existsSync(ex.file))
+  // the updater is on for this kind of install and checking never crashes the app (the feed may not exist yet)
+  const up = await win.evaluate(() => window.manul.updates.state())
+  assert.equal(up.mode, process.platform === 'darwin' ? 'self' : up.mode)
+  const after = await win.evaluate(() => window.manul.updates.check())
+  assert.ok(['none', 'error', 'downloading', 'ready', 'checking'].includes(after.status), after.status)
+  console.log('update check:', after.status, after.error ? after.error.split('\n')[0].slice(0, 100) : '')
   console.log('packaged e2e: ok')
 } finally {
   await app.close()

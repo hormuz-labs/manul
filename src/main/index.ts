@@ -7,6 +7,7 @@ import { Readable } from 'node:stream'
 import { startAgent, type AgentHandle } from './agent'
 import { renderClip, setClipProtocol } from './clips'
 import { buildMenu } from './menu'
+import { startUpdates } from './updates'
 import { keyStatus, loadKeys, setKey } from './keys'
 import { asJob, listJobs, onJobs } from './jobs'
 import { toolPath, toolStatus } from './media'
@@ -35,6 +36,7 @@ let win: BrowserWindow | null = null
 let agent: AgentHandle | null = null
 let memory: Memory
 let skills: Skills
+let updates: ReturnType<typeof startUpdates> | null = null
 const open = new Map<string, Project>() // dir → project
 
 const send = (ch: string, ...args: unknown[]) => win?.webContents.send(ch, ...args)
@@ -239,6 +241,10 @@ const describe = (a: Anchor) =>
 // ---------------------------------------------------------------- IPC
 function wire() {
   ipcMain.handle('app:info', () => ({ version: app.getVersion(), platform: process.platform, projectsRoot: Projects.projectsRoot() }))
+  ipcMain.handle('update:state', () => updates?.state())
+  ipcMain.handle('update:check', () => updates?.check())
+  ipcMain.handle('update:install', () => updates?.install())
+  ipcMain.handle('app:notices', () => shell.openPath(app.isPackaged ? join(process.resourcesPath, 'THIRD_PARTY_NOTICES.md') : join(import.meta.dirname, '../../THIRD_PARTY_NOTICES.md')))
   ipcMain.handle('tools:status', () => toolStatus())
   ipcMain.handle('tools:list', () => Tools.listTools())
   ipcMain.handle('tools:install', (_e, id: string) => Tools.install(id))
@@ -414,6 +420,7 @@ app.whenReady().then(async () => {
   })
   wire()
   buildMenu(() => win)
+  updates = startUpdates(st => send('update', st))
   onJobs(jobs => send('jobs', jobs))
   createWindow()
   try {
