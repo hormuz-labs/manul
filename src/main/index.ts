@@ -115,8 +115,12 @@ function wire() {
 }
 
 // ---------------------------------------------------------------- window
+// The app icon. Packaged builds get it from build/ through electron-builder; in development set it by hand.
+const ICON = join(import.meta.dirname, '../../build/icon.png')
+
 function createWindow() {
   win = new BrowserWindow({
+    ...(process.platform === 'linux' && existsSync(ICON) ? { icon: ICON } : {}),
     width: 1440, height: 900, minWidth: 900, minHeight: 600,
     backgroundColor: '#0d0c0b',
     titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 },
@@ -131,6 +135,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform === 'darwin' && !app.isPackaged && existsSync(ICON)) app.dock?.setIcon(ICON)
   protocol.handle('manul', serveMedia)
   loadKeys()
   wire()

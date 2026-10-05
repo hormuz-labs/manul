@@ -42,6 +42,7 @@ export function Start({ onOpen, onKeys, ready }: { onOpen: (p: Project, prompt?:
       </div>
 
       <div className="flex flex-1 flex-col items-center overflow-auto px-6 pb-16 pt-[12vh]">
+        <img src="./manul.svg" alt="" className="mb-4 size-16 drop-shadow-[0_8px_24px_rgba(242,165,65,0.18)]" draggable={false} />
         <h1 className="mb-1 text-[28px] font-semibold tracking-tight">What are we making?</h1>
         <p className="mb-8 text-dim">Drop a video, say what you want. Manul does the edit.</p>
 
