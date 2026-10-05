@@ -5,8 +5,9 @@ import { readFile } from 'node:fs/promises'
 import { extname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { startAgent, type AgentHandle } from './agent'
+import { renderClip, setClipProtocol } from './clips'
 import { keyStatus, loadKeys, setKey } from './keys'
-import { listJobs, onJobs } from './jobs'
+import { asJob, listJobs, onJobs } from './jobs'
 import { toolPath, toolStatus } from './media'
 import * as Tools from './tools'
 import * as Whisper from './whisper'
@@ -45,14 +46,26 @@ const askTool = (project?: string) => (title: string, body: string, sizeMB: numb
 
 // ---------------------------------------------------------------- media protocol: manul://media/<abs path>, with Range for scrubbing
 const MIME: Record<string, string> = { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mkv': 'video/x-matroska',
-  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4' }
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4',
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json',
+  '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf' }
+
+// Libraries motion clips may load: manul://lib/<file> (GSAP, the clip runtime)
+const LIB = app.isPackaged ? join(process.resourcesPath, 'lib') : join(import.meta.dirname, '../../resources/lib')
+// Clip pages may only reach manul:// and inline data: no network, no other origins.
+const CLIP_CSP = "default-src manul: data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src manul: data: blob:"
 
 function serveMedia(req: Request): Response {
-  const file = resolve(decodeURIComponent(new URL(req.url).pathname))
-  const allowed = [Projects.projectsRoot(), ...[...open.keys()]].some(root => file.startsWith(root + sep))
-  if (!allowed || !existsSync(file)) return new Response('not found', { status: 404 })
+  const url = new URL(req.url)
+  const path = decodeURIComponent(url.pathname)
+  const file = url.host === 'lib' ? join(LIB, path.replace(/^\/+/, '')) : resolve(path)
+  const roots = url.host === 'lib' ? [LIB] : [Projects.projectsRoot(), ...[...open.keys()]]
+  if (!roots.some(root => file.startsWith(root + sep)) || !existsSync(file)) return new Response('not found', { status: 404 })
   const size = statSync(file).size
   const type = MIME[extname(file).toLowerCase()] || 'application/octet-stream'
+  if (type.startsWith('text/html')) {
+    return new Response(Readable.toWeb(createReadStream(file)) as ReadableStream, { headers: { 'content-type': type, 'content-security-policy': CLIP_CSP, 'access-control-allow-origin': '*' } })
+  }
   const range = /bytes=(\d*)-(\d*)/.exec(req.headers.get('range') || '')
   if (!range) {
     return new Response(Readable.toWeb(createReadStream(file)) as ReadableStream, { headers: { 'content-type': type, 'content-length': String(size), 'accept-ranges': 'bytes', 'access-control-allow-origin': '*' } })
@@ -180,6 +193,8 @@ function wire() {
     }
     await agent!.send(dir, content)
   })
+  ipcMain.handle('clip:render', (_e, dir: string, id: string) =>
+    asJob(`Rendering clip ${id}`, 'render', j => renderClip(projectOf(dir).dir, id, j), { project: dir, doneTitle: `Rendered clip ${id}` }))
   ipcMain.handle('agent:stop', (_e, dir: string) => agent?.stop(dir))
   ipcMain.handle('agent:attach', async (_e, dir: string) => { await openProject(dir) })
 }
@@ -207,6 +222,7 @@ function createWindow() {
 app.whenReady().then(async () => {
   if (process.platform === 'darwin' && !app.isPackaged && existsSync(ICON)) app.dock?.setIcon(ICON)
   protocol.handle('manul', serveMedia)
+  setClipProtocol(serveMedia)
   loadKeys()
   wire()
   onJobs(jobs => send('jobs', jobs))

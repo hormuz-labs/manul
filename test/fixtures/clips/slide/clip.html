@@ -1,0 +1,19 @@
+<!doctype html>
+<html data-duration="2" data-width="640" data-height="360" data-fps="30">
+<head>
+<meta charset="utf-8">
+<script src="manul://lib/gsap.min.js"></script>
+<script src="manul://lib/clip-runtime.js"></script>
+<style>
+  html, body { margin: 0; width: 640px; height: 360px; background: #000; overflow: hidden; }
+  #box { position: absolute; left: 0; top: 80px; width: 200px; height: 200px; background: #f00; }
+</style>
+</head>
+<body>
+  <div id="box" data-manul-id="box"></div>
+  <script>
+    // GSAP as an author would write it: no pausing, no clock handling; Manul drives time.
+    gsap.timeline().to('#box', { x: 440, duration: 2, ease: 'none' })
+  </script>
+</body>
+</html>

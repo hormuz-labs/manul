@@ -1,0 +1,15 @@
+<!doctype html>
+<html data-duration="0.2" data-width="64" data-height="64" data-fps="10">
+<head><meta charset="utf-8"><script src="manul://lib/clip-runtime.js"></script>
+<style>html,body{margin:0;width:64px;height:64px;background:#808080}</style></head>
+<body>
+<script>
+  // A clip must not reach the network: green when every attempt fails, red if any succeeds.
+  const tries = [
+    fetch('https://example.com/').then(() => true, () => false),
+    new Promise(r => { const i = new Image(); i.onload = () => r(true); i.onerror = () => r(false); i.src = 'https://www.google.com/favicon.ico' }),
+  ]
+  window.__netDone = Promise.all(tries).then(rs => { document.body.style.background = rs.some(Boolean) ? '#ff0000' : '#00ff00' })
+  manul.onFrame(() => {})
+</script>
+</body></html>

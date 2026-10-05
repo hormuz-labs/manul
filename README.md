@@ -25,6 +25,7 @@ Development is test-driven: every change comes with tests.
 ```bash
 npm test           # unit + integration (Vitest); Electron is stubbed, ffmpeg is real
 MANUL_TEST_TOOLS=<tools folder with whisper installed> npm test   # also runs the downloaded-engine test
+npm run test:e2e   # the real app: motion clips render frame-exact, clips have no network
 npm run smoke      # the real app, end to end (Playwright)
 ```
 

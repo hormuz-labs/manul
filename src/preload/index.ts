@@ -23,6 +23,9 @@ const api = {
     set: (c: Partial<WhisperConfig> & { mode: WhisperConfig['mode'] }) => ipcRenderer.invoke('whisper:set', c) as Promise<WhisperStatus>,
     pick: (what: 'binary' | 'model') => ipcRenderer.invoke('whisper:pick', what) as Promise<string | null>,
   },
+  clips: {
+    render: (dir: string, id: string) => ipcRenderer.invoke('clip:render', dir, id) as Promise<{ video: string; poster: string; frames: number; duration: number; width: number; height: number; fps: number }>,
+  },
   transcript: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('transcript:get', dir, mediaRel, make) as Promise<Transcript | null>,
   jobs: { list: () => ipcRenderer.invoke('jobs:list') as Promise<Job[]>, onChange: on<[Job[]]>('jobs') },
   consent: {
