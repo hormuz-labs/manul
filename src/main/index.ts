@@ -14,7 +14,7 @@ import * as Whisper from './whisper'
 import { Memory } from './memory'
 import { Skills } from './skills'
 import * as Projects from './projects'
-import { composeArgs, duration as timelineDuration, insertAt } from '../shared/timeline'
+import { addOverlay, composeArgs, duration as timelineDuration, insertAt } from '../shared/timeline'
 import { moveElement, prepareClipHtml } from '../shared/clip-html'
 import { FFMPEG } from './media'
 import { execFile } from 'node:child_process'
@@ -133,21 +133,26 @@ const autoTranscribe = (p: Project, mediaRel: string) => {
 
 // ---------------------------------------------------------------- motion clips and timeline renders
 /** Write (or replace) clips/<id>/clip.html and render it. */
-async function saveClip(p: Project, id: string, title: string, html: string, dur: number): Promise<ClipInfo & { frames: number }> {
+async function saveClip(p: Project, id: string, title: string, html: string, dur: number, overlay = false): Promise<ClipInfo & { frames: number }> {
   if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(id)) throw new Error('Clip ids are short kebab-case, e.g. "title-card".')
   const tl = p.timeline!
   await mkdir(join(p.dir, 'clips', id), { recursive: true })
-  await writeFile(join(p.dir, 'clips', id, 'clip.html'), prepareClipHtml(html, tl, dur))
+  await writeFile(join(p.dir, 'clips', id, 'clip.html'), prepareClipHtml(html, tl, dur, overlay))
+  p.clips = { ...p.clips, [id]: { ...(p.clips?.[id] || { id, title, duration: dur, video: '', poster: '', updatedAt: 0 }), title, overlay } }
   return bakeClip(p, id, title)
 }
 
 /** Render a clip's HTML to MP4 + poster and record it on the project. */
 async function bakeClip(p: Project, id: string, title?: string) {
-  const r = await asJob(`Rendering clip ${id}`, 'render', j => renderClip(p.dir, id, j), { project: p.dir, doneTitle: `Rendered clip ${id}` })
-  const info: ClipInfo = { id, title: title || p.clips?.[id]?.title || id, duration: r.duration, video: r.video, poster: r.poster, updatedAt: Date.now() }
+  const overlay = !!p.clips?.[id]?.overlay
+  const r = await asJob(`Rendering clip ${id}`, 'render', j => renderClip(p.dir, id, j, overlay), { project: p.dir, doneTitle: `Rendered clip ${id}` })
+  const info: ClipInfo = { id, title: title || p.clips?.[id]?.title || id, duration: r.duration, video: r.video, poster: r.poster, updatedAt: Date.now(), overlay }
   p.clips = { ...p.clips, [id]: info }
-  // the clip's length may have changed: keep every timeline item that uses it in step
-  if (p.timeline) p.timeline.items = p.timeline.items.map(it => (it.kind === 'clip' && it.clip === id ? { ...it, dur: r.duration } : it))
+  // the clip's length may have changed: keep every timeline item and overlay that uses it in step
+  if (p.timeline) {
+    p.timeline.items = p.timeline.items.map(it => (it.kind === 'clip' && it.clip === id ? { ...it, dur: r.duration } : it))
+    p.timeline.overlays = p.timeline.overlays?.map(o => (o.clip === id ? { ...o, dur: Math.min(o.dur, r.duration) || r.duration } : o))
+  }
   await publish(p)
   return { ...info, frames: r.frames }
 }
@@ -156,10 +161,12 @@ async function bakeClip(p: Project, id: string, title?: string) {
 async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'agent' | 'user' = 'agent') {
   const n = p.versions.length + 1
   const out = join('renders', `timeline-${n}.mp4`)
-  for (const it of tl.items) if (it.kind === 'clip' && !existsSync(join(p.dir, 'clips', it.clip, 'clip.mp4'))) await bakeClip(p, it.clip)
+  const rendered = (id: string) => p.clips?.[id]?.video && existsSync(join(p.dir, p.clips[id].video))
+  for (const id of new Set([...tl.items.flatMap(it => (it.kind === 'clip' ? [it.clip] : [])), ...(tl.overlays || []).map(o => o.clip)])) if (!rendered(id)) await bakeClip(p, id)
   const args = composeArgs(tl, {
-    inputOf: it => (it.kind === 'media' ? it.src : join('clips', it.clip, 'clip.mp4')),
+    inputOf: it => (it.kind === 'media' ? it.src : p.clips![it.clip].video),
     hasAudio: it => it.kind === 'media' && !!p.media[it.src]?.hasAudio,
+    overlayOf: o => p.clips![o.clip].video,
     out,
   })
   await asJob(`Rendering “${title}”`, 'render', j => new Promise<void>((ok, fail) => {
@@ -257,7 +264,11 @@ function wire() {
     }
     await agent!.send(dir, content)
   })
-  ipcMain.handle('clip:save', (_e, dir: string, id: string, title: string, html: string, dur: number) => saveClip(projectOf(dir), id, title, html, dur))
+  ipcMain.handle('clip:save', (_e, dir: string, id: string, title: string, html: string, dur: number, overlay?: boolean) => saveClip(projectOf(dir), id, title, html, dur, !!overlay))
+  ipcMain.handle('clip:overlay', (_e, dir: string, id: string, at: number, title: string) => {
+    const p = projectOf(dir)
+    return proposeTimeline(p, addOverlay(p.timeline!, { clip: id, start: at, dur: p.clips![id].duration }), title)
+  })
   ipcMain.handle('clip:insert', async (_e, dir: string, id: string, at: number, title: string) => {
     const p = projectOf(dir)
     const c = p.clips?.[id]
@@ -270,7 +281,7 @@ function wire() {
     const file = join(p.dir, 'clips', id, 'clip.html')
     await writeFile(file, moveElement(await readFile(file, 'utf8'), element, dx, dy))
     await bakeClip(p, id)
-    if (p.timeline?.items.some(i => i.kind === 'clip' && i.clip === id)) await proposeTimeline(p, p.timeline, `Moved ${element} in ${id}`, 'user')
+    if (p.timeline?.items.some(i => i.kind === 'clip' && i.clip === id) || p.timeline?.overlays?.some(o => o.clip === id)) await proposeTimeline(p, p.timeline, `Moved ${element} in ${id}`, 'user')
     return p
   })
   ipcMain.handle('clip:render', (_e, dir: string, id: string) =>
@@ -337,7 +348,14 @@ app.whenReady().then(async () => {
         },
         seek: (dir, t) => send('seek', dir, t),
         transcript: (dir, mediaRel) => transcriptOf(projectOf(dir), mediaRel, { ask: true }),
-        saveClip: (dir, id, title, html, dur) => saveClip(projectOf(dir), id, title, html, dur),
+        saveClip: (dir, id, title, html, dur, overlay) => saveClip(projectOf(dir), id, title, html, dur, overlay),
+        async overlayClip(dir, id, at, dur, title) {
+          const p = projectOf(dir)
+          const c = p.clips?.[id]
+          if (!c) throw new Error(`No clip "${id}". Create it with create_clip (overlay: true) first.`)
+          if (!c.overlay) throw new Error(`Clip "${id}" is full-frame; make it with overlay: true to lay it over the footage, or use insert_clip.`)
+          return proposeTimeline(p, addOverlay(p.timeline!, { clip: id, start: at, dur: dur ?? c.duration }), title)
+        },
         bakeClip: (dir, id) => bakeClip(projectOf(dir), id),
         async insertClip(dir, id, at, title) {
           const p = projectOf(dir)

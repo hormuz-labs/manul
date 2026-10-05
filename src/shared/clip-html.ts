@@ -7,7 +7,7 @@ export type ClipFormat = { width: number; height: number; fps: number }
 const PLUGINS = ['SplitText', 'MorphSVGPlugin', 'DrawSVGPlugin', 'MotionPathPlugin', 'TextPlugin', 'CustomEase']
 const lib = (f: string) => `<script src="manul://lib/${f}"></script>`
 
-export function prepareClipHtml(input: string, fmt: ClipFormat, duration: number): string {
+export function prepareClipHtml(input: string, fmt: ClipFormat, duration: number, overlay = false): string {
   let html = input.trim()
   // nothing from the network: external scripts, stylesheets, @imports, url()s
   html = html
@@ -31,7 +31,7 @@ export function prepareClipHtml(input: string, fmt: ClipFormat, duration: number
   const head = [
     '<meta charset="utf-8">',
     '<link rel="stylesheet" href="manul://lib/manul.css">',
-    `<style>html, body { margin: 0; width: ${fmt.width}px; height: ${fmt.height}px; overflow: hidden; }</style>`,
+    `<style>html, body { margin: 0; width: ${fmt.width}px; height: ${fmt.height}px; overflow: hidden; }${overlay ? ' html, body { background: transparent !important; }' : ''}</style>`,
     lib('gsap.min.js'), ...plugins, lib('clip-runtime.js'),
   ].join('\n')
   html = html.replace(/<meta charset=[^>]*>\s*/i, '').replace(/<link rel="stylesheet" href="manul:\/\/lib\/manul\.css">\s*/i, '')

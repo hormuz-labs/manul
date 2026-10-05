@@ -6,7 +6,9 @@ export type MediaItem = { id: string; kind: 'media'; src: string; in: number; ou
 export type ClipItem = { id: string; kind: 'clip'; clip: string; dur: number }
 export type Item = MediaItem | ClipItem
 export type Format = { width: number; height: number; fps: number }
-export type Timeline = Format & { items: Item[] }
+/** A clip laid over the film (transparent background) from start for dur seconds: lower thirds, captions, callouts. */
+export type Overlay = { id: string; clip: string; start: number; dur: number }
+export type Timeline = Format & { items: Item[]; overlays?: Overlay[] }
 
 let seq = 0
 const newId = () => `i${Date.now().toString(36)}${(seq++).toString(36)}`
@@ -57,12 +59,22 @@ export function insertAt(tl: Timeline, t: number, add: Omit<MediaItem, 'id'> | O
 
 export const removeItem = (tl: Timeline, id: string): Timeline => ({ ...tl, items: tl.items.filter(i => i.id !== id) })
 
+/** Lay a clip over the film from start for dur seconds (kept inside the film). */
+export function addOverlay(tl: Timeline, o: Omit<Overlay, 'id'>): Timeline {
+  const total = duration(tl)
+  const start = round(Math.min(Math.max(0, o.start), total))
+  const dur = round(Math.max(0, Math.min(o.dur, total - start)))
+  return { ...tl, overlays: [...(tl.overlays || []), { ...o, id: newId(), start, dur }] }
+}
+
+export const removeOverlay = (tl: Timeline, id: string): Timeline => ({ ...tl, overlays: (tl.overlays || []).filter(o => o.id !== id) })
+
 /**
  * One ffmpeg command for the whole timeline: every item scaled/padded to the timeline's size and rate, with a stereo
  * 48 kHz track (silence for items without audio), then concatenated. Paths are as the caller gives them (usually
  * project-relative, run with cwd = project folder).
  */
-export function composeArgs(tl: Timeline, o: { inputOf(i: Item): string; hasAudio(i: Item): boolean; out: string }): string[] {
+export function composeArgs(tl: Timeline, o: { inputOf(i: Item): string; hasAudio(i: Item): boolean; overlayOf?(ov: Overlay): string; out: string }): string[] {
   const { width: W, height: H, fps } = tl
   const inputs: string[] = []
   const inputIndex = (path: string) => { let k = inputs.indexOf(path); if (k < 0) { inputs.push(path); k = inputs.length - 1 } return k }
@@ -79,10 +91,19 @@ export function composeArgs(tl: Timeline, o: { inputOf(i: Item): string; hasAudi
       : `anullsrc=r=48000:cl=stereo,atrim=0:${len},${aNorm}[a${n}]`)
   })
   parts.push(`${tl.items.map((_, n) => `[v${n}][a${n}]`).join('')}concat=n=${tl.items.length}:v=1:a=1[v][a]`)
+  // overlays on top, each shifted to its start and shown only during its time; the footage shows through transparency
+  let video = 'v'
+  ;(tl.overlays || []).forEach((ov, n) => {
+    if (!o.overlayOf) return
+    const k = inputIndex(o.overlayOf(ov))
+    parts.push(`[${k}:v]scale=${W}:${H},format=yuva420p,setpts=PTS-STARTPTS+${round(ov.start)}/TB[ov${n}]`)
+    parts.push(`[${video}][ov${n}]overlay=eof_action=pass:enable='between(t,${round(ov.start)},${round(ov.start + ov.dur)})',format=yuv420p[vo${n + 1}]`)
+    video = `vo${n + 1}`
+  })
   return [
     ...inputs.flatMap(p => ['-i', p]),
     '-filter_complex', parts.join(';'),
-    '-map', '[v]', '-map', '[a]',
+    '-map', `[${video}]`, '-map', '[a]',
     '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart',
     o.out,

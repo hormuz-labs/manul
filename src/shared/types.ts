@@ -32,7 +32,7 @@ export type Version = {
 }
 
 /** A motion clip: agent-made HTML + GSAP in clips/<id>/, rendered frame-exact to clip.mp4. */
-export type ClipInfo = { id: string; title: string; duration: number; video: string; poster: string; updatedAt: number }
+export type ClipInfo = { id: string; title: string; duration: number; video: string; poster: string; updatedAt: number; /** transparent, laid over the footage */ overlay?: boolean }
 
 export type MediaInfo = {
   duration: number

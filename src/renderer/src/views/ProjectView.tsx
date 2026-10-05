@@ -162,7 +162,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             />
           </div>
 
-          {(onScreen.timeline || p.timeline) && (onScreen.timeline || p.timeline)!.items.some(i => i.kind === 'clip') && (
+          {(onScreen.timeline || p.timeline) && ((onScreen.timeline || p.timeline)!.items.some(i => i.kind === 'clip') || !!(onScreen.timeline || p.timeline)!.overlays?.length) && (
             <TimelineStrip
               dir={p.dir}
               timeline={(onScreen.timeline || p.timeline)!}
@@ -173,6 +173,11 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
                 stage.current?.video?.pause()
                 seek(start + Math.min(it.dur / 2, 1))
                 setEditing({ itemId: it.id, clip: it.clip, start })
+              }}
+              onSelectOverlay={o => {
+                stage.current?.video?.pause()
+                seek(o.start + Math.min(o.dur / 2, 1))
+                setEditing({ itemId: o.id, clip: o.clip, start: o.start })
               }}
             />
           )}

@@ -8,6 +8,13 @@ description: Making motion clips (title cards, lower thirds, kinetic text, chart
 A clip is HTML + GSAP that Manul renders into video frame by frame. `create_clip` takes the body markup, a `<style>` and
 a `<script>`; Manul adds the document, GSAP, its runtime, the Inter font and a fixed stage at the timeline size.
 
+## Two kinds of clip
+- **Full-frame cards** (title cards, chapter cards, end cards, explainers that replace the picture): `create_clip`
+  without `overlay`, then `insert_clip` at a time — the film gets longer by the clip's length.
+- **Overlays** (lower thirds, captions, callouts, arrows, logos, progress bars — anything ON the footage): `create_clip`
+  with `overlay: true`, then `overlay_clip` at a time — the film keeps its length and the footage shows through.
+  Leave the background transparent; draw only the graphic. A name on screen is always an overlay, never a card.
+
 ## How clips work
 - Write normal GSAP: `gsap.timeline()`, `gsap.to / from / fromTo`, eases, staggers. **Never pause it**, and never use
   `setTimeout`, `setInterval` or `requestAnimationFrame` for motion: Manul drives time and renders any frame exactly.

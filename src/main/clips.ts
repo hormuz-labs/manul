@@ -30,13 +30,18 @@ export function clipsSession() {
 }
 
 /** Render clips/<id>/clip.html to clips/<id>/clip.mp4 (+ poster.jpg). Paths returned are project-relative. */
-export async function renderClip(projectDir: string, id: string, j?: JobHandle): Promise<RenderResult> {
+/**
+ * overlay: the clip has a transparent background and is laid over the footage, so it renders with its alpha channel
+ * into overlay.mov (QuickTime Animation, lossless); otherwise an opaque clip.mp4.
+ */
+export async function renderClip(projectDir: string, id: string, j?: JobHandle, overlay = false): Promise<RenderResult> {
   const dir = join(projectDir, 'clips', id)
   const html = join(dir, 'clip.html')
   if (!existsSync(html)) throw new Error(`No clip "${id}" (expected clips/${id}/clip.html).`)
 
   const win = new BrowserWindow({
     show: false, width: 1920, height: 1080, useContentSize: true, frame: false,
+    ...(overlay ? { transparent: true, backgroundColor: '#00000000' } : { backgroundColor: '#000000' }),
     webPreferences: { offscreen: true, session: clipsSession(), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
   })
   const errors: string[] = []
@@ -50,9 +55,11 @@ export async function renderClip(projectDir: string, id: string, j?: JobHandle):
     await win.webContents.executeJavaScript('window.__manulSeek(0)')
 
     const frames = Math.max(1, Math.round(duration * fps))
-    const out = join(dir, 'clip.mp4')
-    const ff = spawn(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'bgra', '-s', `${width}x${height}`, '-r', String(fps), '-i', '-',
-      '-c:v', 'libx264', '-crf', '16', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out])
+    const out = join(dir, overlay ? 'overlay.mov' : 'clip.mp4')
+    const codec = overlay
+      ? ['-c:v', 'qtrle', '-pix_fmt', 'argb']
+      : ['-c:v', 'libx264', '-crf', '16', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-movflags', '+faststart']
+    const ff = spawn(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'bgra', '-s', `${width}x${height}`, '-r', String(fps), '-i', '-', ...codec, out])
     let ffErr = ''
     ff.stderr.on('data', d => { ffErr += d })
     const done = new Promise<void>((ok, fail) => ff.on('close', c => (c === 0 ? ok() : fail(new Error(`ffmpeg: ${ffErr.slice(-800)}`)))))
@@ -72,7 +79,7 @@ export async function renderClip(projectDir: string, id: string, j?: JobHandle):
     await done
     if (poster) await writeFile(join(dir, 'poster.jpg'), poster)
     if (errors.length) console.warn(`clip ${id}:`, errors.slice(0, 5).join(' | '))
-    return { ...fmt, frames, video: join('clips', id, 'clip.mp4'), poster: join('clips', id, 'poster.jpg') }
+    return { ...fmt, frames, video: join('clips', id, overlay ? 'overlay.mov' : 'clip.mp4'), poster: join('clips', id, 'poster.jpg') }
   } finally {
     win.destroy()
   }

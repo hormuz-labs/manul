@@ -73,6 +73,23 @@ try {
   assert.ok(pixel(film, 3.0, 320, 180)[2] > 180, 'after the clip: the source again')
   const accepted = await win.evaluate(dir => window.manul.project.decide(dir, true), p.dir)
   assert.deepEqual(accepted.timeline.items.map(i => i.kind), ['media', 'clip', 'media'])
+  // an overlay clip: transparent, laid over the footage for a while (lower thirds, captions)
+  const lower = `<div data-manul-id="name" style="position:absolute;left:20px;top:280px;width:300px;height:60px;background:#f00"></div>
+    <script>gsap.from('[data-manul-id=name]', { x: -40, duration: 0.2 })</script>`
+  const ov = await win.evaluate(([dir, html]) => window.manul.clips.save(dir, 'lower', 'Name', html, 1, true), [p.dir, lower])
+  assert.ok(ov.video.endsWith('overlay.mov'), ov.video)
+  const before = await win.evaluate(dir => window.manul.project.open(dir), p.dir)
+  const ovVid = await win.evaluate(dir => window.manul.clips.overlay(dir, 'lower', 0.5, 'Name added'), p.dir)
+  const withOv = (await win.evaluate(dir => window.manul.project.open(dir), p.dir)).versions.find(v => v.id === ovVid)
+  const ovFilm = join(p.dir, withOv.path)
+  const ovDur = Number(JSON.parse(execFileSync(join(BIN, 'ffprobe'), ['-v', 'error', '-print_format', 'json', '-show_format', ovFilm], { encoding: 'utf8' })).format.duration)
+  const baseDur = (before.timeline.items).reduce((s, i) => s + (i.kind === 'media' ? i.out - i.in : i.dur), 0)
+  assert.ok(Math.abs(ovDur - baseDur) < 0.1, `an overlay does not change the length (${ovDur} vs ${baseDur})`)
+  assert.ok(pixel(ovFilm, 0.8, 100, 300)[0] > 180, `overlay shows during its time: ${pixel(ovFilm, 0.8, 100, 300)}`)
+  assert.ok(pixel(ovFilm, 0.8, 500, 100)[2] > 180, 'the footage shows through the transparent part')
+  assert.ok(pixel(ovFilm, 0.2, 100, 300)[0] < 80, 'not before its start')
+  await win.evaluate(dir => window.manul.project.decide(dir, false), p.dir)
+
   // the clip editor: open the project, select the clip on the timeline strip, drag its element, click it
   await win.reload()
   await win.waitForSelector('text=Recent')

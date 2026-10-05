@@ -94,3 +94,50 @@ describe('compose', () => {
     expect(info.duration).toBeCloseTo(12, 0)
   })
 })
+
+import { addOverlay, removeOverlay } from '../src/shared/timeline'
+
+describe('overlays (lower thirds, captions, callouts on top of the footage)', () => {
+  it('adds an overlay at a time without changing the film length', () => {
+    const tl = addOverlay(base(), { clip: 'name', start: 1, dur: 3 })
+    expect(tl.overlays).toEqual([{ id: expect.any(String), clip: 'name', start: 1, dur: 3 }])
+    expect(duration(tl)).toBe(10)
+  })
+
+  it('clamps an overlay to the film', () => {
+    expect(addOverlay(base(), { clip: 'x', start: 8, dur: 5 }).overlays![0]).toMatchObject({ start: 8, dur: 2 })
+    expect(addOverlay(base(), { clip: 'x', start: -1, dur: 2 }).overlays![0]).toMatchObject({ start: 0, dur: 2 })
+  })
+
+  it('removes an overlay', () => {
+    const tl = addOverlay(base(), { clip: 'name', start: 1, dur: 3 })
+    expect(removeOverlay(tl, tl.overlays![0].id).overlays).toEqual([])
+  })
+
+  it('composes overlays on top, each only during its time', () => {
+    const tl = addOverlay(addOverlay(base(), { clip: 'a', start: 1, dur: 3 }), { clip: 'b', start: 5, dur: 1 })
+    const args = composeArgs(tl, { inputOf: it => (it.kind === 'media' ? it.src : ''), hasAudio: () => true, overlayOf: o => `clips/${o.clip}/overlay.mov`, out: 'o.mp4' })
+    const fc = args[args.indexOf('-filter_complex') + 1]
+    expect(args).toContain('clips/a/overlay.mov')
+    expect(fc).toContain("setpts=PTS-STARTPTS+1/TB")
+    expect(fc).toMatch(/overlay=eof_action=pass:enable='between\(t,1,4\)'/)
+    expect(fc).toMatch(/overlay=eof_action=pass:enable='between\(t,5,6\)'/)
+    expect(args[args.indexOf('-map') + 1]).toBe('[vo2]')
+  })
+
+  it('renders an overlay with transparency for real', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'manul-ov-'))
+    execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=320x180:r=25:d=4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(dir, 'a.mp4')])
+    // a red box on a transparent frame, 1 s
+    execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=black@0.0:s=320x180:r=25:d=1,format=rgba,drawbox=x=0:y=0:w=100:h=100:color=red@1:t=fill:replace=1',
+      '-c:v', 'qtrle', join(dir, 'ov.mov')])
+    const tl = addOverlay(fromMedia('a.mp4', 4, { width: 320, height: 180, fps: 25 }), { clip: 'x', start: 2, dur: 1 })
+    execFileSync(FFMPEG, ['-y', '-loglevel', 'error', ...composeArgs(tl, { inputOf: () => 'a.mp4', hasAudio: () => false, overlayOf: () => 'ov.mov', out: 'out.mp4' })], { cwd: dir })
+    const px = (t: number, x: number, y: number) => [...execFileSync(FFMPEG, ['-loglevel', 'error', '-ss', String(t), '-i', join(dir, 'out.mp4'), '-frames:v', '1',
+      '-vf', `format=rgb24,crop=1:1:${x}:${y}`, '-f', 'rawvideo', '-'])]
+    expect(px(1, 50, 50)[2]).toBeGreaterThan(180) // before: blue
+    expect(px(2.5, 50, 50)[0]).toBeGreaterThan(180) // during: red box
+    expect(px(2.5, 200, 120)[2]).toBeGreaterThan(180) // during, outside the box: the footage shows through
+    expect(px(3.5, 50, 50)[2]).toBeGreaterThan(180) // after: blue again
+  })
+})

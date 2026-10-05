@@ -38,14 +38,16 @@ export type Bridge = {
   seek(dir: string, t: number): void
   /** Makes the transcript if needed (may ask the user to download speech recognition). */
   transcript(dir: string, mediaRel: string): Promise<Transcript | null>
-  saveClip(dir: string, id: string, title: string, html: string, dur: number): Promise<ClipInfo & { frames: number }>
+  saveClip(dir: string, id: string, title: string, html: string, dur: number, overlay: boolean): Promise<ClipInfo & { frames: number }>
+  overlayClip(dir: string, id: string, at: number, dur: number | undefined, title: string): Promise<string>
   bakeClip(dir: string, id: string): Promise<ClipInfo & { frames: number }>
   insertClip(dir: string, id: string, at: number, title: string): Promise<string>
   rerenderTimeline(dir: string, title: string): Promise<string>
 }
 
 const MOTION_POINTER = `Motion clips (title cards, lower thirds, kinetic text, charts…) are HTML + GSAP that Manul renders frame-exact: ` +
-  `use create_clip / render_clip / insert_clip / rerender_timeline. Read the motion-design skill first when it is enabled.`
+  `full-frame cards go between shots with insert_clip; lower thirds, captions, callouts and logos are made with overlay: true and laid over ` +
+  `the footage with overlay_clip. Read the motion-design skill first when it is enabled.`
 
 /** A clip tool's answer: what was rendered, plus the middle frame so the model can see its design. */
 async function clipResult(p: Project, c: ClipInfo & { frames: number }) {
@@ -90,6 +92,8 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       `then render_clip and rerender_timeline.\n` +
       `- Prefer one well-built ffmpeg command over many small ones. Keep codecs sensible: libx264 -crf 18 -preset veryfast, aac 192k, -movflags +faststart.\n` +
       `- When you need a decision from the user, call ask_user with 2–5 options and stop.\n` +
+      `Stay inside the project folder. Never inspect, run or search Manul's own program files, other folders or system processes; ` +
+      `if a tool fails, read its error and fix your input instead of investigating the app.\n` +
       `Write replies in short plain Markdown. Say what you did, not how.\n\n` + MOTION_POINTER, { tag: false })],
     tools: [
       defineTool({
@@ -104,7 +108,8 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
             current: cur && { ...cur, ...p.media[cur.path] },
             proposal: p.proposal,
             timeline: p.timeline && { size: `${p.timeline.width}x${p.timeline.height}`, fps: p.timeline.fps, duration: timelineDuration(p.timeline),
-              items: p.timeline.items.map(i => (i.kind === 'media' ? `media ${i.src} ${i.in}–${i.out}` : `clip ${i.clip} ${i.dur}s`)) },
+              items: p.timeline.items.map(i => (i.kind === 'media' ? `media ${i.src} ${i.in}–${i.out}` : `clip ${i.clip} ${i.dur}s`)),
+              overlays: (p.timeline.overlays || []).map(o => `overlay ${o.clip} at ${o.start}s for ${o.dur}s`) },
             clips: Object.values(p.clips || {}).map(c => ({ id: c.id, title: c.title, duration: c.duration })),
             versions: p.versions.map(v => ({ id: v.id, title: v.title, path: v.path, by: v.by })),
             notes: p.notes.filter(n => n.status === 'open').map(n => ({ id: n.id, at: `${fmt(n.anchor.t0)}${n.anchor.t1 != null ? `–${fmt(n.anchor.t1)}` : ''}`, box: n.anchor.box, text: n.text })),
@@ -159,11 +164,12 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
           id: Type.String({ description: 'short kebab-case, e.g. "title-card"; reusing an id replaces that clip' }),
           title: Type.String({ description: 'what it is, e.g. "Opening title"' }),
           duration: Type.Number({ description: 'seconds' }),
-          html: Type.String({ description: 'body markup + <style> + <script> using gsap (see the motion guide)' }),
+          html: Type.String({ description: 'body markup + <style> + <script> using gsap (see the motion-design skill)' }),
+          overlay: Type.Optional(Type.Boolean({ description: 'true for things laid OVER the footage (lower thirds, captions, callouts, logos): transparent background, placed with overlay_clip. false/omitted for full-frame cards placed with insert_clip.' })),
         }),
         execute: async (args: Any, api: Any) => {
           const p = proj(api)
-          const c = await bridge.saveClip(p.dir, args.id, args.title, args.html, args.duration)
+          const c = await bridge.saveClip(p.dir, args.id, args.title, args.html, args.duration, !!args.overlay)
           return clipResult(p, c)
         },
       }),
@@ -183,6 +189,12 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
           const tl = bridge.project(p.dir)?.versions.find(x => x.id === v)?.timeline
           return text(`Proposed as version ${v}${tl ? `: the film is now ${timelineDuration(tl).toFixed(1)} s` : ''}.`)
         },
+      }),
+      defineTool({
+        name: 'overlay_clip',
+        description: 'Lay an overlay clip (made with overlay: true) over the film from `at` seconds, for its duration or `duration`. The film keeps its length; renders and proposes it.',
+        parameters: Type.Object({ id: Type.String(), at: Type.Number(), duration: Type.Optional(Type.Number()), title: Type.String({ description: 'the proposal title' }) }),
+        execute: async (args: Any, api: Any) => text(`Proposed as version ${await bridge.overlayClip(proj(api).dir, args.id, args.at, args.duration, args.title)}.`),
       }),
       defineTool({
         name: 'rerender_timeline',
