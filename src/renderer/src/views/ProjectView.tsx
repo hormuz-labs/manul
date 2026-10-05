@@ -1,6 +1,7 @@
 // The Screen view: the film, the scrubber with notes, and the agent beside it.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Check, FolderOpen, KeyRound, MessageSquarePlus, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
+import { ArrowLeft, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
+import { JobsTray } from '@/components/JobsTray'
 import { Button } from '@/components/ui/button'
 import { Tip } from '@/components/ui/tooltip'
 import { Kbd } from '@/components/ui/kbd'
@@ -11,7 +12,7 @@ import { Scrubber } from './Scrubber'
 import { Stage, type StageHandle } from './Stage'
 import type { Anchor, Box, Project } from '../../../shared/types'
 
-export function ProjectView({ initial, firstPrompt, onHome, onKeys, ready }: { initial: Project; firstPrompt?: string; onHome(): void; onKeys(): void; ready: boolean }) {
+export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, ready }: { initial: Project; firstPrompt?: string; onHome(): void; onKeys(): void; onTools(): void; ready: boolean }) {
   const [p, setP] = useState(initial)
   const agent = useAgent(p.dir)
   const stage = useRef<StageHandle>(null)
@@ -91,7 +92,9 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, ready }: { i
           {p.versions.filter(v => v.id !== p.proposal).map((v, i) => <option key={v.id} value={v.id}>v{i + 1} · {v.title}</option>)}
         </select>
         <span className="flex-1" />
+        <JobsTray />
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={() => window.manul.project.reveal(p.dir)} title="Show in Finder"><FolderOpen /></Button>
+        <Button className="no-drag" size="iconSm" variant="ghost" onClick={onTools} title="Tools"><Package /></Button>
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={onKeys} title="Keys"><KeyRound /></Button>
       </div>
 

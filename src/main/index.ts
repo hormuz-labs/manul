@@ -5,9 +5,11 @@ import { extname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { startAgent, type AgentHandle } from './agent'
 import { keyStatus, loadKeys, setKey } from './keys'
+import { listJobs, onJobs } from './jobs'
 import { toolPath, toolStatus } from './media'
+import * as Tools from './tools'
 import * as Projects from './projects'
-import type { Anchor, Project } from '../shared/types'
+import type { Anchor, ConsentRequest, Project } from '../shared/types'
 
 app.setName('Manul')
 process.env.PATH = toolPath() // the agent's bash and tools find the bundled ffmpeg / ffprobe first
@@ -25,6 +27,19 @@ const projectOf = (dir: string) => {
   return p
 }
 const publish = async (p: Project) => { await Projects.save(p); send('project', p) }
+
+// ---------------------------------------------------------------- consent cards: the caller waits until the user answers
+const consents = new Map<string, { req: ConsentRequest; answer: (ok: boolean) => void }>()
+let consentSeq = 0
+export function askConsent(req: Omit<ConsentRequest, 'id'>): Promise<boolean> {
+  const id = `c${++consentSeq}`
+  return new Promise(answer => {
+    consents.set(id, { req: { ...req, id }, answer })
+    send('consent', [...consents.values()].map(c => c.req))
+  })
+}
+const askTool = (project?: string) => (title: string, body: string, sizeMB: number) =>
+  askConsent({ project, title, body, sizeMB, confirm: `Download ${sizeMB >= 1000 ? (sizeMB / 1000).toFixed(1) + ' GB' : sizeMB + ' MB'}` })
 
 // ---------------------------------------------------------------- media protocol: manul://media/<abs path>, with Range for scrubbing
 const MIME: Record<string, string> = { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mkv': 'video/x-matroska',
@@ -67,6 +82,17 @@ const describe = (a: Anchor) =>
 function wire() {
   ipcMain.handle('app:info', () => ({ version: app.getVersion(), platform: process.platform, projectsRoot: Projects.projectsRoot() }))
   ipcMain.handle('tools:status', () => toolStatus())
+  ipcMain.handle('tools:list', () => Tools.listTools())
+  ipcMain.handle('tools:install', (_e, id: string) => Tools.install(id))
+  ipcMain.handle('tools:remove', (_e, id: string) => Tools.remove(id))
+  ipcMain.handle('jobs:list', () => listJobs())
+  ipcMain.handle('consent:list', () => [...consents.values()].map(c => c.req))
+  ipcMain.handle('consent:answer', (_e, id: string, ok: boolean) => {
+    const c = consents.get(id)
+    consents.delete(id)
+    c?.answer(ok)
+    send('consent', [...consents.values()].map(x => x.req))
+  })
   ipcMain.handle('keys:list', () => keyStatus())
   ipcMain.handle('keys:set', (_e, name: string, value: string) => { setKey(name, value); agent?.keysChanged(); return keyStatus() })
   ipcMain.handle('agent:ready', async () => !!agent && (await agent.hasModel()))
@@ -139,6 +165,7 @@ app.whenReady().then(async () => {
   protocol.handle('manul', serveMedia)
   loadKeys()
   wire()
+  onJobs(jobs => send('jobs', jobs))
   createWindow()
   try {
     agent = await startAgent({

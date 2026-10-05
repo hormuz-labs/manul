@@ -58,3 +58,40 @@ export type RecentProject = { id: string; title: string; dir: string; openedAt: 
 export type KeyInfo = { env: string; label: string; unlocks: string[]; hint: string; set: boolean }
 
 export type ToolStatus = { name: string; version?: string; path?: string; bundled: boolean; ok: boolean }
+
+/** A tool Manul downloads only when it is first needed. */
+export type OnDemandTool = {
+  id: string
+  name: string
+  description: string
+  /** Approximate download + install size, for the consent card. */
+  sizeMB: number
+  installed: boolean
+  /** Bytes on disk when installed. */
+  diskBytes?: number
+  version?: string
+  /** Other tools it needs (installed first, same consent). */
+  needs?: string[]
+}
+
+export type Job = {
+  id: string
+  title: string
+  /** Shown once it finished, e.g. "Installed Whisper". */
+  doneTitle?: string
+  kind: 'download' | 'install' | 'transcribe' | 'render' | 'import'
+  project?: string
+  status: 'running' | 'done' | 'failed'
+  /** 0–1, or null when there is no estimate */
+  progress: number | null
+  detail?: string
+  startedAt: number
+  endedAt?: number
+}
+
+/** A permission card: the agent (or the app) waits until the user answers. */
+export type ConsentRequest = { id: string; project?: string; title: string; body: string; sizeMB?: number; confirm: string }
+
+export type Word = { w: string; s: number; e: number; p?: number }
+export type Segment = { s: number; e: number; text: string; words: Word[] }
+export type Transcript = { media: string; language: string; model: string; segments: Segment[]; createdAt: number }
