@@ -8,7 +8,7 @@ import { basename, dirname, extname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { getConfig, setConfig } from './config'
 import { asJob, type JobHandle } from './jobs'
-import { FFMPEG, WHISPER_CLI } from './media'
+import { FFMPEG, probe, WHISPER_CLI } from './media'
 import { isInstalled, scriptPath, venvPython, WHISPER_MODEL, whisperEnv, whisperModelPath } from './tools'
 import type { Segment, Transcript, WhisperConfig, WhisperStatus, Word } from '../shared/types'
 
@@ -101,6 +101,13 @@ export function transcribe(file: string, outJson: string, title: string, project
 }
 
 async function runTranscribe(file: string, outJson: string, j: JobHandle): Promise<Transcript> {
+  await mkdir(dirname(outJson), { recursive: true })
+  // nothing to hear: an empty transcript, no engine needed
+  if (!(await probe(file).then(i => i.hasAudio, () => true))) {
+    const t: Transcript = { media: basename(file), language: 'none', model: 'no audio track', segments: [], createdAt: Date.now() }
+    await writeFile(outJson, JSON.stringify(t))
+    return t
+  }
   const engine = await resolveEngine()
   if (!engine) throw new Error('No speech recognition installed.')
   await mkdir(dirname(outJson), { recursive: true })

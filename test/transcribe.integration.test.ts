@@ -33,3 +33,13 @@ describe.skipIf(!ready)('transcription with whisper.cpp', () => {
     expect(existsSync(join(dir, 'transcripts', '.clip.wav'))).toBe(false) // temp audio cleaned up
   }, 120_000)
 })
+
+describe('silent media', () => {
+  it('gives an empty transcript instead of failing', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'manul-silent-'))
+    execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=gray:s=160x120:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(dir, 'silent.mp4')])
+    const t = await transcribe(join(dir, 'silent.mp4'), join(dir, 't.json'), 'Transcribing silent.mp4')
+    expect(t.segments).toEqual([])
+    expect(t.language).toBe('none')
+  })
+})

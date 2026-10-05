@@ -5,6 +5,8 @@ import type { Anchor, ConsentRequest, Job, KeyInfo, OnDemandTool, Project, Recen
 
 type SkillState = { skills: { id: string; name: string; description: string; path: string; source: 'bundled' | 'user' }[]; enabled: string[]; profile: { id: string; name: string }; profiles: { id: string; name: string }[] }
 
+type ModelInfo = { provider: string; providerLabel: string; modelId: string; name: string; context?: number; price?: { input: number; output: number }; images: boolean; reasoning: boolean }
+
 const on = <T extends unknown[]>(ch: string) => (fn: (...args: T) => void) => {
   const h = (_e: unknown, ...args: unknown[]) => fn(...(args as T))
   ipcRenderer.on(ch, h)
@@ -73,6 +75,8 @@ const api = {
     attach: (dir: string) => ipcRenderer.invoke('agent:attach', dir),
     send: (dir: string, msg: { text: string; anchor?: Anchor; still?: string }) => ipcRenderer.invoke('agent:send', dir, msg),
     stop: (dir: string) => ipcRenderer.invoke('agent:stop', dir),
+    models: (dir?: string) => ipcRenderer.invoke('agent:models', dir) as Promise<{ models: ModelInfo[]; current: { provider: string; modelId: string } | null }>,
+    setModel: (dir: string, model: { provider: string; modelId: string } | null) => ipcRenderer.invoke('agent:setModel', dir, model) as Promise<{ provider: string; modelId: string } | undefined>,
     onEvent: on<[string, BaseEvent]>('agui'),
     onReady: on<[]>('agent:ready'),
   },

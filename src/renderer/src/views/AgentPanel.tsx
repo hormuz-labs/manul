@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { resultsOf, type AgentState } from '@/lib/agui'
 import { ConsentCard, useConsents } from '@/components/ConsentStack'
+import { ModelPicker } from '@/components/ModelPicker'
 import { cn, timecode } from '@/lib/utils'
 import type { Anchor } from '../../../shared/types'
 
@@ -102,8 +103,9 @@ function Item({ m, results, busy, onAnswer, laterUser }: { m: Message; results: 
   return null
 }
 
-export function AgentPanel({ project, agent, anchor, onClearAnchor, onSend, onStop, ready, onKeys, inputRef }: {
+export function AgentPanel({ project, model, agent, anchor, onClearAnchor, onSend, onStop, ready, onKeys, inputRef }: {
   project: string
+  model?: { provider: string; modelId: string }
   agent: AgentState
   anchor?: Anchor
   onClearAnchor(): void
@@ -131,6 +133,7 @@ export function AgentPanel({ project, agent, anchor, onClearAnchor, onSend, onSt
         <div className={cn('size-3 rounded-full', agent.busy ? 'orb' : 'bg-line-strong')} />
         <span className="font-medium">{agent.busy ? 'Working…' : 'Manul'}</span>
         <span className="flex-1" />
+        {ready && <ModelPicker dir={project} picked={model} />}
         {agent.cost > 0 && <span className="text-[11px] text-faint tabular" title="Spent on AI in this project">${agent.cost.toFixed(agent.cost < 1 ? 3 : 2)}</span>}
       </div>
 

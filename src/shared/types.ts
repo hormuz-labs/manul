@@ -61,6 +61,8 @@ export type Project = {
   clips?: Record<string, ClipInfo>
   /** media path → transcript path (both project-relative) */
   transcripts?: Record<string, string>
+  /** The model the user picked for this project (else the best available). */
+  model?: { provider: string; modelId: string }
   /** The project's durable agent conversation. */
   conversation?: string
 }

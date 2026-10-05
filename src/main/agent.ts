@@ -18,6 +18,7 @@ import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
 import { AguiAdapter } from './agui'
+import { chooseModel, describeModels } from './models'
 import type { Memory } from './memory'
 import type { Skills } from './skills'
 import { FFMPEG, probe } from './media'
@@ -279,13 +280,6 @@ function skillsExtension(skills: Skills) {
   })
 }
 
-// Preferred model per provider; the first provider with a key wins.
-const PREFER: { provider: string; pick: RegExp[] }[] = [
-  { provider: 'anthropic', pick: [/^claude-opus-5/, /^claude-sonnet-5/, /^claude-opus/] },
-  { provider: 'google', pick: [/^gemini-3\.8-flash$/, /^gemini-3.*flash$/, /^gemini/] },
-  { provider: 'openai', pick: [/^gpt-5\.5$/, /^gpt-5/] },
-]
-
 export type AgentHandle = Awaited<ReturnType<typeof startAgent>>
 
 export async function startAgent(opts: { dbPath: string; bridge: Bridge; memory: Memory; skills: Skills; onEvent: (dir: string, e: BaseEvent) => void }) {
@@ -302,26 +296,16 @@ export async function startAgent(opts: { dbPath: string; bridge: Bridge; memory:
   } as any, ctx)
   harness.resume() // finish any run a crash or quit left unfinished
 
-  let chosen: { provider: string; modelId: string } | undefined
-  async function pickModel() {
-    if (chosen) return chosen
-    const list = (await models.getAvailable().catch(() => [])) as Any[]
-    for (const pref of PREFER) {
-      const mine = list.filter(m => m.provider === pref.provider)
-      for (const re of pref.pick) {
-        const m = mine.find(x => re.test(x.id))
-        if (m) return { provider: m.provider, modelId: m.id }
-      }
-    }
-    return undefined
-  }
+  const available = async () => (await models.getAvailable().catch(() => [])) as unknown as { provider: string; id: string }[]
+  /** The project's picked model when its key is set, else the best available. */
+  const pickModel = async (dir?: string) => chooseModel(await available(), dir ? opts.bridge.project(dir)?.model : undefined)
 
   const live = new Map<string, { conv: Any; off: () => void; view: Any; adapter: AguiAdapter }>()
 
   async function open(dir: string, convId?: string) {
     const l = live.get(dir)
     if (l) { l.adapter.replay(l.view.value); return l.conv.id as string }
-    const model = await pickModel()
+    const model = await pickModel(dir)
     let conv: Any | undefined = convId ? await harness.conversation(Number(convId) as any, ctx).catch(() => undefined) : undefined
     if (!conv) conv = await harness.createConversation({ ownership: { kind: 'ownerless' }, agent: { ...(model ? { model } : {}), cwd: dir } } as any, ctx)
     else if (model) await conv.configure({ model, cwd: dir }, ctx)
@@ -337,12 +321,13 @@ export async function startAgent(opts: { dbPath: string; bridge: Bridge; memory:
   return {
     open,
     hasModel: async () => !!(await pickModel()),
-    async model() { return pickModel() },
-    keysChanged() { chosen = undefined },
+    model: (dir?: string) => pickModel(dir),
+    models: async () => describeModels(await available()),
+    keysChanged() { /* models are re-read on every use */ },
     async send(dir: string, content: string | Any[]) {
       const l = live.get(dir)
       if (!l) throw new Error('This project is not open.')
-      const model = await pickModel()
+      const model = await pickModel(dir)
       if (!model) throw new Error('Add an API key first (Settings → Keys).')
       await l.conv.configure({ model, cwd: dir }, ctx)
       await l.conv.submit({ type: 'input', content, whenBusy: 'steer' }, ctx)

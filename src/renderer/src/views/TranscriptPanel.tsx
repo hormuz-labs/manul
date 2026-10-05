@@ -8,6 +8,8 @@ import { flatWords, isFiller, rangeOfSelection, wordIndexAt } from '@/lib/transc
 import { cn, timecode } from '@/lib/utils'
 import type { Project, Transcript } from '../../../shared/types'
 
+const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '').slice(0, 300)
+
 type Props = { project: Project; media: string; time: number; onSeek(t: number): void; onRange(r: { t0: number; t1: number }): void }
 
 export function TranscriptPanel({ project, media, time, onSeek, onRange }: Props) {
@@ -27,7 +29,7 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange }: Props
     setState('loading')
     window.manul.transcript(project.dir, media, false)
       .then(tr => { if (live) { setT(tr); setState(tr ? 'ready' : 'none') } })
-      .catch(e => { if (live) { setError(String(e.message || e)); setState('error') } })
+      .catch(e => { if (live) { setError(clean(e)); setState('error') } })
     return () => { live = false }
   }, [project.dir, media, known])
 
@@ -47,7 +49,7 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange }: Props
   const make = async () => {
     setState('loading'); setError(null)
     try { const tr = await window.manul.transcript(project.dir, media, true); setT(tr); setState(tr ? 'ready' : 'none') }
-    catch (e) { setError(String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); setState('error') }
+    catch (e) { setError(clean(e)); setState('error') }
   }
 
   const fillers = words.filter(isFiller).length
@@ -62,7 +64,11 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange }: Props
         {state === 'ready' && fillers > 0 && <span className="rounded bg-amber-soft px-1.5 py-0.5 text-[10.5px] text-amber" title="Filler words (um, uh…)">{fillers} fillers</span>}
       </div>
 
-      {state === 'ready' && t && (
+      {state === 'ready' && t && t.segments.length === 0 && (
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-dim">{t.language === 'none' ? 'This video has no sound.' : 'No speech found.'}</div>
+      )}
+
+      {state === 'ready' && t && t.segments.length > 0 && (
         <>
           <div className="flex items-center gap-2 border-b border-line px-3 py-1.5">
             <Search className="size-3.5 text-faint" />
