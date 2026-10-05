@@ -198,9 +198,11 @@ Rules:
 - **Personality:** how much manul (mascot, warm colours, orbs) versus a quiet pro tool?
 - Pro price point and credit size.
 - ffmpeg build: GPL (x264) or LGPL (hardware encoders only)?
-- **GSAP licence:** GSAP is free (including commercial use) under its own licence, not MIT. Check whether
-  that licence allows a product whose users and agents build animations. Fallback: anime.js v4 (MIT) behind the
-  same Manul-clock adapter.
+- **GSAP licence:** GSAP is 100% free, including commercial use and every plugin (SplitText, MorphSVG…), thanks to
+  Webflow. Its licence also allows AI-generated GSAP code. **One clause to clear:** it prohibits using GSAP in
+  "tools that allow users to build visual animations without code" in ways that compete with Webflow's visual animation
+  builder. Manul's drag-to-edit on motion clips is close to that line. Action: get written confirmation from GSAP/Webflow
+  for Manul's use case. Until then, keep GSAP behind the Manul-clock adapter (anime.js v4, MIT, as the fallback).
 - Where the apt repository is hosted (GitHub Pages, Cloudsmith, packagecloud…).
 
 ## How to contribute
