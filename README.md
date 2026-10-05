@@ -16,3 +16,15 @@ npm run smoke      # builds, launches the app, screenshots each screen (set GEMI
 Layout: `src/main` (Electron main: projects, keys, media tools, pi-durable agent and its AG-UI adapter), `src/preload`
 (the bridge), `src/renderer` (React + Tailwind; `views/` are the screens, `components/ui/` the shadcn-style primitives),
 `src/shared` (types used on both sides).
+
+## Tests
+
+Development is test-driven: every change comes with tests.
+
+```bash
+npm test           # unit + integration (Vitest); Electron is stubbed, ffmpeg is real
+MANUL_TEST_TOOLS=<tools folder with whisper installed> npm test   # also runs the downloaded-engine test
+npm run smoke      # the real app, end to end (Playwright)
+```
+
+Integration tests that need something this machine lacks (whisper.cpp, macOS `say`, an installed tool) skip themselves.

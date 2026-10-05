@@ -28,6 +28,8 @@ const UV_BUILDS: Record<string, { target: string; sha256: string }> = {
 }
 const PYTHON = '3.12'
 const FASTER_WHISPER = '1.2.1'
+// faster-whisper 1.2.1 calls av.open(metadata_errors=…), which PyAV 17+ removed; pinned until faster-whisper catches up
+const PYAV = '16.1.0'
 export const WHISPER_MODEL = 'base'
 
 type Def = Omit<OnDemandTool, 'installed' | 'diskBytes' | 'version'> & { install(j: JobHandle): Promise<string> }
@@ -57,7 +59,7 @@ const DEFS: Def[] = [
       j.progress(0.2, 'Creating environment')
       await sh(uvBin(), ['venv', '--python', PYTHON, join(dir('whisper'), 'venv')], env)
       j.progress(0.3, 'Installing faster-whisper')
-      await sh(uvBin(), ['pip', 'install', '--python', venvPython('whisper'), `faster-whisper==${FASTER_WHISPER}`], env)
+      await sh(uvBin(), ['pip', 'install', '--python', venvPython('whisper'), `faster-whisper==${FASTER_WHISPER}`, `av==${PYAV}`], env)
       j.progress(0.7, `Downloading the "${WHISPER_MODEL}" model`)
       await sh(venvPython('whisper'), [scriptPath('transcribe.py'), '--download-only', '--model', WHISPER_MODEL], { ...env, HF_HOME: join(dir('whisper'), 'models') })
       return `faster-whisper ${FASTER_WHISPER} · ${WHISPER_MODEL}`

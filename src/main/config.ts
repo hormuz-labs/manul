@@ -1,0 +1,23 @@
+// Per-user settings in <userData>/config.json (paths the user chose or Manul discovered, preferences).
+import { app } from 'electron'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import type { WhisperConfig } from '../shared/types'
+
+export type Config = { whisper?: WhisperConfig }
+
+const file = () => join(app.getPath('userData'), 'config.json')
+let cache: Config | null = null
+
+export function getConfig(): Config {
+  if (!cache) {
+    try { cache = JSON.parse(readFileSync(file(), 'utf8')) as Config } catch { cache = {} }
+  }
+  return cache
+}
+
+export function setConfig(patch: Partial<Config>) {
+  cache = { ...getConfig(), ...patch }
+  writeFileSync(file(), JSON.stringify(cache, null, 1))
+  return cache
+}

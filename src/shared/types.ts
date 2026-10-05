@@ -49,6 +49,8 @@ export type Project = {
   proposal?: string
   notes: Note[]
   media: Record<string, MediaInfo>
+  /** media path → transcript path (both project-relative) */
+  transcripts?: Record<string, string>
   /** The project's durable agent conversation. */
   conversation?: string
 }
@@ -91,6 +93,29 @@ export type Job = {
 
 /** A permission card: the agent (or the app) waits until the user answers. */
 export type ConsentRequest = { id: string; project?: string; title: string; body: string; sizeMB?: number; confirm: string }
+
+/**
+ * Which speech-to-text engine Manul uses.
+ *   system   whisper.cpp already on this computer (whisper-cli + a ggml model): found automatically or set by the user
+ *   managed  faster-whisper that Manul downloads into its own folder
+ * mode "auto" re-detects the system engine when its saved paths disappear; "custom" keeps the user's paths as they are.
+ */
+export type WhisperConfig = {
+  engine: 'system' | 'managed'
+  mode: 'auto' | 'custom'
+  binary?: string
+  model?: string
+}
+
+/** What the Tools dialog shows about speech recognition. */
+export type WhisperStatus = {
+  config?: WhisperConfig
+  /** The engine that would run right now, or null when one must be installed first. */
+  active: { engine: 'system' | 'managed'; binary?: string; model?: string; label: string } | null
+  /** whisper.cpp binaries and models found on this computer. */
+  found: { binaries: string[]; models: string[] }
+  managedInstalled: boolean
+}
 
 export type Word = { w: string; s: number; e: number; p?: number }
 export type Segment = { s: number; e: number; text: string; words: Word[] }

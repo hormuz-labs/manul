@@ -1,7 +1,7 @@
 // The renderer's only door to the main process. Keys never come back through here: only whether they are set.
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { BaseEvent } from '@ag-ui/core'
-import type { Anchor, ConsentRequest, Job, KeyInfo, OnDemandTool, Project, RecentProject, ToolStatus } from '../shared/types'
+import type { Anchor, ConsentRequest, Job, KeyInfo, OnDemandTool, Project, RecentProject, ToolStatus, Transcript, WhisperConfig, WhisperStatus } from '../shared/types'
 
 const on = <T extends unknown[]>(ch: string) => (fn: (...args: T) => void) => {
   const h = (_e: unknown, ...args: unknown[]) => fn(...(args as T))
@@ -18,6 +18,12 @@ const api = {
     install: (id: string) => ipcRenderer.invoke('tools:install', id) as Promise<void>,
     remove: (id: string) => ipcRenderer.invoke('tools:remove', id) as Promise<void>,
   },
+  whisper: {
+    status: () => ipcRenderer.invoke('whisper:status') as Promise<WhisperStatus>,
+    set: (c: Partial<WhisperConfig> & { mode: WhisperConfig['mode'] }) => ipcRenderer.invoke('whisper:set', c) as Promise<WhisperStatus>,
+    pick: (what: 'binary' | 'model') => ipcRenderer.invoke('whisper:pick', what) as Promise<string | null>,
+  },
+  transcript: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('transcript:get', dir, mediaRel, make) as Promise<Transcript | null>,
   jobs: { list: () => ipcRenderer.invoke('jobs:list') as Promise<Job[]>, onChange: on<[Job[]]>('jobs') },
   consent: {
     list: () => ipcRenderer.invoke('consent:list') as Promise<ConsentRequest[]>,

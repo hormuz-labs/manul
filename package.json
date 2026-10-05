@@ -11,7 +11,9 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "smoke": "electron-vite build && node scripts/smoke.mjs"
+    "smoke": "electron-vite build && node scripts/smoke.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -24,7 +26,8 @@
     "playwright-core": "^1.62.0-alpha-2026-06-29",
     "tailwindcss": "^4.3.3",
     "typescript": "5.9",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "vitest": "^3.2.7"
   },
   "dependencies": {
     "@ag-ui/core": "^1.0.2",

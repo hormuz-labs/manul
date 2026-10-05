@@ -1,6 +1,7 @@
 // Manul's main process: the window, the media protocol, projects, keys, and the agent (pi-durable → AG-UI → renderer).
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron'
 import { createReadStream, existsSync, statSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { extname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { startAgent, type AgentHandle } from './agent'
@@ -8,8 +9,9 @@ import { keyStatus, loadKeys, setKey } from './keys'
 import { listJobs, onJobs } from './jobs'
 import { toolPath, toolStatus } from './media'
 import * as Tools from './tools'
+import * as Whisper from './whisper'
 import * as Projects from './projects'
-import type { Anchor, ConsentRequest, Project } from '../shared/types'
+import type { Anchor, ConsentRequest, Project, Transcript } from '../shared/types'
 
 app.setName('Manul')
 process.env.PATH = toolPath() // the agent's bash and tools find the bundled ffmpeg / ffprobe first
@@ -74,6 +76,38 @@ async function openProject(dir: string) {
   return p
 }
 
+// ---------------------------------------------------------------- transcripts
+const inflight = new Map<string, Promise<Transcript>>()
+
+/** The transcript of a project's media file: read it if made, else make it (asking to download an engine if none). */
+async function transcriptOf(p: Project, mediaRel: string, opts: { ask: boolean }): Promise<Transcript | null> {
+  const rel = p.transcripts?.[mediaRel]
+  if (rel && existsSync(join(p.dir, rel))) return JSON.parse(await readFile(join(p.dir, rel), 'utf8')) as Transcript
+  const key = `${p.dir}|${mediaRel}`
+  const busy = inflight.get(key)
+  if (busy) return busy
+  if (!(await Whisper.resolveEngine())) {
+    if (!opts.ask) return null
+    await Tools.ensure('whisper', askTool(p.dir))
+  }
+  const out = Whisper.transcriptPathFor(mediaRel)
+  const job = Whisper.transcribe(join(p.dir, mediaRel), join(p.dir, out), `Transcribing ${mediaRel.split('/').pop()}`, p.dir)
+    .then(async t => {
+      p.transcripts = { ...p.transcripts, [mediaRel]: out }
+      await publish(p)
+      return t
+    })
+    .finally(() => inflight.delete(key))
+  inflight.set(key, job)
+  return job
+}
+
+/** After an import: transcribe in the background when an engine is ready (never asks to download on its own). */
+const autoTranscribe = (p: Project, mediaRel: string) => {
+  const info = p.media[mediaRel]
+  if (info?.hasAudio) transcriptOf(p, mediaRel, { ask: false }).catch(e => console.warn('transcription failed', e))
+}
+
 const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`
 const describe = (a: Anchor) =>
   `@ ${fmt(a.t0)}${a.t1 != null ? `–${fmt(a.t1)}` : ''}${a.box ? `, box ${[a.box.x, a.box.y, a.box.w, a.box.h].map(n => n.toFixed(3)).join(',')}` : ''}`
@@ -86,6 +120,15 @@ function wire() {
   ipcMain.handle('tools:install', (_e, id: string) => Tools.install(id))
   ipcMain.handle('tools:remove', (_e, id: string) => Tools.remove(id))
   ipcMain.handle('jobs:list', () => listJobs())
+  ipcMain.handle('whisper:status', () => Whisper.whisperStatus())
+  ipcMain.handle('whisper:set', (_e, c) => Whisper.setWhisper(c))
+  ipcMain.handle('whisper:pick', async (_e, what: 'binary' | 'model') => {
+    const r = await dialog.showOpenDialog(win!, what === 'model'
+      ? { title: 'Choose a whisper.cpp model', properties: ['openFile'], filters: [{ name: 'ggml model', extensions: ['bin'] }] }
+      : { title: 'Choose the whisper-cli program', properties: ['openFile'] })
+    return r.canceled ? null : r.filePaths[0]
+  })
+  ipcMain.handle('transcript:get', async (_e, dir: string, mediaRel: string, make: boolean) => transcriptOf(projectOf(dir), mediaRel, { ask: make }))
   ipcMain.handle('consent:list', () => [...consents.values()].map(c => c.req))
   ipcMain.handle('consent:answer', (_e, id: string, ok: boolean) => {
     const c = consents.get(id)
@@ -103,13 +146,14 @@ function wire() {
     return r.canceled ? null : r.filePaths[0]
   })
   ipcMain.handle('project:create', async (_e, file: string) => {
-    const p = await Projects.createFromFile(file)
-    return openProject(p.dir)
+    const p = await openProject((await Projects.createFromFile(file)).dir)
+    autoTranscribe(p, p.versions[0].path)
+    return p
   })
   ipcMain.handle('project:open', (_e, dir: string) => openProject(dir))
   ipcMain.handle('project:close', (_e, dir: string) => { agent?.close(dir); open.delete(dir) })
   ipcMain.handle('project:reveal', (_e, dir: string) => shell.openPath(dir))
-  ipcMain.handle('project:import', async (_e, dir: string, file: string) => { const p = projectOf(dir); const rel = await Projects.importMedia(p, file); send('project', p); return rel })
+  ipcMain.handle('project:import', async (_e, dir: string, file: string) => { const p = projectOf(dir); const rel = await Projects.importMedia(p, file); send('project', p); autoTranscribe(p, rel); return rel })
   ipcMain.handle('project:decide', async (_e, dir: string, accept: boolean) => {
     const p = projectOf(dir)
     if (!p.proposal) return p
@@ -188,6 +232,7 @@ app.whenReady().then(async () => {
           await publish(p)
         },
         seek: (dir, t) => send('seek', dir, t),
+        transcript: (dir, mediaRel) => transcriptOf(projectOf(dir), mediaRel, { ask: true }),
       },
     })
     send('agent:ready')

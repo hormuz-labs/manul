@@ -42,10 +42,17 @@ function messagesOf(view: Any): { messages: Message[]; cost: number; error?: str
   return { messages, cost, error }
 }
 
-type Live = { busy: boolean; text: string; textId?: string; tools: Map<string, string>; running: string[]; snapshot: string; error?: string }
+/**
+ * Arguments stream as text whose concatenation must be the final JSON. Re-serialising a growing object is not
+ * prefix-stable (`{"a":"he"}` → `{"a":"hel"}`), but it is once its closing quotes and brackets are cut off.
+ */
+const open = (json: string) => json.replace(/["}\]]+$/, '')
+
+type Call = { sent: string; full: string }
+type Live = { busy: boolean; text: string; textId?: string; tools: Map<string, Call>; running: string[]; snapshot: string; error?: string }
 
 export class AguiAdapter {
-  private last: Live = { busy: false, text: '', tools: new Map(), running: [], snapshot: '' }
+  private last: Live = { busy: false, text: '', tools: new Map(), running: [], snapshot: '[]' }
   private runId = 0
 
   constructor(private threadId: string, private emit: (e: BaseEvent) => void) {}
@@ -74,14 +81,25 @@ export class AguiAdapter {
 
     // streaming tool calls (arguments arrive as they are generated)
     for (const c of ((gen?.content || []) as Any[]).filter(c => c.type === 'toolCall' && c.id)) {
-      const args = JSON.stringify(c.arguments || {})
+      const full = JSON.stringify(c.arguments || {})
       const before = prev.tools.get(c.id)
-      if (before === undefined) this.emit({ type: EventType.TOOL_CALL_START, toolCallId: c.id, toolCallName: c.name, timestamp: now } as BaseEvent)
-      const delta = before && args.startsWith(before) ? args.slice(before.length) : before === args ? '' : args
-      if (delta) this.emit({ type: EventType.TOOL_CALL_ARGS, toolCallId: c.id, delta, timestamp: now } as BaseEvent)
-      next.tools.set(c.id, args)
+      if (!before) this.emit({ type: EventType.TOOL_CALL_START, toolCallId: c.id, toolCallName: c.name, timestamp: now } as BaseEvent)
+      let sent = before?.sent || ''
+      const cand = open(full)
+      if (cand.startsWith(sent) && cand.length > sent.length) {
+        this.emit({ type: EventType.TOOL_CALL_ARGS, toolCallId: c.id, delta: cand.slice(sent.length), timestamp: now } as BaseEvent)
+        sent = cand
+      }
+      next.tools.set(c.id, { sent, full })
     }
-    for (const id of prev.tools.keys()) if (!next.tools.has(id)) this.emit({ type: EventType.TOOL_CALL_END, toolCallId: id, timestamp: now } as BaseEvent)
+    for (const [id, call] of prev.tools) {
+      if (next.tools.has(id)) continue
+      // close the JSON: whatever of the final arguments has not been sent yet
+      if (call.full.startsWith(call.sent) && call.full.length > call.sent.length) {
+        this.emit({ type: EventType.TOOL_CALL_ARGS, toolCallId: id, delta: call.full.slice(call.sent.length), timestamp: now } as BaseEvent)
+      }
+      this.emit({ type: EventType.TOOL_CALL_END, toolCallId: id, timestamp: now } as BaseEvent)
+    }
 
     // tools executing right now
     next.running = ((live.tools || []) as Any[]).filter(s => s.status !== 'done').map(s => s.callId)

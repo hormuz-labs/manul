@@ -19,7 +19,7 @@ import { existsSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
 import { AguiAdapter } from './agui'
 import { FFMPEG, probe } from './media'
-import type { Project } from '../shared/types'
+import type { Project, Transcript } from '../shared/types'
 
 type Any = Record<string, any>
 const text = (t: unknown) => ({ content: [{ type: 'text' as const, text: typeof t === 'string' ? t : JSON.stringify(t, null, 1) }] })
@@ -31,6 +31,8 @@ export type Bridge = {
   proposeVersion(dir: string, absPath: string, title: string): Promise<string>
   resolveNote(dir: string, id: string, reply: string): Promise<void>
   seek(dir: string, t: number): void
+  /** Makes the transcript if needed (may ask the user to download speech recognition). */
+  transcript(dir: string, mediaRel: string): Promise<Transcript | null>
 }
 
 function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
@@ -54,6 +56,8 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       `How to work:\n` +
       `- Start with project_state to see the versions, the current one, open notes and media details.\n` +
       `- Edit with the ffmpeg tool (bundled; also on PATH for bash). Read the current version, write new files to renders/. Never overwrite media/.\n` +
+      `- For anything about speech (cut ums or pauses, remove a sentence, find a moment, captions) read the transcript tool first and cut on word times. ` +
+      `To cut many pieces, build one ffmpeg command with trim/atrim + concat (or select/aselect) from the word times; keep ~0.05 s of air around cuts.\n` +
       `- When a cut is ready, call propose_version: the user sees it as a before/after and accepts or rejects it. One proposal per request.\n` +
       `- Notes arrive as "[note <id> @ start–end, box x,y,w,h]" plus a still of the frame with the box drawn on it. The box is in 0–1 fractions of the picture ` +
       `(x,y = top-left). Act on exactly that moment and region; when done, call resolve_note with a one-line reply.\n` +
@@ -95,6 +99,27 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
               (err, _o, stderr) => (err ? fail(new Error(`ffmpeg failed: ${stderr.slice(-3000) || err.message}`)) : ok(stderr.slice(-1500))))
           })
           return text(out || 'done')
+        },
+      }),
+      defineTool({
+        name: 'transcript',
+        description: 'What is said in a media file, with word timings (seconds), fillers (um, uh) included. Made on first use; if no speech recognition is installed the user is asked to download it. ' +
+          'Lines are "start–end  text" per sentence, then each word as word@start-end. Use t0/t1 to read part of a long file, search to find words.',
+        parameters: Type.Object({
+          media: Type.Optional(Type.String({ description: 'project-relative path; default the current version' })),
+          t0: Type.Optional(Type.Number()), t1: Type.Optional(Type.Number()),
+          search: Type.Optional(Type.String({ description: 'only sentences containing this (case-insensitive)' })),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const media = args.media || p.versions.find(v => v.id === p.current)!.path
+          const t = await bridge.transcript(p.dir, media)
+          if (!t) return text('No transcript: speech recognition is not installed.')
+          const q = args.search?.toLowerCase()
+          const segs = t.segments.filter(s => (args.t0 == null || s.e >= args.t0) && (args.t1 == null || s.s <= args.t1) && (!q || s.text.toLowerCase().includes(q)))
+          const n = (x: number) => x.toFixed(2)
+          return text(`${media} · ${t.language} · ${t.model} · ${t.segments.length} sentences\n` +
+            segs.map(s => `${n(s.s)}–${n(s.e)}  ${s.text}\n  ${s.words.map(w => `${w.w}@${n(w.s)}-${n(w.e)}`).join(' ')}`).join('\n'))
         },
       }),
       defineTool({
