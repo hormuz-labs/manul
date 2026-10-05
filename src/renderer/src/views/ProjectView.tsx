@@ -1,6 +1,6 @@
 // The Screen view: the film, the scrubber with notes, and the agent beside it.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, AudioLines, Upload, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
+import { ArrowLeft, AudioLines, Loader2, Upload, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
 import { JobsTray } from '@/components/JobsTray'
 import { HistoryButton } from '@/components/HistoryButton'
 import { useCommands } from '@/lib/commands'
@@ -14,6 +14,7 @@ import { TranscriptPanel } from './TranscriptPanel'
 import { TimelineStrip } from './TimelineStrip'
 import { ClipEditor } from './ClipEditor'
 import { ExportDialog } from './ExportDialog'
+import { needsProxy } from '../../../shared/proxy'
 import { Scrubber } from './Scrubber'
 import { Stage, type StageHandle } from './Stage'
 import type { Anchor, Box, Project } from '../../../shared/types'
@@ -159,6 +160,13 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
           )}
 
           <div className="relative min-h-0 flex-1">
+            {p.media[onScreen.path] && needsProxy(p.media[onScreen.path]) && !p.proxies?.[onScreen.path] && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-xl bg-black/80 text-center text-dim">
+                <Loader2 className="size-5 animate-spin text-amber" />
+                <span>Making a preview copy for smooth playback…</span>
+                <span className="text-xs text-faint">{needsProxy(p.media[onScreen.path]) && (needsProxy(p.media[onScreen.path]) as { why: string }).why} · exports use the original</span>
+              </div>
+            )}
             {editing && p.clips?.[editing.clip] && (
               <ClipEditor
                 dir={p.dir}
@@ -173,7 +181,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             )}
             <Stage
               ref={stage}
-              src={mediaUrl(`${p.dir}/${onScreen.path}`)}
+              src={mediaUrl(`${p.dir}/${p.proxies?.[onScreen.path] || onScreen.path}`)}
               notes={p.notes}
               time={time}
               drawing={drawing}

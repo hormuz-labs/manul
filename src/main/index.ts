@@ -21,6 +21,7 @@ import * as Projects from './projects'
 import { addOverlay, composeArgs, duration as timelineDuration, insertAt } from '../shared/timeline'
 import { moveElement, prepareClipHtml } from '../shared/clip-html'
 import { captionCues, exportArgs, toSrt, type ExportOptions } from '../shared/export'
+import { needsProxy, proxyArgs } from '../shared/proxy'
 import { spawn } from 'node:child_process'
 import { FFMPEG } from './media'
 import { execFile } from 'node:child_process'
@@ -104,6 +105,7 @@ function serveMedia(req: Request): Response {
 async function openProject(dir: string) {
   const p = open.get(dir) || (await Projects.load(dir))
   open.set(dir, p)
+  for (const rel of Object.keys(p.media)) ensureProxy(p, rel) // older projects, or a copy that was deleted
   if (agent) {
     const conv = await agent.open(dir, p.conversation)
     if (conv !== p.conversation || !p.conversations?.some(c => c.id === conv)) { useConversation(p, conv); await Projects.save(p) }
@@ -142,6 +144,28 @@ async function transcriptOf(p: Project, mediaRel: string, opts: { ask: boolean }
     .finally(() => inflight.delete(key))
   inflight.set(key, job)
   return job
+}
+
+/** Heavy or hard-to-decode footage gets a light preview copy in proxies/ (the player uses it; renders never do). */
+const proxying = new Set<string>()
+async function ensureProxy(p: Project, mediaRel: string) {
+  const info = p.media[mediaRel]
+  const key = `${p.dir}|${mediaRel}`
+  if (!info || !needsProxy(info) || (p.proxies?.[mediaRel] && existsSync(join(p.dir, p.proxies[mediaRel]))) || proxying.has(key)) return
+  proxying.add(key)
+  const out = join('proxies', `${mediaRel.split('/').pop()!.replace(/\.[^.]+$/, '')}.mp4`)
+  try {
+    await mkdir(join(p.dir, 'proxies'), { recursive: true })
+    await asJob(`Making a preview copy of ${mediaRel.split('/').pop()}`, 'import', j => new Promise<void>((ok, fail) => {
+      const ff = spawn(FFMPEG, ['-y', '-loglevel', 'error', '-progress', 'pipe:1', '-nostats', ...proxyArgs(mediaRel, out, process.platform)], { cwd: p.dir })
+      let err = ''
+      ff.stdout.on('data', d => { const m = /out_time_ms=(\d+)/.exec(String(d)); if (m && info.duration) j.progress(Math.min(1, Number(m[1]) / 1e6 / info.duration)) })
+      ff.stderr.on('data', d => { err += d })
+      ff.on('close', c => (c === 0 ? ok() : fail(new Error(err.slice(-800)))))
+    }), { project: p.dir, doneTitle: `Preview copy of ${mediaRel.split('/').pop()} ready` })
+    p.proxies = { ...p.proxies, [mediaRel]: out }
+    await publish(p)
+  } catch (e) { console.warn('proxy failed', e) } finally { proxying.delete(key) }
 }
 
 /** After an import: transcribe in the background when an engine is ready (never asks to download on its own). */
@@ -289,13 +313,14 @@ function wire() {
   ipcMain.handle('project:create', async (_e, file: string) => {
     const p = await openProject((await Projects.createFromFile(file)).dir)
     await checkpoint(p, `Imported ${file.split('/').pop()}`)
+    ensureProxy(p, p.versions[0].path)
     autoTranscribe(p, p.versions[0].path)
     return p
   })
   ipcMain.handle('project:open', (_e, dir: string) => openProject(dir))
   ipcMain.handle('project:close', (_e, dir: string) => { agent?.close(dir); open.delete(dir) })
   ipcMain.handle('project:reveal', (_e, dir: string) => shell.openPath(dir))
-  ipcMain.handle('project:import', async (_e, dir: string, file: string) => { const p = projectOf(dir); const rel = await Projects.importMedia(p, file); send('project', p); autoTranscribe(p, rel); return rel })
+  ipcMain.handle('project:import', async (_e, dir: string, file: string) => { const p = projectOf(dir); const rel = await Projects.importMedia(p, file); send('project', p); ensureProxy(p, rel); autoTranscribe(p, rel); return rel })
   ipcMain.handle('project:decide', async (_e, dir: string, accept: boolean) => {
     const p = projectOf(dir)
     if (!p.proposal) return p

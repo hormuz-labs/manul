@@ -23,7 +23,7 @@ export const toolPath = () => [dirname(FFMPEG), dirname(FFPROBE), process.env.PA
 
 export async function probe(file: string): Promise<MediaInfo> {
   const { stdout } = await run(FFPROBE, ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file])
-  const j = JSON.parse(stdout) as { format: { duration?: string }; streams: Record<string, string | number>[] }
+  const j = JSON.parse(stdout) as { format: { duration?: string; bit_rate?: string }; streams: Record<string, string | number>[] }
   const v = j.streams.find(s => s.codec_type === 'video')
   const [n, d] = String(v?.avg_frame_rate || '0/1').split('/').map(Number)
   return {
@@ -33,6 +33,8 @@ export async function probe(file: string): Promise<MediaInfo> {
     fps: d ? Math.round((n / d) * 100) / 100 : 0,
     hasAudio: j.streams.some(s => s.codec_type === 'audio'),
     codec: String(v?.codec_name || 'none'),
+    bitrate: Number(v?.bit_rate || j.format.bit_rate || 0),
+    pixfmt: String(v?.pix_fmt || ''),
   }
 }
 

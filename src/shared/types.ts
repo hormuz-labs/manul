@@ -41,6 +41,8 @@ export type MediaInfo = {
   fps: number
   hasAudio: boolean
   codec: string
+  bitrate?: number
+  pixfmt?: string
 }
 
 export type Project = {
@@ -59,6 +61,8 @@ export type Project = {
   timeline?: Timeline
   /** Motion clips by id. */
   clips?: Record<string, ClipInfo>
+  /** media path → its light preview copy (project-relative), for footage too heavy to play smoothly */
+  proxies?: Record<string, string>
   /** media path → transcript path (both project-relative) */
   transcripts?: Record<string, string>
   /** The model the user picked for this project (else the best available). */
