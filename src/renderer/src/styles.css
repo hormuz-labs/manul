@@ -1,0 +1,62 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+/* Manul: warm dark greys of the Pallas cat's fur, amber of its eyes. */
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-bg: #0e0d0c;
+  --color-panel: #161412;
+  --color-raised: #1d1a17;
+  --color-hover: #25211d;
+  --color-line: #2c2723;
+  --color-line-strong: #3a342e;
+  --color-fg: #efe8df;
+  --color-dim: #a39888;
+  --color-faint: #6f665b;
+  --color-amber: #f2a541;
+  --color-amber-soft: #f2a54122;
+  --color-ok: #7cc79a;
+  --color-bad: #ef7a6a;
+  --color-note: #8fb5ff;
+
+  --radius-card: 12px;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+textarea, input, [data-selectable] { user-select: text; }
+::selection { background: var(--color-amber-soft); }
+.drag { -webkit-app-region: drag; }
+.no-drag { -webkit-app-region: no-drag; }
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* thin scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* the agent's working orb */
+@keyframes orb { 0%,100% { transform: scale(1); filter: hue-rotate(0deg); } 50% { transform: scale(1.12); filter: hue-rotate(-18deg); } }
+.orb { background: radial-gradient(circle at 35% 30%, #ffe2b0, #f2a541 45%, #b4541e 80%); animation: orb 1.6s ease-in-out infinite; box-shadow: 0 0 18px #f2a54155; }
+
+/* a beam running around the edge of whatever the agent is working on */
+@property --beam { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+@keyframes beam { to { --beam: 360deg; } }
+.beam { position: relative; }
+.beam::after {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none;
+  background: conic-gradient(from var(--beam), transparent 70%, #f2a541 85%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: beam 2.4s linear infinite;
+}

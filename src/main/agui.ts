@@ -1,0 +1,112 @@
+// pi-durable → AG-UI. A conversation's durable view (committed entries + live generation) is turned into standard
+// AG-UI events by diffing it against the previous view:
+//   committed messages      → MESSAGES_SNAPSHOT (user / assistant with toolCalls / tool results)
+//   streaming text          → TEXT_MESSAGE_START / CONTENT (deltas) / END
+//   streaming tool calls    → TOOL_CALL_START / ARGS (deltas) / END
+//   running tools           → ACTIVITY_SNAPSHOT (activityType "tools")
+//   busy edges              → RUN_STARTED / RUN_FINISHED, model errors → RUN_ERROR
+// pi-durable stays the store; these events are only the wire format to the renderer.
+import { EventType, type BaseEvent, type Message } from '@ag-ui/core'
+
+type Any = Record<string, any> // pi-durable's view is plain JSON; only the fields below are read
+
+const textOf = (c: unknown): string =>
+  typeof c === 'string' ? c : Array.isArray(c) ? c.map((x: Any) => (x.type === 'text' ? x.text : '')).join('') : ''
+
+/** Committed conversation → AG-UI messages, plus usage cost and any model error. */
+function messagesOf(view: Any): { messages: Message[]; cost: number; error?: string } {
+  const messages: Message[] = []
+  let error: string | undefined
+  for (const e of view.entries || []) {
+    for (const [i, m] of ((e.model || []) as Any[]).entries()) {
+      const id = `${e.id}:${i}`
+      if (m.role === 'user') {
+        messages.push({ id, role: 'user', content: textOf(m.content) })
+      } else if (m.role === 'assistant') {
+        if (m.stopReason === 'error') error = m.errorMessage || 'The model returned an error.'
+        const calls = ((m.content || []) as Any[]).filter(c => c.type === 'toolCall')
+        messages.push({
+          id, role: 'assistant',
+          content: ((m.content || []) as Any[]).filter(c => c.type === 'text').map(c => c.text).join('').trim() || undefined,
+          toolCalls: calls.length
+            ? calls.map(c => ({ id: c.id, type: 'function' as const, function: { name: c.name, arguments: JSON.stringify(c.arguments || {}) } }))
+            : undefined,
+        })
+      } else if (m.role === 'toolResult') {
+        messages.push({ id, role: 'tool', toolCallId: m.toolCallId, content: textOf(m.content).slice(0, 8000), ...(m.isError ? { error: 'tool error' } : {}) } as Message)
+      }
+    }
+  }
+  const usage = (view.docs?.['pi.usage']?.models || {}) as Record<string, Any>
+  const cost = Object.values(usage).reduce((s, u) => s + (u.cost?.total || 0), 0)
+  return { messages, cost, error }
+}
+
+type Live = { busy: boolean; text: string; textId?: string; tools: Map<string, string>; running: string[]; snapshot: string; error?: string }
+
+export class AguiAdapter {
+  private last: Live = { busy: false, text: '', tools: new Map(), running: [], snapshot: '' }
+  private runId = 0
+
+  constructor(private threadId: string, private emit: (e: BaseEvent) => void) {}
+
+  /** Feed the latest durable view; emits whatever changed since the previous one. */
+  update(view: Any) {
+    const now = Date.now()
+    const live = (view.docs?.['pi.live'] || {}) as Any
+    const busy = !!live.run || !!live.generation || (live.tools || []).length > 0
+    const prev = this.last
+    const next: Live = { busy, text: '', tools: new Map(), running: [], snapshot: prev.snapshot, error: prev.error }
+
+    if (busy && !prev.busy) this.emit({ type: EventType.RUN_STARTED, threadId: this.threadId, runId: `run-${++this.runId}`, timestamp: now } as BaseEvent)
+
+    // streaming assistant text
+    const gen = live.generation?.message as Any | undefined
+    const genText = gen ? ((gen.content || []) as Any[]).filter(c => c.type === 'text').map(c => c.text).join('') : ''
+    if (genText) {
+      next.textId = prev.textId || `live-${now}`
+      if (!prev.textId) this.emit({ type: EventType.TEXT_MESSAGE_START, messageId: next.textId, role: 'assistant', timestamp: now } as BaseEvent)
+      const delta = genText.startsWith(prev.text) ? genText.slice(prev.text.length) : genText
+      if (delta) this.emit({ type: EventType.TEXT_MESSAGE_CONTENT, messageId: next.textId, delta, timestamp: now } as BaseEvent)
+      next.text = genText
+    }
+    if (prev.textId && !genText) this.emit({ type: EventType.TEXT_MESSAGE_END, messageId: prev.textId, timestamp: now } as BaseEvent)
+
+    // streaming tool calls (arguments arrive as they are generated)
+    for (const c of ((gen?.content || []) as Any[]).filter(c => c.type === 'toolCall' && c.id)) {
+      const args = JSON.stringify(c.arguments || {})
+      const before = prev.tools.get(c.id)
+      if (before === undefined) this.emit({ type: EventType.TOOL_CALL_START, toolCallId: c.id, toolCallName: c.name, timestamp: now } as BaseEvent)
+      const delta = before && args.startsWith(before) ? args.slice(before.length) : before === args ? '' : args
+      if (delta) this.emit({ type: EventType.TOOL_CALL_ARGS, toolCallId: c.id, delta, timestamp: now } as BaseEvent)
+      next.tools.set(c.id, args)
+    }
+    for (const id of prev.tools.keys()) if (!next.tools.has(id)) this.emit({ type: EventType.TOOL_CALL_END, toolCallId: id, timestamp: now } as BaseEvent)
+
+    // tools executing right now
+    next.running = ((live.tools || []) as Any[]).filter(s => s.status !== 'done').map(s => s.callId)
+    if (next.running.join() !== prev.running.join()) {
+      this.emit({ type: EventType.ACTIVITY_SNAPSHOT, messageId: 'tools', activityType: 'tools', content: { running: next.running }, timestamp: now } as BaseEvent)
+    }
+
+    // committed history
+    const { messages, cost, error } = messagesOf(view)
+    const snap = JSON.stringify(messages)
+    if (snap !== prev.snapshot) {
+      this.emit({ type: EventType.MESSAGES_SNAPSHOT, messages, timestamp: now } as BaseEvent)
+      this.emit({ type: EventType.CUSTOM, name: 'manul.usage', value: { cost }, timestamp: now } as BaseEvent)
+      next.snapshot = snap
+    }
+    if (error && error !== prev.error) this.emit({ type: EventType.RUN_ERROR, message: error, timestamp: now } as BaseEvent)
+    next.error = error
+
+    if (!busy && prev.busy) this.emit({ type: EventType.RUN_FINISHED, threadId: this.threadId, runId: `run-${this.runId}`, timestamp: now } as BaseEvent)
+    this.last = next
+  }
+
+  /** Full resync for a renderer that just (re)attached. */
+  replay(view: Any) {
+    this.last = { busy: false, text: '', tools: new Map(), running: [], snapshot: '' }
+    this.update(view)
+  }
+}

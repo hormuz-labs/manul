@@ -1,0 +1,90 @@
+// Projects live in ~/Movies/Manul/<name>/ :
+//   project.json   versions, notes, media info (the source of truth the UI and the agent share)
+//   media/         imported files (copied, so the project is self-contained)
+//   renders/       the agent's outputs
+//   notes/         frame stills attached to notes
+import { app } from 'electron'
+import { execFile } from 'node:child_process'
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { basename, extname, join, relative } from 'node:path'
+import { promisify } from 'node:util'
+import { FFMPEG, probe } from './media'
+import type { Note, Project, RecentProject, Version } from '../shared/types'
+
+const run = promisify(execFile)
+const id = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'project'
+
+export const projectsRoot = () => process.env.MANUL_PROJECTS || join(app.getPath('videos'), 'Manul')
+const recentFile = () => join(app.getPath('userData'), 'recent.json')
+
+export function recent(): RecentProject[] {
+  try {
+    return (JSON.parse(readFileSync(recentFile(), 'utf8')) as RecentProject[]).filter(r => existsSync(join(r.dir, 'project.json')))
+  } catch { return [] }
+}
+
+function touchRecent(p: Project) {
+  const thumb = existsSync(join(p.dir, 'thumb.jpg')) ? join(p.dir, 'thumb.jpg') : undefined
+  const list = [{ id: p.id, title: p.title, dir: p.dir, openedAt: Date.now(), thumb }, ...recent().filter(r => r.dir !== p.dir)].slice(0, 12)
+  writeFileSync(recentFile(), JSON.stringify(list, null, 1))
+}
+
+export async function load(dir: string): Promise<Project> {
+  const p = JSON.parse(await readFile(join(dir, 'project.json'), 'utf8')) as Project
+  p.dir = dir
+  touchRecent(p)
+  return p
+}
+
+export async function save(p: Project) {
+  await writeFile(join(p.dir, 'project.json'), JSON.stringify(p, null, 1))
+}
+
+/** A new project from a dropped or picked file: copy it in, probe it, grab a thumbnail. */
+export async function createFromFile(file: string): Promise<Project> {
+  const title = basename(file, extname(file))
+  let dir = join(projectsRoot(), slug(title))
+  for (let n = 2; existsSync(dir); n++) dir = join(projectsRoot(), `${slug(title)}-${n}`)
+  for (const sub of ['media', 'renders', 'notes']) await mkdir(join(dir, sub), { recursive: true })
+
+  const rel = join('media', basename(file))
+  await copyFile(file, join(dir, rel))
+  const info = await probe(join(dir, rel))
+  const v: Version = { id: id(), path: rel, title: 'Original', createdAt: Date.now(), by: 'import' }
+  const p: Project = { id: id(), title, dir, createdAt: Date.now(), versions: [v], current: v.id, notes: [], media: { [rel]: info } }
+  await run(FFMPEG, ['-y', '-ss', String(Math.min(1, info.duration / 2)), '-i', join(dir, rel), '-frames:v', '1', '-vf', 'scale=480:-2', join(dir, 'thumb.jpg')]).catch(() => {})
+  await save(p)
+  touchRecent(p)
+  return p
+}
+
+/** Bring another file (footage, image, audio) into an existing project's media folder. */
+export async function importMedia(p: Project, file: string) {
+  let rel = join('media', basename(file))
+  for (let n = 2; existsSync(join(p.dir, rel)); n++) rel = join('media', `${basename(file, extname(file))}-${n}${extname(file)}`)
+  await copyFile(file, join(p.dir, rel))
+  p.media[rel] = await probe(join(p.dir, rel)).catch(() => ({ duration: 0, width: 0, height: 0, fps: 0, hasAudio: false, codec: 'unknown' }))
+  await save(p)
+  return rel
+}
+
+export async function addVersion(p: Project, absPath: string, title: string, by: Version['by']) {
+  const rel = relative(p.dir, absPath)
+  p.media[rel] = await probe(absPath)
+  const v: Version = { id: id(), path: rel, title, createdAt: Date.now(), by }
+  p.versions.push(v)
+  return v
+}
+
+export async function addNote(p: Project, note: Omit<Note, 'id' | 'createdAt' | 'status' | 'still'>, still?: Buffer) {
+  const n: Note = { ...note, id: id(), createdAt: Date.now(), status: 'open' }
+  if (still) {
+    n.still = join('notes', `${n.id}.jpg`)
+    await writeFile(join(p.dir, n.still), still)
+  }
+  p.notes.push(n)
+  await save(p)
+  return n
+}

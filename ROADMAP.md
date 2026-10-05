@@ -119,10 +119,10 @@ pro editors can take a Manul rough cut into their own editor.
 - [ ] Repo, licence, CONTRIBUTING, CI (lint, typecheck, build per platform)
 - [ ] UI mockups: start screen, Screen view with notes on the picture, agent panel (plan + tool cards + permission
       cards), Keys tabs, Tools page
-- [ ] Electron shell + React/shadcn/Tailwind design system (dark theme, warm accents)
-- [ ] pi-durable agent in the main process → **AG-UI adapter** → IPC → renderer
-- [ ] Generic tool card + per-tool card registry
-- [ ] Capability router (chat · image · voice · transcription) + bring-your-own-key keystore
+- [x] Electron shell + React/shadcn/Tailwind design system (dark theme, warm accents)
+- [x] pi-durable agent in the main process → **AG-UI adapter** → IPC → renderer
+- [x] Generic tool card + per-tool card registry
+- [~] Capability router (chat · image · voice · transcription) + bring-your-own-key keystore (keystore + Keys tabs done)
 - [ ] Local usage meter (provider, model, tokens or characters, cost) for every request
 - [ ] Bundled ffmpeg/ffprobe; **Tools page** (installed, size, update, remove); on-demand installer with checksums
 - [ ] First-run setup checks (dependency doctor)
@@ -130,10 +130,10 @@ pro editors can take a Manul rough cut into their own editor.
 
 ### Phase 1: MVP (v0.1)
 - [ ] Import: drop a file or link → read details, make a preview copy, transcribe, split into scenes, tag
-- [ ] Start screen: request plus video in one step
-- [ ] Screen view: player, scrubber notes, agent input at the playhead
-- [ ] Notes on the picture: element pick, box on the frame, timestamp/range
-- [ ] Before/after proposals: scrub, accept, reject, reply
+- [x] Start screen: request plus video in one step
+- [x] Screen view: player, scrubber notes, agent input at the playhead
+- [~] Notes on the picture: element pick, box on the frame, timestamp/range (box + time + range done)
+- [x] Before/after proposals: scrub, accept, reject, reply
 - [ ] **HTML motion clips:** the agent builds `clip.html` (slides, title cards, charts, kinetic type, GSAP motion
       design) as timeline items next to MP4s and images. They are sandboxed, run on Manul's clock and render frame-exactly
 - [ ] Clip renderer: offscreen Chromium frame stepping → ffmpeg; "bake to MP4"; final export mixes clips with footage
