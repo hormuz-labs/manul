@@ -23,6 +23,8 @@ extraResources:
     to: py
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
+  - from: resources/skills-public.pem
+    to: skills-public.pem
 mac:
   category: public.app-category.video
   target:

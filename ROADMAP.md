@@ -155,7 +155,7 @@ pro editors can take a Manul rough cut into their own editor.
       (done: conversations, model picker, skills + profiles, memory, history, move elements in clips; next: project tabs,
       live mix, proxies, native menu, ⌘K)
 - [ ] Export: MP4 presets (16:9, 9:16, 1:1), captions burned in or as sidecar files
-- [ ] Over-the-air updates for skills and profiles
+- [x] Over-the-air updates for skills (Ed25519-signed feed, no rollbacks, user copies win)
 - [ ] macOS (signed + notarized) and Linux builds; Homebrew cask; apt repository
 - [ ] driver.js first-run tour
 

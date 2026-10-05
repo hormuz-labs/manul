@@ -2,7 +2,7 @@
 // read-only, updated with the app); the user and the agent add their own (user folder, editable). A profile says which
 // skills are on; the agent sees the enabled skills' descriptions and reads a SKILL.md before work it covers.
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 export type Skill = { id: string; name: string; description: string; path: string; source: 'bundled' | 'user' }
 export type Profile = { id: string; name: string; /** when set, only these skills */ only?: string[]; disabled: string[] }
@@ -10,7 +10,8 @@ export type Profile = { id: string; name: string; /** when set, only these skill
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
 
 export class Skills {
-  constructor(private dirs: { bundled: string; user: string; profiles: string }) {
+  /** updates: skills delivered over the air, which override the bundled ones */
+  constructor(private dirs: { bundled: string; updates?: string; user: string; profiles: string }) {
     for (const d of [dirs.user, dirs.profiles]) mkdirSync(d, { recursive: true })
   }
 
@@ -28,7 +29,9 @@ export class Skills {
   /** Every skill; a user skill with the same id as a bundled one replaces it (that is how a bundled skill is changed). */
   list(): Skill[] {
     const user = this.read(this.dirs.user, 'user')
-    return [...this.read(this.dirs.bundled, 'bundled').filter(b => !user.some(u => u.id === b.id)), ...user]
+    const updates = this.dirs.updates ? this.read(this.dirs.updates, 'bundled') : []
+    const bundled = [...this.read(this.dirs.bundled, 'bundled').map(b => updates.find(u => u.id === b.id) || b), ...updates.filter(u => !this.read(this.dirs.bundled, 'bundled').some(b => b.id === u.id))]
+    return [...bundled.filter(b => !user.some(u => u.id === b.id)), ...user]
   }
 
   // ---------------------------------------------------------------- profiles
@@ -76,7 +79,7 @@ export class Skills {
     const k = this.list().find(s => s.id === id)
     if (!k) throw new Error(`No skill "${id}".`)
     if (k.source === 'user') return k
-    cpSync(join(this.dirs.bundled, id), join(this.dirs.user, id), { recursive: true })
+    cpSync(dirname(k.path), join(this.dirs.user, id), { recursive: true })
     return this.list().find(s => s.id === id)!
   }
 

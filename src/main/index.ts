@@ -1,6 +1,6 @@
 // Manul's main process: the window, the media protocol, projects, keys, and the agent (pi-durable → AG-UI → renderer).
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron'
-import { createReadStream, existsSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { extname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
@@ -8,6 +8,7 @@ import { startAgent, type AgentHandle } from './agent'
 import { renderClip, setClipProtocol } from './clips'
 import { buildMenu } from './menu'
 import { startUpdates } from './updates'
+import { fetchSkillUpdates, SKILLS_FEED } from './skill-updates'
 import { keyStatus, loadKeys, setKey } from './keys'
 import { asJob, listJobs, onJobs } from './jobs'
 import { toolPath, toolStatus } from './media'
@@ -413,14 +414,21 @@ app.whenReady().then(async () => {
   setClipProtocol(serveMedia)
   loadKeys()
   memory = new Memory(join(app.getPath('userData'), 'memory'))
+  const resources = app.isPackaged ? process.resourcesPath : join(import.meta.dirname, '../../resources')
   skills = new Skills({
-    bundled: app.isPackaged ? join(process.resourcesPath, 'skills') : join(import.meta.dirname, '../../resources/skills'),
+    bundled: join(resources, 'skills'),
+    updates: join(app.getPath('userData'), 'skill-updates'),
     user: join(app.getPath('userData'), 'skills'),
     profiles: join(app.getPath('userData'), 'profiles'),
   })
   wire()
   buildMenu(() => win)
   updates = startUpdates(st => send('update', st))
+  // skills over the air (signed), at start and every 6 hours; packaged apps, or a feed given for testing
+  const feed = process.env.MANUL_SKILLS_FEED || (app.isPackaged ? SKILLS_FEED : '')
+  const pullSkills = () => fetchSkillUpdates({ feed, publicKeyPem: readFileSync(join(resources, 'skills-public.pem'), 'utf8'), dir: join(app.getPath('userData'), 'skill-updates') })
+    .then(r => { if (r.applied.length) console.log('skills updated:', r.applied.join(', ')) }).catch(e => console.warn('skills feed', e.message))
+  if (feed) { setTimeout(pullSkills, 15_000); setInterval(pullSkills, 6 * 3600_000).unref?.() }
   onJobs(jobs => send('jobs', jobs))
   createWindow()
   try {
