@@ -43,6 +43,18 @@ pro editors can take a Manul rough cut into their own editor.
 
   The agent receives your words, the range, the box or element, a still of the frame with the box drawn on it, and
   the transcript line spoken there.
+- **HTML slides as clips:** the agent can build slides, title cards, charts or animated explainers as HTML
+  (`slide.html`) that sit on the timeline next to MP4s and images.
+  - **Make room anywhere:** split the timeline at a point and open a gap (everything after shifts right), then ask
+    "add a slide here explaining X".
+  - **Edit by hand:** every text, image and shape in a slide can be dragged, resized and edited right on the
+    picture. Changes are written back into the slide's HTML.
+  - **Edit with the agent:** click an element on the slide and say "make this bigger / change the wording / swap the
+    image". The agent changes only that element.
+  - **Rules for every slide:**
+    - Each movable element carries a stable id (`data-manul-id`).
+    - Animations run on Manul's clock, not wall-clock CSS, so any frame can be scrubbed and rendered exactly.
+    - Slides render in a sandboxed frame: no network access except the project's own files.
 - **Transcript panel:** edit by text ("cut the ums", "remove this sentence").
 - **Agent panel:** a live plan, plus **tool cards** (each tool renders its own card), plus **permission cards**. Not a
   chat log.
@@ -116,6 +128,11 @@ pro editors can take a Manul rough cut into their own editor.
 - [ ] Screen view: player, scrubber notes, agent input at the playhead
 - [ ] Notes on the picture: element pick, box on the frame, timestamp/range
 - [ ] Before/after proposals: scrub, accept, reject, reply
+- [ ] **HTML slide clips:** the agent builds `slide.html` (slides, title cards, charts, explainers) as timeline items
+      next to MP4s and images. They are sandboxed, run on Manul's clock and render frame-exactly
+- [ ] Make room on the timeline: split at a point and open a gap so the agent can insert (or propose an insertion) in between
+- [ ] Slide editing by hand: drag, resize and edit text/images/shapes on the picture, written back to the HTML
+- [ ] Slide editing by the agent: pick an element, then a note scoped to that element; the agent changes only it
 - [ ] Transcript panel with text-based editing
 - [ ] Tracks drawer (timeline, mix, inspector)
 - [ ] Agent browser with take-over
