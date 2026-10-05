@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Check, KeyRound, Sparkles } from 'lucide-react'
-import { Dialog } from '@/components/ui/dialog'
+import { PanelHeader } from '@/components/ui/panel-header'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
@@ -12,11 +12,11 @@ const CAPS: { cap: string; label: string }[] = [
   { cap: 'voice', label: 'AI voice' },
 ]
 
-export function KeysDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+export function KeysPanel() {
   const [keys, setKeys] = useState<KeyInfo[]>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [value, setValue] = useState('')
-  useEffect(() => { if (open) window.manul.keys.list().then(setKeys) }, [open])
+  useEffect(() => { window.manul.keys.list().then(setKeys) }, [])
 
   const save = async (env: string, v: string) => {
     setKeys(await window.manul.keys.set(env, v.trim()))
@@ -26,7 +26,8 @@ export function KeysDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const have = new Set(keys.filter(k => k.set).flatMap(k => k.unlocks))
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="Keys" description="Manul talks to AI models with your keys. They are stored encrypted in your system keychain.">
+    <div>
+      <PanelHeader title="Keys" description="Manul talks to AI models with your keys. They are stored encrypted in your system keychain." />
       <Tabs defaultValue="own">
         <TabsList>
           <TabsTrigger value="own"><KeyRound className="size-3.5" />Your own keys</TabsTrigger>
@@ -79,6 +80,6 @@ export function KeysDialog({ open, onOpenChange }: { open: boolean; onOpenChange
           </div>
         </TabsContent>
       </Tabs>
-    </Dialog>
+    </div>
   )
 }

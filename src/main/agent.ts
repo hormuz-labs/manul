@@ -18,6 +18,7 @@ import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
 import { AguiAdapter } from './agui'
+import type { Memory } from './memory'
 import { FFMPEG, probe } from './media'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -238,6 +239,31 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
   })
 }
 
+function memoryExtension(memory: Memory) {
+  return defineExtension({
+    name: 'memory',
+    sections: [section('memory', () => memory.prompt())],
+    tools: [
+      defineTool({
+        name: 'remember',
+        description: 'Save or update one long-term memory: a preference, rule, correction or fact the user taught you that should hold in future projects.',
+        parameters: Type.Object({
+          name: Type.String({ description: 'short kebab-case slug' }),
+          description: Type.String({ description: 'one line, used to decide when it is relevant' }),
+          body: Type.String({ description: 'the fact, then **Why:** and **How to apply:**' }),
+        }),
+        execute: async (args: Any) => text(`Saved memory "${memory.remember(args.name, args.description, args.body)}".`),
+      }),
+      defineTool({
+        name: 'forget',
+        description: 'Delete a long-term memory that turned out to be wrong or that the user asked you to drop.',
+        parameters: Type.Object({ name: Type.String() }),
+        execute: async (args: Any) => { memory.forget(args.name); return text(`Forgot "${args.name}".`) },
+      }),
+    ],
+  })
+}
+
 // Preferred model per provider; the first provider with a key wins.
 const PREFER: { provider: string; pick: RegExp[] }[] = [
   { provider: 'anthropic', pick: [/^claude-opus-5/, /^claude-sonnet-5/, /^claude-opus/] },
@@ -247,13 +273,13 @@ const PREFER: { provider: string; pick: RegExp[] }[] = [
 
 export type AgentHandle = Awaited<ReturnType<typeof startAgent>>
 
-export async function startAgent(opts: { dbPath: string; bridge: Bridge; onEvent: (dir: string, e: BaseEvent) => void }) {
+export async function startAgent(opts: { dbPath: string; bridge: Bridge; memory: Memory; onEvent: (dir: string, e: BaseEvent) => void }) {
   const models = createModels({ authContext: { env: async (n: string) => process.env[n], fileExists: async (p: string) => existsSync(p) } })
   for (const p of [anthropicProvider, googleProvider, openaiProvider]) models.setProvider(p())
 
   const convDir = new Map<string, string>() // conversation id → project dir
   const registry = createRegistry()
-  for (const ext of [CodingTools, editorExtension(opts.bridge, id => convDir.get(String(id)) || '')]) registry.install(ext)
+  for (const ext of [CodingTools, editorExtension(opts.bridge, id => convDir.get(String(id)) || ''), memoryExtension(opts.memory)]) registry.install(ext)
 
   const harness = await Harness.open(await openNodeSqliteStorage(opts.dbPath), {
     models, registry,

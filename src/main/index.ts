@@ -11,6 +11,7 @@ import { asJob, listJobs, onJobs } from './jobs'
 import { toolPath, toolStatus } from './media'
 import * as Tools from './tools'
 import * as Whisper from './whisper'
+import { Memory } from './memory'
 import * as Projects from './projects'
 import { composeArgs, duration as timelineDuration, insertAt } from '../shared/timeline'
 import { moveElement, prepareClipHtml } from '../shared/clip-html'
@@ -27,6 +28,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'manul', privileges: { standard:
 
 let win: BrowserWindow | null = null
 let agent: AgentHandle | null = null
+let memory: Memory
 const open = new Map<string, Project>() // dir → project
 
 const send = (ch: string, ...args: unknown[]) => win?.webContents.send(ch, ...args)
@@ -183,6 +185,9 @@ function wire() {
   ipcMain.handle('tools:install', (_e, id: string) => Tools.install(id))
   ipcMain.handle('tools:remove', (_e, id: string) => Tools.remove(id))
   ipcMain.handle('jobs:list', () => listJobs())
+  ipcMain.handle('memory:list', () => memory.list())
+  ipcMain.handle('memory:save', (_e, name: string, description: string, body: string) => { memory.remember(name, description, body); return memory.list() })
+  ipcMain.handle('memory:forget', (_e, name: string) => { memory.forget(name); return memory.list() })
   ipcMain.handle('whisper:status', () => Whisper.whisperStatus())
   ipcMain.handle('whisper:set', (_e, c) => Whisper.setWhisper(c))
   ipcMain.handle('whisper:pick', async (_e, what: 'binary' | 'model') => {
@@ -290,12 +295,14 @@ app.whenReady().then(async () => {
   protocol.handle('manul', serveMedia)
   setClipProtocol(serveMedia)
   loadKeys()
+  memory = new Memory(join(app.getPath('userData'), 'memory'))
   wire()
   onJobs(jobs => send('jobs', jobs))
   createWindow()
   try {
     agent = await startAgent({
       dbPath: join(app.getPath('userData'), 'agent.sqlite'),
+      memory,
       onEvent: (dir, e) => send('agui', dir, e),
       bridge: {
         project: dir => open.get(dir),

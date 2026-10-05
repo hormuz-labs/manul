@@ -18,6 +18,11 @@ const api = {
     install: (id: string) => ipcRenderer.invoke('tools:install', id) as Promise<void>,
     remove: (id: string) => ipcRenderer.invoke('tools:remove', id) as Promise<void>,
   },
+  memory: {
+    list: () => ipcRenderer.invoke('memory:list') as Promise<{ name: string; description: string; body: string }[]>,
+    save: (name: string, description: string, body: string) => ipcRenderer.invoke('memory:save', name, description, body) as Promise<{ name: string; description: string; body: string }[]>,
+    forget: (name: string) => ipcRenderer.invoke('memory:forget', name) as Promise<{ name: string; description: string; body: string }[]>,
+  },
   whisper: {
     status: () => ipcRenderer.invoke('whisper:status') as Promise<WhisperStatus>,
     set: (c: Partial<WhisperConfig> & { mode: WhisperConfig['mode'] }) => ipcRenderer.invoke('whisper:set', c) as Promise<WhisperStatus>,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AudioLines, Check, Download, FolderSearch, Loader2, Package, RefreshCw, Trash2 } from 'lucide-react'
-import { Dialog } from '@/components/ui/dialog'
+import { PanelHeader } from '@/components/ui/panel-header'
 import { Button } from '@/components/ui/button'
 import { JobRow, useJobs } from '@/components/JobsTray'
 import type { OnDemandTool, ToolStatus, WhisperStatus } from '../../../shared/types'
@@ -63,14 +63,14 @@ function SpeechSection({ onChange }: { onChange(): void }) {
 
 const mb = (b?: number) => (b == null ? '' : b > 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.round(b / 1e6)} MB`)
 
-export function ToolsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+export function ToolsPanel() {
   const [bundled, setBundled] = useState<ToolStatus[]>([])
   const [tools, setTools] = useState<OnDemandTool[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const jobs = useJobs().filter(j => j.kind === 'install' || j.kind === 'download')
   const refresh = () => { window.manul.tools.bundled().then(setBundled); window.manul.tools.list().then(setTools) }
-  useEffect(() => { if (open) refresh() }, [open])
+  useEffect(() => { refresh() }, [])
 
   const act = async (id: string, fn: () => Promise<void>) => {
     setBusy(id); setError(null)
@@ -79,7 +79,8 @@ export function ToolsDialog({ open, onOpenChange }: { open: boolean; onOpenChang
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="Tools" description="Manul ships with ffmpeg. Heavier tools download only when you need them, into Manul's own folder.">
+    <div>
+      <PanelHeader title="Tools" description="Manul ships with ffmpeg and whisper.cpp. Heavier tools download only when you need them, into Manul's own folder." />
       <div className="mb-2 text-xs font-medium uppercase tracking-wider text-faint">Built in</div>
       <div className="mb-5 space-y-1.5">
         {bundled.map(t => (
@@ -113,6 +114,6 @@ export function ToolsDialog({ open, onOpenChange }: { open: boolean; onOpenChang
       </div>
       {jobs.length > 0 && <div className="mt-4 space-y-3 rounded-lg border border-line p-3">{jobs.map(j => <JobRow key={j.id} j={j} />)}</div>}
       {error && <p className="mt-3 text-xs text-bad" data-selectable>{error}</p>}
-    </Dialog>
+    </div>
   )
 }
