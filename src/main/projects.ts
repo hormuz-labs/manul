@@ -45,7 +45,7 @@ export function accept(p: Project, versionId: string) {
   if (!v) throw new Error(`no version ${versionId}`)
   p.current = v.id
   if (p.proposal === v.id) p.proposal = undefined
-  p.timeline = timelineOf(v.path, p.media[v.path])
+  p.timeline = v.timeline ? structuredClone(v.timeline) : timelineOf(v.path, p.media[v.path])
 }
 
 export async function load(dir: string): Promise<Project> {
@@ -88,10 +88,10 @@ export async function importMedia(p: Project, file: string) {
   return rel
 }
 
-export async function addVersion(p: Project, absPath: string, title: string, by: Version['by']) {
+export async function addVersion(p: Project, absPath: string, title: string, by: Version['by'], timeline?: Version['timeline']) {
   const rel = relative(p.dir, absPath)
   p.media[rel] = await probe(absPath)
-  const v: Version = { id: id(), path: rel, title, createdAt: Date.now(), by }
+  const v: Version = { id: id(), path: rel, title, createdAt: Date.now(), by, ...(timeline ? { timeline } : {}) }
   p.versions.push(v)
   return v
 }

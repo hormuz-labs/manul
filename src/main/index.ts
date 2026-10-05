@@ -12,7 +12,13 @@ import { toolPath, toolStatus } from './media'
 import * as Tools from './tools'
 import * as Whisper from './whisper'
 import * as Projects from './projects'
-import type { Anchor, ConsentRequest, Project, Transcript } from '../shared/types'
+import { composeArgs, duration as timelineDuration, insertAt } from '../shared/timeline'
+import { prepareClipHtml } from '../shared/clip-html'
+import { FFMPEG } from './media'
+import { execFile } from 'node:child_process'
+import { mkdir, writeFile } from 'node:fs/promises'
+import type { Anchor, ClipInfo, ConsentRequest, Project, Transcript } from '../shared/types'
+import type { Timeline } from '../shared/timeline'
 
 app.setName('Manul')
 process.env.PATH = toolPath() // the agent's bash and tools find the bundled ffmpeg / ffprobe first
@@ -121,6 +127,48 @@ const autoTranscribe = (p: Project, mediaRel: string) => {
   if (info?.hasAudio) transcriptOf(p, mediaRel, { ask: false }).catch(e => console.warn('transcription failed', e))
 }
 
+// ---------------------------------------------------------------- motion clips and timeline renders
+/** Write (or replace) clips/<id>/clip.html and render it. */
+async function saveClip(p: Project, id: string, title: string, html: string, dur: number): Promise<ClipInfo & { frames: number }> {
+  if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(id)) throw new Error('Clip ids are short kebab-case, e.g. "title-card".')
+  const tl = p.timeline!
+  await mkdir(join(p.dir, 'clips', id), { recursive: true })
+  await writeFile(join(p.dir, 'clips', id, 'clip.html'), prepareClipHtml(html, tl, dur))
+  return bakeClip(p, id, title)
+}
+
+/** Render a clip's HTML to MP4 + poster and record it on the project. */
+async function bakeClip(p: Project, id: string, title?: string) {
+  const r = await asJob(`Rendering clip ${id}`, 'render', j => renderClip(p.dir, id, j), { project: p.dir, doneTitle: `Rendered clip ${id}` })
+  const info: ClipInfo = { id, title: title || p.clips?.[id]?.title || id, duration: r.duration, video: r.video, poster: r.poster, updatedAt: Date.now() }
+  p.clips = { ...p.clips, [id]: info }
+  // the clip's length may have changed: keep every timeline item that uses it in step
+  if (p.timeline) p.timeline.items = p.timeline.items.map(it => (it.kind === 'clip' && it.clip === id ? { ...it, dur: r.duration } : it))
+  await publish(p)
+  return { ...info, frames: r.frames }
+}
+
+/** Render a timeline into renders/ and propose it as a version. */
+async function proposeTimeline(p: Project, tl: Timeline, title: string) {
+  const n = p.versions.length + 1
+  const out = join('renders', `timeline-${n}.mp4`)
+  for (const it of tl.items) if (it.kind === 'clip' && !existsSync(join(p.dir, 'clips', it.clip, 'clip.mp4'))) await bakeClip(p, it.clip)
+  const args = composeArgs(tl, {
+    inputOf: it => (it.kind === 'media' ? it.src : join('clips', it.clip, 'clip.mp4')),
+    hasAudio: it => it.kind === 'media' && !!p.media[it.src]?.hasAudio,
+    out,
+  })
+  await asJob(`Rendering “${title}”`, 'render', j => new Promise<void>((ok, fail) => {
+    j.progress(null, `${timelineDuration(tl).toFixed(1)} s`)
+    execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { cwd: p.dir, maxBuffer: 1 << 24 }, (err, _o, stderr) => (err ? fail(new Error(stderr.slice(-1500) || err.message)) : ok()))
+  }), { project: p.dir, doneTitle: `Rendered “${title}”` })
+  if (p.proposal) p.versions = p.versions.filter(v => v.id !== p.proposal)
+  const v = await Projects.addVersion(p, join(p.dir, out), title, 'agent', tl)
+  p.proposal = v.id
+  await publish(p)
+  return v.id
+}
+
 const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`
 const describe = (a: Anchor) =>
   `@ ${fmt(a.t0)}${a.t1 != null ? `–${fmt(a.t1)}` : ''}${a.box ? `, box ${[a.box.x, a.box.y, a.box.w, a.box.h].map(n => n.toFixed(3)).join(',')}` : ''}`
@@ -193,6 +241,13 @@ function wire() {
     }
     await agent!.send(dir, content)
   })
+  ipcMain.handle('clip:save', (_e, dir: string, id: string, title: string, html: string, dur: number) => saveClip(projectOf(dir), id, title, html, dur))
+  ipcMain.handle('clip:insert', async (_e, dir: string, id: string, at: number, title: string) => {
+    const p = projectOf(dir)
+    const c = p.clips?.[id]
+    if (!c) throw new Error(`No clip "${id}".`)
+    return proposeTimeline(p, insertAt(p.timeline!, at, { kind: 'clip', clip: id, dur: c.duration }).timeline, title)
+  })
   ipcMain.handle('clip:render', (_e, dir: string, id: string) =>
     asJob(`Rendering clip ${id}`, 'render', j => renderClip(projectOf(dir).dir, id, j), { project: dir, doneTitle: `Rendered clip ${id}` }))
   ipcMain.handle('agent:stop', (_e, dir: string) => agent?.stop(dir))
@@ -249,6 +304,16 @@ app.whenReady().then(async () => {
         },
         seek: (dir, t) => send('seek', dir, t),
         transcript: (dir, mediaRel) => transcriptOf(projectOf(dir), mediaRel, { ask: true }),
+        saveClip: (dir, id, title, html, dur) => saveClip(projectOf(dir), id, title, html, dur),
+        bakeClip: (dir, id) => bakeClip(projectOf(dir), id),
+        async insertClip(dir, id, at, title) {
+          const p = projectOf(dir)
+          const c = p.clips?.[id]
+          if (!c) throw new Error(`No clip "${id}". Create it with create_clip first.`)
+          const { timeline } = insertAt(p.timeline!, at, { kind: 'clip', clip: id, dur: c.duration })
+          return proposeTimeline(p, timeline, title)
+        },
+        rerenderTimeline: (dir, title) => { const p = projectOf(dir); return proposeTimeline(p, p.timeline!, title) },
       },
     })
     send('agent:ready')

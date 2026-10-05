@@ -19,7 +19,10 @@ import { existsSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
 import { AguiAdapter } from './agui'
 import { FFMPEG, probe } from './media'
-import type { Project, Transcript } from '../shared/types'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { duration as timelineDuration } from '../shared/timeline'
+import type { ClipInfo, Project, Transcript } from '../shared/types'
 
 type Any = Record<string, any>
 const text = (t: unknown) => ({ content: [{ type: 'text' as const, text: typeof t === 'string' ? t : JSON.stringify(t, null, 1) }] })
@@ -33,6 +36,37 @@ export type Bridge = {
   seek(dir: string, t: number): void
   /** Makes the transcript if needed (may ask the user to download speech recognition). */
   transcript(dir: string, mediaRel: string): Promise<Transcript | null>
+  saveClip(dir: string, id: string, title: string, html: string, dur: number): Promise<ClipInfo & { frames: number }>
+  bakeClip(dir: string, id: string): Promise<ClipInfo & { frames: number }>
+  insertClip(dir: string, id: string, at: number, title: string): Promise<string>
+  rerenderTimeline(dir: string, title: string): Promise<string>
+}
+
+const MOTION_GUIDE = `Motion clips (footage you make yourself): HTML + GSAP rendered frame-exact into video.
+- create_clip writes clips/<id>/clip.html. Write the body content and a <script> with GSAP; Manul adds the document, GSAP,
+  its runtime, the Inter font (font-family: Inter, weights 100–900) and a fixed stage at the timeline size.
+- Use normal GSAP: gsap.timeline() / gsap.to / from / fromTo, eases, staggers. Never pause it, never use setTimeout,
+  setInterval or requestAnimationFrame for motion: Manul drives time. Plugins available by name: SplitText, DrawSVGPlugin,
+  MorphSVGPlugin, MotionPathPlugin, TextPlugin, CustomEase. For canvas drawing use manul.onFrame(t => …).
+- Give every element a person may want to move or change a data-manul-id ("title", "subtitle", "logo"…). Position
+  elements absolutely in px on the stage (manul.width × manul.height).
+- No network: no web fonts, CDNs or remote images. Use inline SVG, CSS shapes/gradients, or files already in the project
+  (relative paths from the clip folder, e.g. ../../media/photo.jpg).
+- Design like a motion designer: one idea per clip, generous margins, big type with tight tracking, two or three colours
+  that suit the footage, purposeful easing (power3/expo out for entrances), motion that settles before the end, a clean
+  last frame. Respect the duration you set; 2–5 s for titles and cards.
+- You get the middle frame back as an image: look at it, and fix the clip (edit the file, then render_clip) if anything
+  is off — overflow, clipping, contrast, alignment. Then insert_clip at the right time.`
+
+/** A clip tool's answer: what was rendered, plus the middle frame so the model can see its design. */
+async function clipResult(p: Project, c: ClipInfo & { frames: number }) {
+  const poster = await readFile(join(p.dir, c.poster)).catch(() => null)
+  return {
+    content: [
+      { type: 'text' as const, text: `Rendered clip "${c.id}" (${c.title}): ${c.duration} s, ${c.frames} frames → ${c.video}. Middle frame attached.` },
+      ...(poster ? [{ type: 'image' as const, data: poster.toString('base64'), mimeType: 'image/jpeg' }] : []),
+    ],
+  }
 }
 
 function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
@@ -65,7 +99,7 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       `(x,y = top-left). Act on exactly that moment and region; when done, call resolve_note with a one-line reply.\n` +
       `- Prefer one well-built ffmpeg command over many small ones. Keep codecs sensible: libx264 -crf 18 -preset veryfast, aac 192k, -movflags +faststart.\n` +
       `- When you need a decision from the user, call ask_user with 2–5 options and stop.\n` +
-      `Write replies in short plain Markdown. Say what you did, not how.`, { tag: false })],
+      `Write replies in short plain Markdown. Say what you did, not how.\n\n` + MOTION_GUIDE, { tag: false })],
     tools: [
       defineTool({
         name: 'project_state',
@@ -78,6 +112,9 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
             title: p.title, folder: p.dir,
             current: cur && { ...cur, ...p.media[cur.path] },
             proposal: p.proposal,
+            timeline: p.timeline && { size: `${p.timeline.width}x${p.timeline.height}`, fps: p.timeline.fps, duration: timelineDuration(p.timeline),
+              items: p.timeline.items.map(i => (i.kind === 'media' ? `media ${i.src} ${i.in}–${i.out}` : `clip ${i.clip} ${i.dur}s`)) },
+            clips: Object.values(p.clips || {}).map(c => ({ id: c.id, title: c.title, duration: c.duration })),
             versions: p.versions.map(v => ({ id: v.id, title: v.title, path: v.path, by: v.by })),
             notes: p.notes.filter(n => n.status === 'open').map(n => ({ id: n.id, at: `${fmt(n.anchor.t0)}${n.anchor.t1 != null ? `–${fmt(n.anchor.t1)}` : ''}`, box: n.anchor.box, text: n.text })),
             media: p.media,
@@ -123,6 +160,44 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
           return text(`${media} · ${t.language} · ${t.model} · ${t.segments.length} sentences\n` +
             segs.map(s => `${n(s.s)}–${n(s.e)}  ${s.text}\n  ${s.words.map(w => `${w.w}@${n(w.s)}-${n(w.e)}`).join(' ')}`).join('\n'))
         },
+      }),
+      defineTool({
+        name: 'create_clip',
+        description: 'Make a motion clip (title card, lower third, chart, kinetic text, explainer…) from HTML + GSAP and render it. Returns the middle frame as an image so you can check the design.',
+        parameters: Type.Object({
+          id: Type.String({ description: 'short kebab-case, e.g. "title-card"; reusing an id replaces that clip' }),
+          title: Type.String({ description: 'what it is, e.g. "Opening title"' }),
+          duration: Type.Number({ description: 'seconds' }),
+          html: Type.String({ description: 'body markup + <style> + <script> using gsap (see the motion guide)' }),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const c = await bridge.saveClip(p.dir, args.id, args.title, args.html, args.duration)
+          return clipResult(p, c)
+        },
+      }),
+      defineTool({
+        name: 'render_clip',
+        description: 'Render clips/<id>/clip.html again after you edited it (read/edit tools). If the clip is in the timeline, also call rerender_timeline to propose the updated film.',
+        parameters: Type.Object({ id: Type.String() }),
+        execute: async (args: Any, api: Any) => { const p = proj(api); return clipResult(p, await bridge.bakeClip(p.dir, args.id)) },
+      }),
+      defineTool({
+        name: 'insert_clip',
+        description: 'Open a gap in the film at a time (seconds on the current timeline) and put a clip there; renders the film and proposes it (before/after). at = 0 for the start, at = the duration for the end.',
+        parameters: Type.Object({ id: Type.String(), at: Type.Number(), title: Type.String({ description: 'the proposal title, e.g. "Opening title added"' }) }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const v = await bridge.insertClip(p.dir, args.id, args.at, args.title)
+          const tl = bridge.project(p.dir)?.versions.find(x => x.id === v)?.timeline
+          return text(`Proposed as version ${v}${tl ? `: the film is now ${timelineDuration(tl).toFixed(1)} s` : ''}.`)
+        },
+      }),
+      defineTool({
+        name: 'rerender_timeline',
+        description: 'Render the current timeline again (after a clip in it changed) and propose it.',
+        parameters: Type.Object({ title: Type.String() }),
+        execute: async (args: Any, api: Any) => text(`Proposed as version ${await bridge.rerenderTimeline(proj(api).dir, args.title)}.`),
       }),
       defineTool({
         name: 'propose_version',

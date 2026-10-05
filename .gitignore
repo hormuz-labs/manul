@@ -5,3 +5,4 @@ dist/
 *.log
 resources/bin/
 resources/lib/*.min.js
+resources/lib/fonts/

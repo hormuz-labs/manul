@@ -27,7 +27,12 @@ export type Version = {
   title: string
   createdAt: number
   by: 'import' | 'agent' | 'user'
+  /** The timeline this version was rendered from (accepting it makes it the project's timeline). */
+  timeline?: Timeline
 }
+
+/** A motion clip: agent-made HTML + GSAP in clips/<id>/, rendered frame-exact to clip.mp4. */
+export type ClipInfo = { id: string; title: string; duration: number; video: string; poster: string; updatedAt: number }
 
 export type MediaInfo = {
   duration: number
@@ -52,6 +57,8 @@ export type Project = {
   media: Record<string, MediaInfo>
   /** What the film is made of (media segments and motion clips); rendering it makes a version. */
   timeline?: Timeline
+  /** Motion clips by id. */
+  clips?: Record<string, ClipInfo>
   /** media path → transcript path (both project-relative) */
   transcripts?: Record<string, string>
   /** The project's durable agent conversation. */

@@ -55,6 +55,24 @@ try {
   const n = await win.evaluate(dir => window.manul.clips.render(dir, 'net'), p.dir)
   const px = pixel(join(p.dir, n.video), 0.1, 32, 32)
   assert.ok(px[1] > 200 && px[0] < 60, `network must be blocked (green), got ${px}`)
+  // a bare snippet becomes a clip in the film: save → insert at 1 s → proposal of 2 + 1.5 s → accept keeps the clip
+  const snippet = `<div data-manul-id="title" style="position:absolute;left:0;top:0;width:640px;height:360px;background:#0f0"></div>
+    <script>gsap.from('[data-manul-id=title]', { opacity: 0, duration: 0.3 })</script>`
+  const saved = await win.evaluate(([dir, html]) => window.manul.clips.save(dir, 'card', 'Card', html, 1.5), [p.dir, snippet])
+  assert.equal(saved.frames, 45)
+  const vid = await win.evaluate(dir => window.manul.clips.insert(dir, 'card', 1, 'Card added'), p.dir)
+  const after = await win.evaluate(dir => window.manul.project.open(dir), p.dir)
+  const prop = after.versions.find(v => v.id === vid)
+  assert.equal(after.proposal, vid)
+  assert.deepEqual(prop.timeline.items.map(i => i.kind), ['media', 'clip', 'media'])
+  const film = join(p.dir, prop.path)
+  const filmInfo = JSON.parse(execFileSync(join(BIN, 'ffprobe'), ['-v', 'error', '-print_format', 'json', '-show_format', film], { encoding: 'utf8' }))
+  assert.ok(Math.abs(Number(filmInfo.format.duration) - 3.5) < 0.1, `film ${filmInfo.format.duration}`)
+  assert.ok(pixel(film, 0.5, 320, 180)[2] > 180, 'before the clip: the blue source') // blue
+  assert.ok(pixel(film, 2.0, 320, 180)[1] > 180, 'inside the clip: green card')
+  assert.ok(pixel(film, 3.0, 320, 180)[2] > 180, 'after the clip: the source again')
+  const accepted = await win.evaluate(dir => window.manul.project.decide(dir, true), p.dir)
+  assert.deepEqual(accepted.timeline.items.map(i => i.kind), ['media', 'clip', 'media'])
   console.log('clips e2e: ok')
 } finally {
   await app.close()

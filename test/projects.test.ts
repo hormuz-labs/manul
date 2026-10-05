@@ -47,6 +47,14 @@ describe('projects', () => {
     expect(p.timeline!.items).toEqual([expect.objectContaining({ kind: 'media', src: v.path })])
   })
 
+  it('accepting a version made from a timeline keeps that timeline (clips and cuts stay editable)', async () => {
+    const p = await Projects.createFromFile(clip)
+    const tl = { ...p.timeline!, items: [...p.timeline!.items, { id: 'c1', kind: 'clip' as const, clip: 'title', dur: 2 }] }
+    const v = await Projects.addVersion(p, join(p.dir, 'media', 'My Clip.mp4'), 'With title', 'agent', tl)
+    Projects.accept(p, v.id)
+    expect(p.timeline!.items.map(i => i.kind)).toEqual(['media', 'clip'])
+  })
+
   it('never overwrites: a second project from the same file gets its own folder', async () => {
     const a = await Projects.createFromFile(clip)
     const b = await Projects.createFromFile(clip)
