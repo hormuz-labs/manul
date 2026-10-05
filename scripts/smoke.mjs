@@ -5,9 +5,8 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createRequire } from 'node:module'
 
-const require = createRequire(import.meta.url)
+const FFMPEG = join(import.meta.dirname, '..', 'resources', 'bin', `${process.platform}-${process.arch}`, 'ffmpeg')
 const out = process.argv[2] || join(tmpdir(), 'manul-smoke')
 const prompt = process.argv[3]
 mkdirSync(out, { recursive: true })
@@ -19,7 +18,7 @@ try {
   execFileSync('say', ['-o', join(out, 'speech.aiff'), 'Um, hello there. Uh, today we are, um, testing the Manul video editor. Uh, it should cut these fillers.'])
   audio = ['-i', join(out, 'speech.aiff')]
 } catch { /* not macOS */ }
-execFileSync(require('ffmpeg-static'), ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30:duration=12',
+execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30:duration=12',
   ...audio, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', video])
 
 const app = await electron.launch({ args: ['.', `--user-data-dir=${userData}`], env: { ...process.env, MANUL_PROJECTS: join(out, 'projects') } })

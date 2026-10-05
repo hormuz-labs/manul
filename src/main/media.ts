@@ -2,19 +2,19 @@
 import { app } from 'electron'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import type { MediaInfo, ToolStatus } from '../shared/types'
 
 const run = promisify(execFile)
-const require = createRequire(import.meta.url)
+// Manul's own pinned ffmpeg/ffprobe (scripts/fetch-ffmpeg.mjs): resources/bin/<platform>-<arch>/ in development,
+// <app>/Contents/Resources/bin/ when packaged (electron-builder extraResources).
+const BIN = app.isPackaged
+  ? join(process.resourcesPath, 'bin')
+  : join(import.meta.dirname, '../../resources/bin', `${process.platform}-${process.arch}`)
 
-// In a packaged app the binaries are unpacked next to app.asar; in development they come from node_modules.
-const unpacked = (p: string) => (app.isPackaged ? p.replace('app.asar', 'app.asar.unpacked') : p)
-
-export const FFMPEG: string = unpacked(require('ffmpeg-static') as string)
-export const FFPROBE: string = unpacked((require('@ffprobe-installer/ffprobe') as { path: string }).path)
+export const FFMPEG = join(BIN, 'ffmpeg')
+export const FFPROBE = join(BIN, 'ffprobe')
 
 /** PATH with the bundled tools first, for every process the agent starts. */
 export const toolPath = () => [dirname(FFMPEG), dirname(FFPROBE), process.env.PATH].join(':')
