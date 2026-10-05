@@ -26,9 +26,32 @@ describe('projects', () => {
     expect(p.media['media/My Clip.mp4'].duration).toBeCloseTo(2, 0)
   })
 
-  it('never overwrites: a second project from the same file gets its own folder', async () => {
+  it('starts with a timeline of the whole file in its own format', async () => {
     const p = await Projects.createFromFile(clip)
-    expect(p.dir.endsWith('my-clip-2')).toBe(true)
+    expect(p.timeline).toMatchObject({ width: 320, height: 240, fps: 25, items: [{ kind: 'media', src: 'media/My Clip.mp4', in: 0 }] })
+    expect((p.timeline!.items[0] as { out: number }).out).toBeCloseTo(2, 0)
+  })
+
+  it('gives older projects a timeline when they load', async () => {
+    const p = await Projects.createFromFile(clip)
+    delete p.timeline
+    await Projects.save(p)
+    expect((await Projects.load(p.dir)).timeline?.items).toHaveLength(1)
+  })
+
+  it('accepting a version makes it the new timeline', async () => {
+    const p = await Projects.createFromFile(clip)
+    const v = await Projects.addVersion(p, join(p.dir, 'media', 'My Clip.mp4'), 'Same', 'agent')
+    Projects.accept(p, v.id)
+    expect(p.current).toBe(v.id)
+    expect(p.timeline!.items).toEqual([expect.objectContaining({ kind: 'media', src: v.path })])
+  })
+
+  it('never overwrites: a second project from the same file gets its own folder', async () => {
+    const a = await Projects.createFromFile(clip)
+    const b = await Projects.createFromFile(clip)
+    expect(b.dir).not.toBe(a.dir)
+    expect(b.dir).toMatch(/my-clip-\d+$/)
   })
 
   it('imports media under a free name and remembers notes with stills', async () => {

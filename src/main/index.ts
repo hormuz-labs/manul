@@ -158,14 +158,14 @@ function wire() {
     const p = projectOf(dir)
     if (!p.proposal) return p
     const v = p.versions.find(x => x.id === p.proposal)
-    if (accept) p.current = p.proposal
+    if (accept) Projects.accept(p, p.proposal)
     else p.versions = p.versions.filter(x => x.id !== p.proposal)
     p.proposal = undefined
     if (v && !accept) p.notes.forEach(n => { if (n.status === 'resolved' && n.reply) n.reply += ` (rejected: ${v.title})` })
     await publish(p)
     return p
   })
-  ipcMain.handle('project:current', async (_e, dir: string, id: string) => { const p = projectOf(dir); p.current = id; await publish(p); return p })
+  ipcMain.handle('project:current', async (_e, dir: string, id: string) => { const p = projectOf(dir); Projects.accept(p, id); await publish(p); return p })
 
   // A message to the agent, optionally anchored (time / range / box) with a frame still (JPEG data URL).
   ipcMain.handle('agent:send', async (_e, dir: string, msg: { text: string; anchor?: Anchor; still?: string }) => {

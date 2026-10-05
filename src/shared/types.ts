@@ -1,4 +1,5 @@
 // Types shared by the main process, the preload bridge and the renderer.
+import type { Timeline } from './timeline'
 
 /** A box on the frame, in 0–1 fractions of the picture (so it survives any player size). */
 export type Box = { x: number; y: number; w: number; h: number }
@@ -49,6 +50,8 @@ export type Project = {
   proposal?: string
   notes: Note[]
   media: Record<string, MediaInfo>
+  /** What the film is made of (media segments and motion clips); rendering it makes a version. */
+  timeline?: Timeline
   /** media path → transcript path (both project-relative) */
   transcripts?: Record<string, string>
   /** The project's durable agent conversation. */

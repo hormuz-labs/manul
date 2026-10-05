@@ -10,7 +10,8 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 import { FFMPEG, probe } from './media'
-import type { Note, Project, RecentProject, Version } from '../shared/types'
+import { fromMedia } from '../shared/timeline'
+import type { MediaInfo, Note, Project, RecentProject, Version } from '../shared/types'
 
 const run = promisify(execFile)
 const id = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -31,9 +32,26 @@ function touchRecent(p: Project) {
   writeFileSync(recentFile(), JSON.stringify(list, null, 1))
 }
 
+/** A timeline that is just this media file, in its own size and frame rate (even sizes, sane rate). */
+const timelineOf = (src: string, info: MediaInfo) => fromMedia(src, info.duration, {
+  width: Math.max(2, Math.round((info.width || 1920) / 2) * 2),
+  height: Math.max(2, Math.round((info.height || 1080) / 2) * 2),
+  fps: info.fps > 0 && info.fps <= 120 ? Math.round(info.fps * 100) / 100 : 30,
+})
+
+/** Make a version the one on screen; the timeline restarts from it. */
+export function accept(p: Project, versionId: string) {
+  const v = p.versions.find(x => x.id === versionId)
+  if (!v) throw new Error(`no version ${versionId}`)
+  p.current = v.id
+  if (p.proposal === v.id) p.proposal = undefined
+  p.timeline = timelineOf(v.path, p.media[v.path])
+}
+
 export async function load(dir: string): Promise<Project> {
   const p = JSON.parse(await readFile(join(dir, 'project.json'), 'utf8')) as Project
   p.dir = dir
+  if (!p.timeline) { const v = p.versions.find(x => x.id === p.current)!; p.timeline = timelineOf(v.path, p.media[v.path]) }
   touchRecent(p)
   return p
 }
@@ -47,13 +65,13 @@ export async function createFromFile(file: string): Promise<Project> {
   const title = basename(file, extname(file))
   let dir = join(projectsRoot(), slug(title))
   for (let n = 2; existsSync(dir); n++) dir = join(projectsRoot(), `${slug(title)}-${n}`)
-  for (const sub of ['media', 'renders', 'notes']) await mkdir(join(dir, sub), { recursive: true })
+  for (const sub of ['media', 'renders', 'notes', 'clips']) await mkdir(join(dir, sub), { recursive: true })
 
   const rel = join('media', basename(file))
   await copyFile(file, join(dir, rel))
   const info = await probe(join(dir, rel))
   const v: Version = { id: id(), path: rel, title: 'Original', createdAt: Date.now(), by: 'import' }
-  const p: Project = { id: id(), title, dir, createdAt: Date.now(), versions: [v], current: v.id, notes: [], media: { [rel]: info } }
+  const p: Project = { id: id(), title, dir, createdAt: Date.now(), versions: [v], current: v.id, notes: [], media: { [rel]: info }, timeline: timelineOf(rel, info) }
   await run(FFMPEG, ['-y', '-ss', String(Math.min(1, info.duration / 2)), '-i', join(dir, rel), '-frames:v', '1', '-vf', 'scale=480:-2', join(dir, 'thumb.jpg')]).catch(() => {})
   await save(p)
   touchRecent(p)
