@@ -49,4 +49,21 @@
       return { id: el.getAttribute('data-manul-id'), x: r.left, y: r.top, w: r.width, h: r.height, tag: el.tagName.toLowerCase(), text: (el.textContent || '').trim().slice(0, 80) }
     })
   }
+
+  // Inside Manul's editor (an iframe): show frames on request, report where elements are, move them live while dragged.
+  if (window.parent !== window) {
+    var reply = function (t) { parent.postMessage({ manul: 'elements', t: t, list: window.__manulElements() }, '*') }
+    addEventListener('message', function (e) {
+      var m = e.data || {}
+      if (m.manul === 'seek') window.__manulReady.then(function () { return window.__manulSeek(m.t) }).then(reply)
+      if (m.manul === 'move') {
+        var el = document.querySelector('[data-manul-id="' + m.id + '"]')
+        if (!el) return
+        var cur = (el.style.translate || '0px 0px').split(' ').map(parseFloat)
+        el.style.translate = Math.round((cur[0] || 0) + m.dx) + 'px ' + Math.round((cur[1] || 0) + m.dy) + 'px'
+        reply(manul.time)
+      }
+    })
+    window.__manulReady.then(function () { reply(0) })
+  }
 })()

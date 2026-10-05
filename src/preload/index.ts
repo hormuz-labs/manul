@@ -26,6 +26,7 @@ const api = {
   clips: {
     save: (dir: string, id: string, title: string, html: string, dur: number) => ipcRenderer.invoke('clip:save', dir, id, title, html, dur) as Promise<{ id: string; duration: number; video: string; poster: string; frames: number }>,
     insert: (dir: string, id: string, at: number, title: string) => ipcRenderer.invoke('clip:insert', dir, id, at, title) as Promise<string>,
+    move: (dir: string, id: string, element: string, dx: number, dy: number) => ipcRenderer.invoke('clip:move', dir, id, element, dx, dy) as Promise<Project>,
     render: (dir: string, id: string) => ipcRenderer.invoke('clip:render', dir, id) as Promise<{ video: string; poster: string; frames: number; duration: number; width: number; height: number; fps: number }>,
   },
   transcript: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('transcript:get', dir, mediaRel, make) as Promise<Transcript | null>,

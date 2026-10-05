@@ -139,13 +139,13 @@ pro editors can take a Manul rough cut into their own editor.
 - [x] Screen view: player, scrubber notes, agent input at the playhead
 - [~] Notes on the picture: element pick, box on the frame, timestamp/range (box + time + range done)
 - [x] Before/after proposals: scrub, accept, reject, reply
-- [ ] **HTML motion clips:** the agent builds `clip.html` (slides, title cards, charts, kinetic type, GSAP motion
+- [x] **HTML motion clips:** the agent builds `clip.html` (slides, title cards, charts, kinetic type, GSAP motion
       design) as timeline items next to MP4s and images. They are sandboxed, run on Manul's clock and render frame-exactly
-- [ ] Clip renderer: offscreen Chromium frame stepping → ffmpeg; "bake to MP4"; final export mixes clips with footage
-- [ ] Motion skill(s): house style, easing and layout rules so agent-made motion looks designed, not generic
-- [ ] Make room on the timeline: split at a point and open a gap so the agent can insert (or propose an insertion) in between
-- [ ] Slide editing by hand: drag, resize and edit text/images/shapes on the picture, written back to the HTML
-- [ ] Slide editing by the agent: pick an element, then a note scoped to that element; the agent changes only it
+- [x] Clip renderer: offscreen Chromium frame stepping → ffmpeg; "bake to MP4"; final export mixes clips with footage
+- [~] Motion skill(s): house style, easing and layout rules so agent-made motion looks designed, not generic
+- [x] Make room on the timeline: split at a point and open a gap so the agent can insert (or propose an insertion) in between
+- [x] Slide editing by hand: drag, resize and edit text/images/shapes on the picture, written back to the HTML
+- [x] Slide editing by the agent: pick an element, then a note scoped to that element; the agent changes only it
 - [x] Transcript panel with text-based editing (click to seek, drag to select a range, fillers marked, find)
 - [ ] Tracks drawer (timeline, mix, inspector)
 - [ ] Agent browser with take-over

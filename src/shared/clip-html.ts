@@ -40,3 +40,24 @@ export function prepareClipHtml(input: string, fmt: ClipFormat, duration: number
 }
 
 const round = (n: number) => Math.round(n * 1000) / 1000
+
+/**
+ * Move an element (by data-manul-id) by dx, dy px, written into its inline style as the CSS `translate` property.
+ * `translate` composes with `transform`, so the clip's own GSAP motion (x, y, scale…) keeps working on top of it.
+ */
+export function moveElement(html: string, id: string, dx: number, dy: number): string {
+  const esc = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const tag = new RegExp(`<([a-zA-Z][\\w-]*)([^>]*?\\bdata-manul-id=["']${esc}["'][^>]*?)(\\/?)>`)
+  const m = tag.exec(html)
+  if (!m) throw new Error(`No element with data-manul-id="${id}" in the clip.`)
+  let attrs = m[2]
+  const styleRe = /\sstyle=(["'])([\s\S]*?)\1/
+  const sm = styleRe.exec(attrs)
+  const style = sm ? sm[2] : ''
+  const cur = /(?:^|;)\s*translate:\s*(-?[\d.]+)px\s+(-?[\d.]+)px\s*;?/.exec(style)
+  const x = Math.round((cur ? Number(cur[1]) : 0) + dx), y = Math.round((cur ? Number(cur[2]) : 0) + dy)
+  const rest = style.replace(/(?:^|;)\s*translate:[^;]*;?/, '').trim().replace(/;\s*$/, '')
+  const next = [rest, `translate: ${x}px ${y}px`].filter(Boolean).join('; ')
+  attrs = sm ? attrs.replace(styleRe, ` style="${next}"`) : `${attrs} style="${next}"`
+  return html.slice(0, m.index) + `<${m[1]}${attrs}${m[3]}>` + html.slice(m.index + m[0].length)
+}

@@ -2,7 +2,7 @@
 // (rendered by tool), question cards, and the input, anchored to whatever is selected on the film.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Message } from '@ag-ui/core'
-import { ArrowUp, AudioLines, Check, Clapperboard, Crosshair, Eye, FileSearch, Loader2, MessageSquareText, Square, Terminal, TriangleAlert, Wrench, X } from 'lucide-react'
+import { ArrowUp, AudioLines, Check, Sparkles, Clapperboard, Crosshair, Eye, FileSearch, Loader2, MessageSquareText, Square, Terminal, TriangleAlert, Wrench, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { resultsOf, type AgentState } from '@/lib/agui'
@@ -25,6 +25,10 @@ const TOOL: Record<string, { icon: ReactNode; title: (a: Record<string, any>) =>
   },
   propose_version: { icon: <Check />, title: a => `Proposed “${a.title || 'a new cut'}”` },
   resolve_note: { icon: <MessageSquareText />, title: a => a.reply ? `Note: ${a.reply}` : 'Resolved a note' },
+  create_clip: { icon: <Sparkles />, title: a => `Made clip “${a.title || a.id}”` },
+  render_clip: { icon: <Sparkles />, title: a => `Re-rendered clip ${a.id}` },
+  insert_clip: { icon: <Sparkles />, title: a => `Inserted ${a.id} at ${timecode(a.at || 0)}` },
+  rerender_timeline: { icon: <Clapperboard />, title: () => 'Rendered the film' },
   transcript: { icon: <AudioLines />, title: a => a.search ? `Searched the transcript for “${a.search}”` : 'Read the transcript' },
   seek: { icon: <Crosshair />, title: a => `Showed you ${timecode(a.t || 0)}` },
   bash: { icon: <Terminal />, title: a => `$ ${String(a.command || '').split('\n')[0].slice(0, 60)}` },
@@ -77,7 +81,7 @@ function Item({ m, results, busy, onAnswer, laterUser }: { m: Message; results: 
     const note = NOTE.exec(text)
     return (
       <div className="ml-6 rounded-xl bg-raised px-3 py-2" data-selectable>
-        {note && <div className="mb-1 inline-flex items-center gap-1 rounded bg-note/15 px-1.5 py-0.5 text-[10.5px] text-note"><MessageSquareText className="size-3" />{note[1].replace(/^@ /, '').replace(/, box [\d.,]+/, ' · box')}</div>}
+        {note && <div className="mb-1 inline-flex items-center gap-1 rounded bg-note/15 px-1.5 py-0.5 text-[10.5px] text-note"><MessageSquareText className="size-3" />{note[1].replace(/^@ /, '').replace(/, box [\d.,]+/, ' · box').replace(/, clip (\S+) element (\S+)/, ' · $1 · $2')}</div>}
         <div className="whitespace-pre-wrap">{text.replace(NOTE, '')}</div>
       </div>
     )
@@ -118,7 +122,8 @@ export function AgentPanel({ project, agent, anchor, onClearAnchor, onSend, onSt
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' }) }, [agent.messages.length, agent.streaming?.text.length, Object.keys(agent.pending).length, consents.length])
 
   const submit = () => { const t = text.trim(); if (!t) return; onSend(t); setText('') }
-  const anchorLabel = anchor && `${timecode(anchor.t0)}${anchor.t1 != null ? `–${timecode(anchor.t1)}` : ''}${anchor.box ? ' · box' : ''}`
+  const anchorLabel = anchor && (anchor.clip?.element ? `${anchor.clip.id} · ${anchor.clip.element}`
+    : `${timecode(anchor.t0)}${anchor.t1 != null ? `–${timecode(anchor.t1)}` : ''}${anchor.box ? ' · box' : ''}`)
 
   return (
     <div className="flex h-full flex-col">

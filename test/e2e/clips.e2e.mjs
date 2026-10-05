@@ -3,7 +3,7 @@
 import { _electron as electron } from 'playwright-core'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { cpSync, mkdtempSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -73,6 +73,33 @@ try {
   assert.ok(pixel(film, 3.0, 320, 180)[2] > 180, 'after the clip: the source again')
   const accepted = await win.evaluate(dir => window.manul.project.decide(dir, true), p.dir)
   assert.deepEqual(accepted.timeline.items.map(i => i.kind), ['media', 'clip', 'media'])
+  // the clip editor: open the project, select the clip on the timeline strip, drag its element, click it
+  await win.reload()
+  await win.waitForSelector('text=Recent')
+  await win.locator('button:has-text("src")').first().click()
+  await win.waitForSelector('button[title="Card · click to edit"]')
+  await win.click('button[title="Card · click to edit"]')
+  const handle = win.locator('div.cursor-move:has(span:text-is("title"))')
+  await handle.waitFor({ timeout: 10000 })
+  const b = await handle.boundingBox()
+  const versionsBefore = (await win.evaluate(dir => window.manul.project.open(dir), p.dir)).versions.length
+  await win.mouse.move(b.x + 20, b.y + 20)
+  await win.mouse.down()
+  await win.mouse.move(b.x + 80, b.y + 20, { steps: 6 })
+  await win.mouse.up()
+  let html = ''
+  for (let i = 0; i < 60 && !/translate:/.test(html); i++) { await win.waitForTimeout(250); html = readFileSync(join(p.dir, 'clips', 'card', 'clip.html'), 'utf8') }
+  assert.match(html, /data-manul-id="title"[^>]*translate: \d+px 0px/, 'the drag is written into the clip')
+  let moved
+  for (let i = 0; i < 80; i++) { moved = await win.evaluate(dir => window.manul.project.open(dir), p.dir); if (moved.versions.length > versionsBefore) break; await win.waitForTimeout(250) }
+  assert.equal(moved.versions.length, versionsBefore + 1, 'the film was re-rendered')
+  assert.equal(moved.current, moved.versions.at(-1).id, 'the user\'s own edit is applied, not proposed')
+  await win.screenshot({ path: join(tmp, 'editor.png') })
+  // a click (no drag) picks the element for a note
+  const b2 = await handle.boundingBox()
+  await win.mouse.click(b2.x + 30, b2.y + 30)
+  await win.waitForSelector('div.cursor-move.border-note:has(span:text-is("title"))', { timeout: 5000 }) // picked for the next note
+  console.log('editor screenshot:', join(tmp, 'editor.png'))
   console.log('clips e2e: ok')
 } finally {
   await app.close()

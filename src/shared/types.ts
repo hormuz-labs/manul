@@ -5,7 +5,7 @@ import type { Timeline } from './timeline'
 export type Box = { x: number; y: number; w: number; h: number }
 
 /** Where a note points: a time or range, optionally a box on the frame. */
-export type Anchor = { t0: number; t1?: number; box?: Box }
+export type Anchor = { t0: number; t1?: number; box?: Box; clip?: { id: string; element?: string } }
 
 export type Note = {
   id: string

@@ -38,3 +38,29 @@ describe('prepareClipHtml', () => {
     expect(out).toContain('<p>ok</p>')
   })
 })
+
+import { moveElement } from '../src/shared/clip-html'
+
+describe('moveElement (dragging an element writes back to the clip)', () => {
+  const doc = '<div data-manul-id="title" style="font-size: 64px">Hi</div><p data-manul-id="sub">x</p>'
+
+  it('adds a translate to the element (GSAP transforms are left alone)', () => {
+    const out = moveElement(doc, 'title', 20, -10.4)
+    expect(out).toContain('<div data-manul-id="title" style="font-size: 64px; translate: 20px -10px">')
+    expect(out).toContain('<p data-manul-id="sub">x</p>')
+  })
+
+  it('accumulates moves', () => {
+    const out = moveElement(moveElement(doc, 'title', 20, 10), 'title', 5, -30)
+    expect(out).toContain('translate: 25px -20px')
+    expect(out.match(/translate:/g)).toHaveLength(1)
+  })
+
+  it('gives an element without a style one', () => {
+    expect(moveElement(doc, 'sub', 3, 4)).toContain('<p data-manul-id="sub" style="translate: 3px 4px">')
+  })
+
+  it('throws for an unknown element', () => {
+    expect(() => moveElement(doc, 'nope', 1, 1)).toThrow(/nope/)
+  })
+})

@@ -96,7 +96,9 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       `and only when unsure; never re-render just to polish. The user will ask if they want more.\n` +
       `- When a cut is ready, call propose_version: the user sees it as a before/after and accepts or rejects it. One proposal per request.\n` +
       `- Notes arrive as "[note <id> @ start–end, box x,y,w,h]" plus a still of the frame with the box drawn on it. The box is in 0–1 fractions of the picture ` +
-      `(x,y = top-left). Act on exactly that moment and region; when done, call resolve_note with a one-line reply.\n` +
+      `(x,y = top-left). Act on exactly that moment and region; when done, call resolve_note with a one-line reply. ` +
+      `A note on "clip <id> element <name>" is about that element (data-manul-id) of clips/<id>/clip.html: edit only it (read + edit tools), ` +
+      `then render_clip and rerender_timeline.\n` +
       `- Prefer one well-built ffmpeg command over many small ones. Keep codecs sensible: libx264 -crf 18 -preset veryfast, aac 192k, -movflags +faststart.\n` +
       `- When you need a decision from the user, call ask_user with 2–5 options and stop.\n` +
       `Write replies in short plain Markdown. Say what you did, not how.\n\n` + MOTION_GUIDE, { tag: false })],

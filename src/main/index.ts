@@ -13,7 +13,7 @@ import * as Tools from './tools'
 import * as Whisper from './whisper'
 import * as Projects from './projects'
 import { composeArgs, duration as timelineDuration, insertAt } from '../shared/timeline'
-import { prepareClipHtml } from '../shared/clip-html'
+import { moveElement, prepareClipHtml } from '../shared/clip-html'
 import { FFMPEG } from './media'
 import { execFile } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -148,8 +148,8 @@ async function bakeClip(p: Project, id: string, title?: string) {
   return { ...info, frames: r.frames }
 }
 
-/** Render a timeline into renders/ and propose it as a version. */
-async function proposeTimeline(p: Project, tl: Timeline, title: string) {
+/** Render a timeline into renders/ and propose it as a version (or, for the user's own edits, make it current). */
+async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'agent' | 'user' = 'agent') {
   const n = p.versions.length + 1
   const out = join('renders', `timeline-${n}.mp4`)
   for (const it of tl.items) if (it.kind === 'clip' && !existsSync(join(p.dir, 'clips', it.clip, 'clip.mp4'))) await bakeClip(p, it.clip)
@@ -162,16 +162,18 @@ async function proposeTimeline(p: Project, tl: Timeline, title: string) {
     j.progress(null, `${timelineDuration(tl).toFixed(1)} s`)
     execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { cwd: p.dir, maxBuffer: 1 << 24 }, (err, _o, stderr) => (err ? fail(new Error(stderr.slice(-1500) || err.message)) : ok()))
   }), { project: p.dir, doneTitle: `Rendered “${title}”` })
-  if (p.proposal) p.versions = p.versions.filter(v => v.id !== p.proposal)
-  const v = await Projects.addVersion(p, join(p.dir, out), title, 'agent', tl)
-  p.proposal = v.id
+  if (by === 'agent' && p.proposal) p.versions = p.versions.filter(v => v.id !== p.proposal)
+  const v = await Projects.addVersion(p, join(p.dir, out), title, by, tl)
+  if (by === 'user') Projects.accept(p, v.id)
+  else p.proposal = v.id
   await publish(p)
   return v.id
 }
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`
 const describe = (a: Anchor) =>
-  `@ ${fmt(a.t0)}${a.t1 != null ? `–${fmt(a.t1)}` : ''}${a.box ? `, box ${[a.box.x, a.box.y, a.box.w, a.box.h].map(n => n.toFixed(3)).join(',')}` : ''}`
+  `@ ${fmt(a.t0)}${a.t1 != null ? `–${fmt(a.t1)}` : ''}${a.box ? `, box ${[a.box.x, a.box.y, a.box.w, a.box.h].map(n => n.toFixed(3)).join(',')}` : ''}` +
+  (a.clip ? `, clip ${a.clip.id}${a.clip.element ? ` element ${a.clip.element}` : ''}` : '')
 
 // ---------------------------------------------------------------- IPC
 function wire() {
@@ -247,6 +249,15 @@ function wire() {
     const c = p.clips?.[id]
     if (!c) throw new Error(`No clip "${id}".`)
     return proposeTimeline(p, insertAt(p.timeline!, at, { kind: 'clip', clip: id, dur: c.duration }).timeline, title)
+  })
+  // The user dragged an element of a clip: write it into the HTML, re-render the clip and the film (their edit, applied).
+  ipcMain.handle('clip:move', async (_e, dir: string, id: string, element: string, dx: number, dy: number) => {
+    const p = projectOf(dir)
+    const file = join(p.dir, 'clips', id, 'clip.html')
+    await writeFile(file, moveElement(await readFile(file, 'utf8'), element, dx, dy))
+    await bakeClip(p, id)
+    if (p.timeline?.items.some(i => i.kind === 'clip' && i.clip === id)) await proposeTimeline(p, p.timeline, `Moved ${element} in ${id}`, 'user')
+    return p
   })
   ipcMain.handle('clip:render', (_e, dir: string, id: string) =>
     asJob(`Rendering clip ${id}`, 'render', j => renderClip(projectOf(dir).dir, id, j), { project: dir, doneTitle: `Rendered clip ${id}` }))

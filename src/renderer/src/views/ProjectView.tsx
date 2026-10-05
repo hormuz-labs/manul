@@ -9,6 +9,8 @@ import { useAgent } from '@/lib/agui'
 import { cn, mediaUrl, timecode } from '@/lib/utils'
 import { AgentPanel } from './AgentPanel'
 import { TranscriptPanel } from './TranscriptPanel'
+import { TimelineStrip } from './TimelineStrip'
+import { ClipEditor } from './ClipEditor'
 import { Scrubber } from './Scrubber'
 import { Stage, type StageHandle } from './Stage'
 import type { Anchor, Box, Project } from '../../../shared/types'
@@ -25,6 +27,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   const [drawing, setDrawing] = useState(false)
   const [compare, setCompare] = useState<'after' | 'before'>('after')
   const [over, setOver] = useState(false)
+  const [editing, setEditing] = useState<{ itemId: string; clip: string; start: number } | null>(null)
   const [showTranscript, setShowTranscript] = useState(() => localStorage.getItem('manul.transcript') !== '0')
   useEffect(() => { try { localStorage.setItem('manul.transcript', showTranscript ? '1' : '0') } catch { /* private mode */ } }, [showTranscript])
   const sentFirst = useRef(false)
@@ -60,7 +63,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
       else if (e.key === 't' || e.key === 'T') { e.preventDefault(); setShowTranscript(x => !x) }
       else if (e.key === 'ArrowLeft' && v) seek(Math.max(0, v.currentTime - (e.shiftKey ? 5 : 1)))
       else if (e.key === 'ArrowRight' && v) seek(Math.min(duration, v.currentTime + (e.shiftKey ? 5 : 1)))
-      else if (e.key === 'Escape') { setAnchor(undefined); setDrawing(false) }
+      else if (e.key === 'Escape') { setAnchor(undefined); setDrawing(false); setEditing(null) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -131,7 +134,19 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             </div>
           )}
 
-          <div className="min-h-0 flex-1">
+          <div className="relative min-h-0 flex-1">
+            {editing && p.clips?.[editing.clip] && (
+              <ClipEditor
+                dir={p.dir}
+                clip={p.clips[editing.clip]}
+                width={(onScreen.timeline || p.timeline)!.width}
+                height={(onScreen.timeline || p.timeline)!.height}
+                time={time - editing.start}
+                picked={anchor?.clip?.element}
+                onPick={el => { setAnchor({ t0: time, clip: { id: editing.clip, element: el } }); input.current?.focus() }}
+                onClose={() => setEditing(null)}
+              />
+            )}
             <Stage
               ref={stage}
               src={mediaUrl(`${p.dir}/${onScreen.path}`)}
@@ -147,6 +162,20 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             />
           </div>
 
+          {(onScreen.timeline || p.timeline) && (onScreen.timeline || p.timeline)!.items.some(i => i.kind === 'clip') && (
+            <TimelineStrip
+              dir={p.dir}
+              timeline={(onScreen.timeline || p.timeline)!}
+              clips={p.clips || {}}
+              selected={editing?.itemId}
+              onSelect={(it, start) => {
+                if (it.kind !== 'clip') return
+                stage.current?.video?.pause()
+                seek(start + Math.min(it.dur / 2, 1))
+                setEditing({ itemId: it.id, clip: it.clip, start })
+              }}
+            />
+          )}
           <Scrubber
             duration={duration}
             time={time}
