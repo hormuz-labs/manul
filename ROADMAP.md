@@ -47,12 +47,12 @@ pro editors can take a Manul rough cut into their own editor.
   full motion-design sequences as HTML + **GSAP** (`clip.html`). These sit on the timeline next to MP4s and images, and the final
   export renders everything into one video. A whole video can be made of motion clips, with no camera footage at all.
   - **Make room anywhere:** split the timeline at a point and open a gap (everything after shifts right), then ask
-    "add a slide here explaining X".
-  - **Edit by hand:** every text, image and shape in a slide can be dragged, resized and edited right on the
-    picture. Changes are written back into the slide's HTML.
-  - **Edit with the agent:** click an element on the slide and say "make this bigger / change the wording / swap the
+    "add a motion clip here explaining X".
+  - **Edit by hand:** every text, image and shape in a clip can be dragged, resized and edited right on the
+    picture. Changes are written back into the clip's HTML.
+  - **Edit with the agent:** click an element in the clip and say "make this bigger / change the wording / swap the
     image". The agent changes only that element.
-  - **Rules for every slide:**
+  - **Rules for every clip:**
     - Each movable element carries a stable id (`data-manul-id`).
     - Animations run on Manul's clock, not wall-clock time: every GSAP timeline is paused and Manul calls
       `seek(t)`, so any frame can be scrubbed and rendered exactly.
@@ -77,6 +77,7 @@ pro editors can take a Manul rough cut into their own editor.
 | UI accents | libraries.dev (Thinking Orbs, Border Beam), transitions.dev, Dot Matrix loaders, driver.js onboarding tour, 3dicons (empty states only) | Polish where it counts, never in the way |
 | Agent runtime | **pi-durable** (pinned) + **pi-ai** for models | Conversations and tool calls are saved to SQLite before they're shown, so a crash or quit resumes mid-run |
 | Agent ↔ UI | **AG-UI protocol** (`@ag-ui/core`, `@ag-ui/client`) over Electron IPC | Standard events for tool calls, shared state (JSON Patch), interrupts, plan/activity, subagents. Later the same protocol works over HTTP for a cloud agent, mobile and review links |
+| Motion / generated footage | **HTML + GSAP** clips (`clip.html`), paused timelines seeked on Manul's clock, rendered offscreen frame by frame → ffmpeg | The agent makes footage it can edit; frame-exact scrub and export; GSAP is free incl. plugins (clear the no-code clause, §7) |
 | Skills | Plain `SKILL.md` folders grouped into **profiles** | Readable, diffable, editable by the agent, updatable over the air |
 | Memory | One fact per file, plus an index fed into the prompt | Survives across projects |
 | Media tools | **Bundled:** ffmpeg, ffprobe (static, per platform). **On demand:** demucs, whisper models, yt-dlp, rubberband… | Small install; heavy tools only when needed, with a size prompt first |
@@ -125,6 +126,7 @@ pro editors can take a Manul rough cut into their own editor.
 - [ ] Local usage meter (provider, model, tokens or characters, cost) for every request
 - [ ] Bundled ffmpeg/ffprobe; **Tools page** (installed, size, update, remove); on-demand installer with checksums
 - [ ] First-run setup checks (dependency doctor)
+- [ ] Email GSAP/Webflow for a written OK on Manul's use (AI-written GSAP + drag-to-edit clips)
 
 ### Phase 1: MVP (v0.1)
 - [ ] Import: drop a file or link → read details, make a preview copy, transcribe, split into scenes, tag
