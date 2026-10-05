@@ -1,0 +1,114 @@
+# Push a tag like v0.2.0 → build, sign and notarize (macOS), publish to GitHub Releases (the auto-update feed),
+# then update the Homebrew tap and the apt repository.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, arch: arm64, target: --mac }
+          - { os: macos-15-intel, arch: x64, target: --mac }
+          - { os: ubuntu-24.04, arch: x64, target: --linux }
+          - { os: ubuntu-24.04-arm, arch: arm64, target: --linux }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install build tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake rpm
+      - name: Install build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake
+      - run: npm ci
+      - run: ./scripts/build-whisper.sh
+      - name: Version from the tag
+        run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+      - run: npm test
+      - name: Build, sign, notarize, publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          npx electron-vite build
+          NOTARIZE=false
+          if [ "$RUNNER_OS" = macOS ] && [ -n "$APPLE_ID" ]; then NOTARIZE=true; fi
+          npx electron-builder ${{ matrix.target }} --${{ matrix.arch }} --publish always -c.mac.notarize=$NOTARIZE
+      - name: Keep the .deb for the apt repository
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: dist/*.deb
+
+  homebrew:
+    needs: build
+    runs-on: ubuntu-24.04
+    if: ${{ vars.HOMEBREW_TAP != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checksums of the published .dmg files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          gh release download "$GITHUB_REF_NAME" -p "Manul-$V-arm64.dmg" -p "Manul-$V-x64.dmg" -D dmg
+          echo "ARM=$(sha256sum "dmg/Manul-$V-arm64.dmg" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          echo "X64=$(sha256sum "dmg/Manul-$V-x64.dmg" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.HOMEBREW_TAP }}
+          token: ${{ secrets.TAP_TOKEN }}
+          path: tap
+      - name: Update the cask
+        run: |
+          mkdir -p tap/Casks
+          node scripts/homebrew-cask.mjs "${GITHUB_REF_NAME#v}" "$ARM" "$X64" > tap/Casks/manul.rb
+          cd tap
+          git config user.name agenthormuz
+          git config user.email 275594696+hormuz-labs@users.noreply.github.com
+          git add Casks/manul.rb
+          git commit -m "manul ${GITHUB_REF_NAME#v}"
+          git push
+
+  apt:
+    needs: build
+    runs-on: ubuntu-24.04
+    if: ${{ vars.APT_BUCKET != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: deb-*
+          merge-multiple: true
+          path: debs
+      - name: Signing key
+        run: |
+          echo "${{ secrets.APT_GPG_PRIVATE_KEY }}" | gpg --batch --import
+          sudo apt-get update && sudo apt-get install -y apt-utils
+      - name: Current repository
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.APT_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.APT_SECRET_ACCESS_KEY }}
+        run: aws s3 sync "s3://${{ vars.APT_BUCKET }}" repo --endpoint-url "${{ vars.APT_ENDPOINT }}" || mkdir -p repo
+      - run: ./scripts/apt-repo.sh debs repo "${{ vars.APT_GPG_KEY_ID }}"
+      - name: Publish
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.APT_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.APT_SECRET_ACCESS_KEY }}
+        run: aws s3 sync repo "s3://${{ vars.APT_BUCKET }}" --endpoint-url "${{ vars.APT_ENDPOINT }}"

@@ -56,3 +56,4 @@ publish:
   provider: github
   owner: hormuz-labs
   repo: manul
+  releaseType: release

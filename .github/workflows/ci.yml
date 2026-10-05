@@ -1,0 +1,36 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install build tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake xvfb
+      - name: Install build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake
+      - run: npm ci
+      - name: Build bundled whisper.cpp
+        run: ./scripts/build-whisper.sh
+      - run: npm run typecheck
+      - run: npm test
+      - name: End-to-end (macOS)
+        if: runner.os == 'macOS'
+        run: npx electron-vite build && node test/e2e/clips.e2e.mjs && node test/e2e/menu.e2e.mjs
+      - name: End-to-end (Linux, virtual display)
+        if: runner.os == 'Linux'
+        run: npx electron-vite build && xvfb-run -a node test/e2e/clips.e2e.mjs && xvfb-run -a node test/e2e/menu.e2e.mjs

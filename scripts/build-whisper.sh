@@ -16,6 +16,7 @@ SRC=${TMPDIR:-/tmp}/manul-whisper-$VERSION
 [ -d "$SRC" ] || git clone --depth 1 --branch $VERSION https://github.com/ggml-org/whisper.cpp "$SRC"
 FLAGS="-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DWHISPER_SDL2=OFF -DWHISPER_CURL=OFF"
 if [ "$(uname -s)" = Darwin ]; then FLAGS="$FLAGS -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0"; fi
+# shellcheck disable=SC2086 # FLAGS is a list of -D options, split on purpose
 cmake -S "$SRC" -B "$SRC/build" $FLAGS
 cmake --build "$SRC/build" --target whisper-cli -j 8
 mkdir -p "$OUT"
