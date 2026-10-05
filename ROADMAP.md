@@ -43,8 +43,9 @@ pro editors can take a Manul rough cut into their own editor.
 
   The agent receives your words, the range, the box or element, a still of the frame with the box drawn on it, and
   the transcript line spoken there.
-- **HTML slides as clips:** the agent can build slides, title cards, charts or animated explainers as HTML
-  (`slide.html`) that sit on the timeline next to MP4s and images.
+- **HTML motion clips (the agent makes footage):** the agent can build slides, title cards, charts, kinetic type and
+  full motion-design sequences as HTML + **GSAP** (`clip.html`). These sit on the timeline next to MP4s and images, and the final
+  export renders everything into one video. A whole video can be made of motion clips, with no camera footage at all.
   - **Make room anywhere:** split the timeline at a point and open a gap (everything after shifts right), then ask
     "add a slide here explaining X".
   - **Edit by hand:** every text, image and shape in a slide can be dragged, resized and edited right on the
@@ -53,7 +54,10 @@ pro editors can take a Manul rough cut into their own editor.
     image". The agent changes only that element.
   - **Rules for every slide:**
     - Each movable element carries a stable id (`data-manul-id`).
-    - Animations run on Manul's clock, not wall-clock CSS, so any frame can be scrubbed and rendered exactly.
+    - Animations run on Manul's clock, not wall-clock time: every GSAP timeline is paused and Manul calls
+      `seek(t)`, so any frame can be scrubbed and rendered exactly.
+    - Rendering: the clip is stepped frame by frame in an offscreen Chromium, the frames are captured and piped to
+      ffmpeg. A clip can also be **baked** to MP4 to save it as fixed footage.
     - Slides render in a sandboxed frame: no network access except the project's own files.
 - **Transcript panel:** edit by text ("cut the ums", "remove this sentence").
 - **Agent panel:** a live plan, plus **tool cards** (each tool renders its own card), plus **permission cards**. Not a
@@ -128,8 +132,10 @@ pro editors can take a Manul rough cut into their own editor.
 - [ ] Screen view: player, scrubber notes, agent input at the playhead
 - [ ] Notes on the picture: element pick, box on the frame, timestamp/range
 - [ ] Before/after proposals: scrub, accept, reject, reply
-- [ ] **HTML slide clips:** the agent builds `slide.html` (slides, title cards, charts, explainers) as timeline items
-      next to MP4s and images. They are sandboxed, run on Manul's clock and render frame-exactly
+- [ ] **HTML motion clips:** the agent builds `clip.html` (slides, title cards, charts, kinetic type, GSAP motion
+      design) as timeline items next to MP4s and images. They are sandboxed, run on Manul's clock and render frame-exactly
+- [ ] Clip renderer: offscreen Chromium frame stepping → ffmpeg; "bake to MP4"; final export mixes clips with footage
+- [ ] Motion skill(s): house style, easing and layout rules so agent-made motion looks designed, not generic
 - [ ] Make room on the timeline: split at a point and open a gap so the agent can insert (or propose an insertion) in between
 - [ ] Slide editing by hand: drag, resize and edit text/images/shapes on the picture, written back to the HTML
 - [ ] Slide editing by the agent: pick an element, then a note scoped to that element; the agent changes only it
@@ -192,6 +198,9 @@ Rules:
 - **Personality:** how much manul (mascot, warm colours, orbs) versus a quiet pro tool?
 - Pro price point and credit size.
 - ffmpeg build: GPL (x264) or LGPL (hardware encoders only)?
+- **GSAP licence:** GSAP is free (including commercial use) under its own licence, not MIT. Check whether
+  that licence allows a product whose users and agents build animations. Fallback: anime.js v4 (MIT) behind the
+  same Manul-clock adapter.
 - Where the apt repository is hosted (GitHub Pages, Cloudsmith, packagecloud…).
 
 ## How to contribute
