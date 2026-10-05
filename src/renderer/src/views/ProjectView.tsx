@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, AudioLines, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
 import { JobsTray } from '@/components/JobsTray'
+import { HistoryButton } from '@/components/HistoryButton'
 import { Button } from '@/components/ui/button'
 import { Tip } from '@/components/ui/tooltip'
 import { Kbd } from '@/components/ui/kbd'
@@ -100,6 +101,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
         </select>
         <span className="flex-1" />
         <JobsTray />
+        <HistoryButton project={p} onRestored={np => { setP(np); setEditing(null) }} />
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={() => window.manul.project.reveal(p.dir)} title="Show in Finder"><FolderOpen /></Button>
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={onTools} title="Tools"><Package /></Button>
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={onKeys} title="Keys"><KeyRound /></Button>

@@ -117,6 +117,17 @@ try {
   await win.mouse.click(b2.x + 30, b2.y + 30)
   await win.waitForSelector('div.cursor-move.border-note:has(span:text-is("title"))', { timeout: 5000 }) // picked for the next note
   console.log('editor screenshot:', join(tmp, 'editor.png'))
+
+  // history: every step is a point; going back before the drag undoes it (HTML and version)
+  const log = await win.evaluate(dir => window.manul.history.log(dir), p.dir)
+  const msgs = log.map(e => e.message)
+  assert.equal(msgs[0], 'Moved title in card')
+  for (const m of ['Imported src.mp4', 'Made clip “Card”', 'Proposed “Card added”', 'Accepted “Card added”']) assert.ok(msgs.includes(m), `history has ${m}: ${msgs}`)
+  const beforeDrag = log[1]
+  const restored = await win.evaluate(([dir, id]) => window.manul.history.restore(dir, id), [p.dir, beforeDrag.id])
+  assert.doesNotMatch(readFileSync(join(p.dir, 'clips', 'card', 'clip.html'), 'utf8'), /translate:/, 'the move is undone in the clip')
+  assert.notEqual(restored.current, moved.current, 'the version from before the drag is back')
+  assert.match((await win.evaluate(dir => window.manul.history.log(dir), p.dir))[0].message, /^Restored/)
   console.log('clips e2e: ok')
 } finally {
   await app.close()

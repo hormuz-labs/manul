@@ -12,6 +12,7 @@ import { toolPath, toolStatus } from './media'
 import * as Tools from './tools'
 import * as Whisper from './whisper'
 import { Memory } from './memory'
+import { History } from './history'
 import { Skills } from './skills'
 import * as Projects from './projects'
 import { addOverlay, composeArgs, duration as timelineDuration, insertAt } from '../shared/timeline'
@@ -40,6 +41,11 @@ const projectOf = (dir: string) => {
   return p
 }
 const publish = async (p: Project) => { await Projects.save(p); send('project', p) }
+/** Save, show, and make this a point in the project's history. */
+const checkpoint = async (p: Project, message: string) => {
+  await publish(p)
+  await new History(p.dir).record(message).catch(e => console.warn('history', e))
+}
 
 // ---------------------------------------------------------------- consent cards: the caller waits until the user answers
 const consents = new Map<string, { req: ConsentRequest; answer: (ok: boolean) => void }>()
@@ -146,7 +152,9 @@ async function saveClip(p: Project, id: string, title: string, html: string, dur
   await mkdir(join(p.dir, 'clips', id), { recursive: true })
   await writeFile(join(p.dir, 'clips', id, 'clip.html'), prepareClipHtml(html, tl, dur, overlay))
   p.clips = { ...p.clips, [id]: { ...(p.clips?.[id] || { id, title, duration: dur, video: '', poster: '', updatedAt: 0 }), title, overlay } }
-  return bakeClip(p, id, title)
+  const r = await bakeClip(p, id, title)
+  await checkpoint(p, `Made clip “${title}”`)
+  return r
 }
 
 /** Render a clip's HTML to MP4 + poster and record it on the project. */
@@ -184,7 +192,7 @@ async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'age
   const v = await Projects.addVersion(p, join(p.dir, out), title, by, tl)
   if (by === 'user') Projects.accept(p, v.id)
   else p.proposal = v.id
-  await publish(p)
+  await checkpoint(p, by === 'user' ? title : `Proposed “${title}”`)
   return v.id
 }
 
@@ -238,6 +246,7 @@ function wire() {
   })
   ipcMain.handle('project:create', async (_e, file: string) => {
     const p = await openProject((await Projects.createFromFile(file)).dir)
+    await checkpoint(p, `Imported ${file.split('/').pop()}`)
     autoTranscribe(p, p.versions[0].path)
     return p
   })
@@ -253,10 +262,24 @@ function wire() {
     else p.versions = p.versions.filter(x => x.id !== p.proposal)
     p.proposal = undefined
     if (v && !accept) p.notes.forEach(n => { if (n.status === 'resolved' && n.reply) n.reply += ` (rejected: ${v.title})` })
+    await checkpoint(p, `${accept ? 'Accepted' : 'Rejected'} “${v?.title}”`)
+    return p
+  })
+  ipcMain.handle('project:current', async (_e, dir: string, id: string) => {
+    const p = projectOf(dir)
+    Projects.accept(p, id)
+    await checkpoint(p, `Switched to “${p.versions.find(v => v.id === id)?.title}”`)
+    return p
+  })
+  ipcMain.handle('history:log', (_e, dir: string) => new History(projectOf(dir).dir).log())
+  ipcMain.handle('history:restore', async (_e, dir: string, id: string) => {
+    const { clips } = await new History(dir).restore(id)
+    const p = await Projects.load(dir)
+    open.set(dir, p)
+    for (const c of clips) if (p.clips?.[c]) await bakeClip(p, c)
     await publish(p)
     return p
   })
-  ipcMain.handle('project:current', async (_e, dir: string, id: string) => { const p = projectOf(dir); Projects.accept(p, id); await publish(p); return p })
 
   // A message to the agent, optionally anchored (time / range / box) with a frame still (JPEG data URL).
   ipcMain.handle('agent:send', async (_e, dir: string, msg: { text: string; anchor?: Anchor; still?: string }) => {
@@ -265,7 +288,7 @@ function wire() {
     if (msg.anchor) {
       const jpeg = msg.still ? Buffer.from(msg.still.split(',')[1], 'base64') : undefined
       const n = await Projects.addNote(p, { anchor: msg.anchor, text: msg.text }, jpeg)
-      send('project', p)
+      await checkpoint(p, `Note: ${msg.text.slice(0, 60)}`)
       content = [{ type: 'text', text: `[note ${n.id} ${describe(msg.anchor)}] ${msg.text}` }]
       if (jpeg) content.push({ type: 'image', data: jpeg.toString('base64'), mimeType: 'image/jpeg' })
     }
@@ -362,7 +385,7 @@ app.whenReady().then(async () => {
           if (p.proposal) p.versions = p.versions.filter(v => v.id !== p.proposal) // a new proposal replaces an undecided one
           const v = await Projects.addVersion(p, abs, title, 'agent')
           p.proposal = v.id
-          await publish(p)
+          await checkpoint(p, `Proposed “${title}”`)
           return v.id
         },
         async resolveNote(dir, id, reply) {

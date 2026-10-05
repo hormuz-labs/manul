@@ -127,7 +127,7 @@ pro editors can take a Manul rough cut into their own editor.
 - [x] Electron shell + React/shadcn/Tailwind design system (dark theme, warm accents)
 - [x] pi-durable agent in the main process → **AG-UI adapter** → IPC → renderer
 - [x] Generic tool card + per-tool card registry
-- [~] Capability router (chat · image · voice · transcription) + bring-your-own-key keystore (keystore + Keys tabs done)
+- [~] Capability router (chat · image · voice · transcription) + bring-your-own-key keystore (keystore, Keys tabs, model picker done)
 - [ ] Local usage meter (provider, model, tokens or characters, cost) for every request
 - [x] Bundled ffmpeg/ffprobe; **Tools page** (installed, size, update, remove); on-demand installer with checksums
 - [ ] First-run setup checks (dependency doctor)
@@ -150,8 +150,10 @@ pro editors can take a Manul rough cut into their own editor.
 - [ ] Tracks drawer (timeline, mix, inspector)
 - [ ] Agent browser with take-over
 - [ ] Bring in your own footage, images and extra videos anywhere
-- [ ] Carry over the existing editor features: several projects and conversations, model picker, skills and profiles, memory,
+- [~] Carry over the existing editor features: several projects and conversations, model picker, skills and profiles, memory,
       history (git underneath), move elements, live mix, proxies, native menu, ⌘K
+      (done: conversations, model picker, skills + profiles, memory, history, move elements in clips; next: project tabs,
+      live mix, proxies, native menu, ⌘K)
 - [ ] Export: MP4 presets (16:9, 9:16, 1:1), captions burned in or as sidecar files
 - [ ] Over-the-air updates for skills and profiles
 - [ ] macOS (signed + notarized) and Linux builds; Homebrew cask; apt repository

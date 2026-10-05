@@ -48,6 +48,10 @@ const api = {
     render: (dir: string, id: string) => ipcRenderer.invoke('clip:render', dir, id) as Promise<{ video: string; poster: string; frames: number; duration: number; width: number; height: number; fps: number }>,
   },
   transcript: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('transcript:get', dir, mediaRel, make) as Promise<Transcript | null>,
+  history: {
+    log: (dir: string) => ipcRenderer.invoke('history:log', dir) as Promise<{ id: string; message: string; at: number }[]>,
+    restore: (dir: string, id: string) => ipcRenderer.invoke('history:restore', dir, id) as Promise<Project>,
+  },
   jobs: { list: () => ipcRenderer.invoke('jobs:list') as Promise<Job[]>, onChange: on<[Job[]]>('jobs') },
   consent: {
     list: () => ipcRenderer.invoke('consent:list') as Promise<ConsentRequest[]>,
