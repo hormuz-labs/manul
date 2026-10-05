@@ -63,8 +63,10 @@ export type Project = {
   transcripts?: Record<string, string>
   /** The model the user picked for this project (else the best available). */
   model?: { provider: string; modelId: string }
-  /** The project's durable agent conversation. */
+  /** The project's durable agent conversation on screen. */
   conversation?: string
+  /** Every conversation in this project (newest last); titles come from the first message. */
+  conversations?: { id: string; title: string; createdAt: number }[]
 }
 
 export type RecentProject = { id: string; title: string; dir: string; openedAt: number; thumb?: string }

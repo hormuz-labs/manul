@@ -219,6 +219,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
         <div className="w-[360px] shrink-0 border-l border-line bg-panel">
           <AgentPanel
             project={p.dir}
+            projectInfo={p}
             model={p.model}
             agent={agent}
             anchor={anchor}

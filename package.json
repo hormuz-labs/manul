@@ -16,7 +16,7 @@
     "test:watch": "vitest",
     "postinstall": "node scripts/fetch-ffmpeg.mjs && node scripts/copy-libs.mjs",
     "fetch:ffmpeg": "node scripts/fetch-ffmpeg.mjs",
-    "test:e2e": "electron-vite build && node test/e2e/clips.e2e.mjs"
+    "test:e2e": "electron-vite build && node test/e2e/clips.e2e.mjs && node test/e2e/conversations.e2e.mjs"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

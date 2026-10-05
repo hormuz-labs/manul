@@ -302,11 +302,13 @@ export async function startAgent(opts: { dbPath: string; bridge: Bridge; memory:
 
   const live = new Map<string, { conv: Any; off: () => void; view: Any; adapter: AguiAdapter }>()
 
-  async function open(dir: string, convId?: string) {
+  /** Show a project's conversation (the given one, the open one, or a new one); the renderer gets a full replay. */
+  async function open(dir: string, convId?: string, fresh = false) {
     const l = live.get(dir)
-    if (l) { l.adapter.replay(l.view.value); return l.conv.id as string }
+    if (l && !fresh && (convId == null || String(l.conv.id) === String(convId))) { l.adapter.replay(l.view.value); return String(l.conv.id) }
+    if (l) detach(dir)
     const model = await pickModel(dir)
-    let conv: Any | undefined = convId ? await harness.conversation(Number(convId) as any, ctx).catch(() => undefined) : undefined
+    let conv: Any | undefined = convId && !fresh ? await harness.conversation(Number(convId) as any, ctx).catch(() => undefined) : undefined
     if (!conv) conv = await harness.createConversation({ ownership: { kind: 'ownerless' }, agent: { ...(model ? { model } : {}), cwd: dir } } as any, ctx)
     else if (model) await conv.configure({ model, cwd: dir }, ctx)
     convDir.set(String(conv.id), dir)
@@ -318,8 +320,13 @@ export async function startAgent(opts: { dbPath: string; bridge: Bridge; memory:
     return String(conv.id)
   }
 
+  function detach(dir: string) { const l = live.get(dir); if (l) { l.off(); l.view.dispose?.(); live.delete(dir) } }
+
   return {
     open,
+    /** Start a new conversation in a project (the old ones stay, durable). */
+    newConversation: (dir: string) => open(dir, undefined, true),
+    current: (dir: string) => (live.has(dir) ? String(live.get(dir)!.conv.id) : undefined),
     hasModel: async () => !!(await pickModel()),
     model: (dir?: string) => pickModel(dir),
     models: async () => describeModels(await available()),
@@ -333,7 +340,7 @@ export async function startAgent(opts: { dbPath: string; bridge: Bridge; memory:
       await l.conv.submit({ type: 'input', content, whenBusy: 'steer' }, ctx)
     },
     async stop(dir: string) { await live.get(dir)?.conv.abort(ctx) },
-    close(dir: string) { const l = live.get(dir); if (l) { l.off(); l.view.dispose?.(); live.delete(dir) } },
+    close: detach,
     async shutdown() { for (const d of [...live.keys()]) this.close(d); await harness.close(ctx) },
   }
 }

@@ -40,7 +40,7 @@ export function JobsTray() {
     <Popover.Root>
       <Popover.Trigger className="no-drag inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-dim hover:bg-hover hover:text-fg">
         {running.length ? <Loader2 className="size-3.5 animate-spin text-amber" /> : failed ? <TriangleAlert className="size-3.5 text-bad" /> : <Check className="size-3.5 text-ok" />}
-        <span className="max-w-[180px] truncate">{running[0]?.title || jobs[0].title}</span>
+        <span className="max-w-[180px] truncate">{running[0]?.title || (jobs[0].status === 'done' && jobs[0].doneTitle) || jobs[0].title}</span>
         {pct != null && <span className="tabular text-faint">{Math.round(pct * 100)}%</span>}
       </Popover.Trigger>
       <Popover.Portal>

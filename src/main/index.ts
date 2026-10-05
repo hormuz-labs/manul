@@ -94,9 +94,15 @@ async function openProject(dir: string) {
   open.set(dir, p)
   if (agent) {
     const conv = await agent.open(dir, p.conversation)
-    if (conv !== p.conversation) { p.conversation = conv; await Projects.save(p) }
+    if (conv !== p.conversation || !p.conversations?.some(c => c.id === conv)) { useConversation(p, conv); await Projects.save(p) }
   }
   return p
+}
+
+/** Make a conversation the project's current one (recording it if new). */
+function useConversation(p: Project, id: string) {
+  p.conversation = id
+  if (!p.conversations?.some(c => c.id === id)) p.conversations = [...(p.conversations || []), { id, title: 'New conversation', createdAt: Date.now() }]
 }
 
 // ---------------------------------------------------------------- transcripts
@@ -263,6 +269,9 @@ function wire() {
       content = [{ type: 'text', text: `[note ${n.id} ${describe(msg.anchor)}] ${msg.text}` }]
       if (jpeg) content.push({ type: 'image', data: jpeg.toString('base64'), mimeType: 'image/jpeg' })
     }
+    // a new conversation is named after its first message
+    const rec = p.conversations?.find(c => c.id === p.conversation)
+    if (rec && rec.title === 'New conversation') { rec.title = msg.text.replace(/\s+/g, ' ').trim().slice(0, 48) || rec.title; await publish(p) }
     await agent!.send(dir, content)
   })
   ipcMain.handle('clip:save', (_e, dir: string, id: string, title: string, html: string, dur: number, overlay?: boolean) => saveClip(projectOf(dir), id, title, html, dur, !!overlay))
@@ -293,6 +302,14 @@ function wire() {
     p.model = model || undefined
     await publish(p)
     return agent?.model(dir)
+  })
+  ipcMain.handle('agent:newConversation', async (_e, dir: string) => { const p = projectOf(dir); useConversation(p, await agent!.newConversation(dir)); await publish(p); return p })
+  ipcMain.handle('agent:switch', async (_e, dir: string, id: string) => { const p = projectOf(dir); useConversation(p, await agent!.open(dir, id)); await publish(p); return p })
+  ipcMain.handle('agent:rename', async (_e, dir: string, id: string, title: string) => {
+    const p = projectOf(dir)
+    p.conversations = p.conversations?.map(c => (c.id === id ? { ...c, title: title.trim() || c.title } : c))
+    await publish(p)
+    return p
   })
   ipcMain.handle('agent:stop', (_e, dir: string) => agent?.stop(dir))
   ipcMain.handle('agent:attach', async (_e, dir: string) => { await openProject(dir) })
