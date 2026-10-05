@@ -31,6 +31,9 @@ const FASTER_WHISPER = '1.2.1'
 // faster-whisper 1.2.1 calls av.open(metadata_errors=…), which PyAV 17+ removed; pinned until faster-whisper catches up
 const PYAV = '16.1.0'
 export const WHISPER_MODEL = 'base'
+// The bundled whisper.cpp's model: multilingual base (huggingface.co/ggerganov/whisper.cpp), SHA-256 from its LFS pointer
+const WHISPER_MODEL_URL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin'
+export const WHISPER_MODEL_SHA256 = '60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe'
 
 type Def = Omit<OnDemandTool, 'installed' | 'diskBytes' | 'version'> & { install(j: JobHandle): Promise<string> }
 
@@ -50,8 +53,16 @@ const DEFS: Def[] = [
     },
   },
   {
-    id: 'whisper', name: 'Speech recognition (Whisper)', sizeMB: 330, needs: ['uv'],
-    description: 'Transcribes speech with word timings, so you (and Manul) can edit by text: cut the ums, remove a sentence, find a moment.',
+    id: 'whisper-model', name: 'Speech recognition (Whisper base model)', sizeMB: 148,
+    description: 'Lets Manul\'s built-in whisper.cpp transcribe speech with word timings, so you (and Manul) can edit by text: cut the ums, remove a sentence, find a moment.',
+    async install(j) {
+      await download(WHISPER_MODEL_URL, whisperModelPath(), WHISPER_MODEL_SHA256, j, 'Downloading the Whisper model')
+      return 'ggml-base'
+    },
+  },
+  {
+    id: 'whisper', name: 'Speech recognition (Python engine)', sizeMB: 330, needs: ['uv'],
+    description: 'faster-whisper in its own Python. Only needed on systems where Manul has no built-in whisper.cpp.',
     async install(j) {
       const env = pyEnv()
       j.progress(null, `Installing Python ${PYTHON}`)
@@ -68,6 +79,7 @@ const DEFS: Def[] = [
 ]
 
 // ---------------------------------------------------------------- paths other modules use
+export const whisperModelPath = () => join(dir('whisper-model'), 'ggml-base.bin')
 export const uvBin = () => join(dir('uv'), process.platform === 'win32' ? 'uv.exe' : 'uv')
 export const venvPython = (id: string) => join(dir(id), 'venv', 'bin', 'python')
 export const whisperEnv = () => ({ ...pyEnv(), HF_HOME: join(dir('whisper'), 'models'), HF_HUB_OFFLINE: '1' })

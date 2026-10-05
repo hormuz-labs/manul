@@ -88,7 +88,7 @@ async function transcriptOf(p: Project, mediaRel: string, opts: { ask: boolean }
   if (busy) return busy
   if (!(await Whisper.resolveEngine())) {
     if (!opts.ask) return null
-    await Tools.ensure('whisper', askTool(p.dir))
+    await Tools.ensure(Whisper.toolToInstall(), askTool(p.dir))
   }
   const out = Whisper.transcriptPathFor(mediaRel)
   const job = Whisper.transcribe(join(p.dir, mediaRel), join(p.dir, out), `Transcribing ${mediaRel.split('/').pop()}`, p.dir)

@@ -95,13 +95,14 @@ export type Job = {
 export type ConsentRequest = { id: string; project?: string; title: string; body: string; sizeMB?: number; confirm: string }
 
 /**
- * Which speech-to-text engine Manul uses.
+ * Which speech-to-text engine Manul uses, in order of preference when nothing is set:
  *   system   whisper.cpp already on this computer (whisper-cli + a ggml model): found automatically or set by the user
- *   managed  faster-whisper that Manul downloads into its own folder
+ *   bundled  Manul's own whisper.cpp, with the base model downloaded on first use
+ *   managed  faster-whisper in a Python environment Manul downloads (for platforms without a bundled build)
  * mode "auto" re-detects the system engine when its saved paths disappear; "custom" keeps the user's paths as they are.
  */
 export type WhisperConfig = {
-  engine: 'system' | 'managed'
+  engine: 'system' | 'bundled' | 'managed'
   mode: 'auto' | 'custom'
   binary?: string
   model?: string
@@ -111,10 +112,13 @@ export type WhisperConfig = {
 export type WhisperStatus = {
   config?: WhisperConfig
   /** The engine that would run right now, or null when one must be installed first. */
-  active: { engine: 'system' | 'managed'; binary?: string; model?: string; label: string } | null
+  active: { engine: 'system' | 'bundled' | 'managed'; binary?: string; model?: string; label: string } | null
   /** whisper.cpp binaries and models found on this computer. */
   found: { binaries: string[]; models: string[] }
   managedInstalled: boolean
+  /** Manul ships whisper.cpp for this platform (the model may still need downloading). */
+  bundledBinary: boolean
+  bundledReady: boolean
 }
 
 export type Word = { w: string; s: number; e: number; p?: number }

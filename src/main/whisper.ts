@@ -8,8 +8,8 @@ import { basename, dirname, extname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { getConfig, setConfig } from './config'
 import { asJob, type JobHandle } from './jobs'
-import { FFMPEG } from './media'
-import { isInstalled, scriptPath, venvPython, WHISPER_MODEL, whisperEnv } from './tools'
+import { FFMPEG, WHISPER_CLI } from './media'
+import { isInstalled, scriptPath, venvPython, WHISPER_MODEL, whisperEnv, whisperModelPath } from './tools'
 import type { Segment, Transcript, WhisperConfig, WhisperStatus, Word } from '../shared/types'
 
 const run = promisify(execFile)
@@ -57,23 +57,31 @@ const FIND: Finders = { binaries: findBinaries, models: near => findModels(near)
 export async function resolveEngine(find: Finders = FIND): Promise<WhisperStatus['active']> {
   const cfg = getConfig().whisper
   const usable = (c?: WhisperConfig) => c?.engine === 'system' && !!c.binary && !!c.model && existsSync(c.binary) && existsSync(c.model)
+  const fallback = () => (bundledReady() ? bundled() : isInstalled('whisper') ? managed() : null)
   if (cfg?.engine === 'managed' && isInstalled('whisper')) return managed()
+  if (cfg?.engine === 'bundled' && bundledReady()) return bundled()
   if (usable(cfg)) return system(cfg!.binary!, cfg!.model!)
-  if (cfg?.mode === 'custom' && cfg.engine === 'system') return isInstalled('whisper') ? managed() : null // user's paths are gone; don't override them silently
+  if (cfg?.mode === 'custom' && cfg.engine === 'system') return fallback() // the user's paths are gone: never re-detect over them
   const bins = await find.binaries()
   const models = find.models(bins)
   if (bins[0] && models[0]) {
     setConfig({ whisper: { engine: 'system', mode: 'auto', binary: bins[0], model: models[0] } })
     return system(bins[0], models[0])
   }
-  return isInstalled('whisper') ? managed() : null
+  return fallback()
 }
+export const bundledBinary = () => existsSync(WHISPER_CLI)
+export const bundledReady = () => bundledBinary() && isInstalled('whisper-model') && existsSync(whisperModelPath())
+const bundled = () => ({ engine: 'bundled' as const, binary: WHISPER_CLI, model: whisperModelPath(), label: 'whisper.cpp · base (bundled)' })
+/** The tool to offer when no engine is ready: the model for the bundled whisper.cpp, else the Python engine. */
+export const toolToInstall = () => (bundledBinary() ? 'whisper-model' : 'whisper')
 const system = (binary: string, model: string) => ({ engine: 'system' as const, binary, model, label: `whisper.cpp · ${basename(model).replace(/^ggml-|\.bin$/g, '')}` })
 const managed = () => ({ engine: 'managed' as const, label: `faster-whisper · ${WHISPER_MODEL} (downloaded by Manul)` })
 
 export async function whisperStatus(find: Finders = FIND): Promise<WhisperStatus> {
   const binaries = await find.binaries()
-  return { config: getConfig().whisper, active: await resolveEngine(find), found: { binaries, models: find.models(binaries) }, managedInstalled: isInstalled('whisper') }
+  return { config: getConfig().whisper, active: await resolveEngine(find), found: { binaries, models: find.models(binaries) },
+    managedInstalled: isInstalled('whisper'), bundledBinary: bundledBinary(), bundledReady: bundledReady() }
 }
 
 /** The user picked paths (custom), asked to re-detect (auto), or chose the downloaded engine. */
@@ -98,7 +106,7 @@ async function runTranscribe(file: string, outJson: string, j: JobHandle): Promi
   await mkdir(dirname(outJson), { recursive: true })
   let segments: Segment[], language: string
 
-  if (engine.engine === 'system') {
+  if (engine.engine === 'system' || engine.engine === 'bundled') {
     // whisper.cpp wants 16 kHz mono WAV; one word per segment (-ml 1 -sow) gives word timings
     const tmp = join(dirname(outJson), `.${basename(outJson, '.json')}`)
     j.progress(null, 'Extracting audio')

@@ -14,6 +14,8 @@ function SpeechSection({ onChange }: { onChange(): void }) {
   if (!st) return null
   const apply = async (c: Parameters<typeof window.manul.whisper.set>[0]) => { setSt(await window.manul.whisper.set(c)); onChange() }
   const sys = st.active?.engine === 'system' ? st.active : null
+  const engineButton = (engine: 'bundled' | 'managed', label: string) =>
+    st.active?.engine !== engine && <Button size="sm" variant="ghost" onClick={() => apply({ mode: 'custom', engine })}>{label}</Button>
   const custom = st.config?.mode === 'custom'
   const pick = async (what: 'binary' | 'model') => {
     const path = await window.manul.whisper.pick(what)
@@ -24,7 +26,7 @@ function SpeechSection({ onChange }: { onChange(): void }) {
       <div className="mb-2 flex items-center gap-2">
         <AudioLines className="size-4 text-amber" />
         <span className="flex-1 font-medium">Speech recognition</span>
-        <span className="rounded bg-bg px-1.5 py-0.5 text-[10.5px] text-dim">{st.active ? (custom ? 'your paths' : sys ? 'found on this computer' : 'downloaded by Manul') : 'not set up'}</span>
+        <span className="rounded bg-bg px-1.5 py-0.5 text-[10.5px] text-dim">{!st.active ? 'not set up' : custom && sys ? 'your paths' : sys ? 'found on this computer' : st.active.engine === 'bundled' ? 'built into Manul' : 'Python engine'}</span>
       </div>
       {st.active ? (
         <div className="space-y-1 text-xs">
@@ -35,7 +37,9 @@ function SpeechSection({ onChange }: { onChange(): void }) {
           </>}
         </div>
       ) : (
-        <p className="text-xs text-dim">No whisper.cpp found on this computer. Install the downloaded engine below, or point Manul at your own whisper-cli and model.</p>
+        <p className="text-xs text-dim">{st.bundledBinary
+          ? 'Manul has whisper.cpp built in; it needs its model (148 MB, below). Or point Manul at your own whisper-cli and model.'
+          : 'No whisper.cpp found on this computer. Install the Python engine below, or point Manul at your own whisper-cli and model.'}</p>
       )}
       {sys && st.found.models.length > 1 && (
         <label className="mt-2 flex items-center gap-2 text-xs text-dim">
@@ -50,7 +54,8 @@ function SpeechSection({ onChange }: { onChange(): void }) {
         <Button size="sm" variant="ghost" onClick={() => apply({ mode: 'auto' })} title="Search this computer again and use what is found"><RefreshCw />Detect again</Button>
         <Button size="sm" variant="ghost" onClick={() => pick('binary')}><FolderSearch />Choose program…</Button>
         <Button size="sm" variant="ghost" onClick={() => pick('model')}><FolderSearch />Choose model…</Button>
-        {st.managedInstalled && st.active?.engine !== 'managed' && <Button size="sm" variant="ghost" onClick={() => apply({ mode: 'custom', engine: 'managed' })}>Use Manul's download</Button>}
+        {st.bundledReady && engineButton('bundled', 'Use built-in')}
+        {st.managedInstalled && engineButton('managed', 'Use Python engine')}
       </div>
     </div>
   )

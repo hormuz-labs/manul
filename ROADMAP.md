@@ -110,7 +110,10 @@ pro editors can take a Manul rough cut into their own editor.
   that macOS Gatekeeper blocks.
 - **Linux:** `.deb` in our own apt repository (and AppImage).
 - **Speech recognition:** whisper.cpp already on the computer is found and used (paths saved, changeable, "Detect again");
-  otherwise Manul downloads faster-whisper. One transcription at a time.
+  otherwise Manul's own bundled whisper.cpp (static, Metal on macOS, ~4 MB) with the base model downloaded on first use
+  (148 MB, SHA-256 pinned); faster-whisper (Python) only where there is no bundled build. One transcription at a time.
+- **ffmpeg:** our own pinned FFmpeg 9.0.2 static builds (ffmpeg + ffprobe, same release) per platform; built from source
+  in CI once the repo has CI.
 - **Linux needs fallbacks** for macOS-only pieces: VideoToolbox → VAAPI/x264, whisper on Metal → whisper on the CPU or CUDA.
 - **ffmpeg licence:** a GPL build (x264) ships as a separate binary with a source offer, or an LGPL build with hardware encoders
   only. 💬 Decide which.

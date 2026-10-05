@@ -10,6 +10,11 @@ Manul runs FFmpeg as separate programs; it does not link against it.
 - **Source:** https://ffmpeg.org/download.html (release 9.0.2). Each library's source and the build scripts are
   listed at https://ffmpeg.martin-riedl.de. On request we will also provide the exact sources for the binaries we ship.
 
+## whisper.cpp v1.9.4 (whisper-cli)
+
+MIT licence, https://github.com/ggml-org/whisper.cpp. Built statically by `scripts/build-whisper.sh` (Metal embedded on
+macOS). The model (ggml-base, MIT, from huggingface.co/ggerganov/whisper.cpp) is downloaded on first use, SHA-256 checked.
+
 ## Tools downloaded on demand
 
 Downloaded only after the user agrees, into Manul's own folder: uv (Apache-2.0/MIT), faster-whisper (MIT),

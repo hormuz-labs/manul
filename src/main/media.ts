@@ -15,6 +15,8 @@ const BIN = app.isPackaged
 
 export const FFMPEG = join(BIN, 'ffmpeg')
 export const FFPROBE = join(BIN, 'ffprobe')
+/** Manul's own whisper.cpp (scripts/build-whisper.sh); its model is downloaded on demand. */
+export const WHISPER_CLI = join(BIN, 'whisper-cli')
 
 /** PATH with the bundled tools first, for every process the agent starts. */
 export const toolPath = () => [dirname(FFMPEG), dirname(FFPROBE), process.env.PATH].join(':')
