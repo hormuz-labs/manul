@@ -3,6 +3,8 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { BaseEvent } from '@ag-ui/core'
 import type { Anchor, ConsentRequest, Job, KeyInfo, OnDemandTool, Project, RecentProject, ToolStatus, Transcript, WhisperConfig, WhisperStatus } from '../shared/types'
 
+type SkillState = { skills: { id: string; name: string; description: string; path: string; source: 'bundled' | 'user' }[]; enabled: string[]; profile: { id: string; name: string }; profiles: { id: string; name: string }[] }
+
 const on = <T extends unknown[]>(ch: string) => (fn: (...args: T) => void) => {
   const h = (_e: unknown, ...args: unknown[]) => fn(...(args as T))
   ipcRenderer.on(ch, h)
@@ -17,6 +19,14 @@ const api = {
     list: () => ipcRenderer.invoke('tools:list') as Promise<OnDemandTool[]>,
     install: (id: string) => ipcRenderer.invoke('tools:install', id) as Promise<void>,
     remove: (id: string) => ipcRenderer.invoke('tools:remove', id) as Promise<void>,
+  },
+  skills: {
+    state: () => ipcRenderer.invoke('skills:state') as Promise<SkillState>,
+    enable: (id: string, on: boolean) => ipcRenderer.invoke('skills:enable', id, on) as Promise<SkillState>,
+    useProfile: (id: string) => ipcRenderer.invoke('skills:profile', id) as Promise<SkillState>,
+    newProfile: (name: string) => ipcRenderer.invoke('skills:newProfile', name) as Promise<SkillState>,
+    edit: (id: string) => ipcRenderer.invoke('skills:edit', id) as Promise<SkillState>,
+    openFolder: () => ipcRenderer.invoke('skills:folder'),
   },
   memory: {
     list: () => ipcRenderer.invoke('memory:list') as Promise<{ name: string; description: string; body: string }[]>,

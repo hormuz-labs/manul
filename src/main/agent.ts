@@ -19,6 +19,7 @@ import { existsSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
 import { AguiAdapter } from './agui'
 import type { Memory } from './memory'
+import type { Skills } from './skills'
 import { FFMPEG, probe } from './media'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -43,21 +44,8 @@ export type Bridge = {
   rerenderTimeline(dir: string, title: string): Promise<string>
 }
 
-const MOTION_GUIDE = `Motion clips (footage you make yourself): HTML + GSAP rendered frame-exact into video.
-- create_clip writes clips/<id>/clip.html. Write the body content and a <script> with GSAP; Manul adds the document, GSAP,
-  its runtime, the Inter font (font-family: Inter, weights 100–900) and a fixed stage at the timeline size.
-- Use normal GSAP: gsap.timeline() / gsap.to / from / fromTo, eases, staggers. Never pause it, never use setTimeout,
-  setInterval or requestAnimationFrame for motion: Manul drives time. Plugins available by name: SplitText, DrawSVGPlugin,
-  MorphSVGPlugin, MotionPathPlugin, TextPlugin, CustomEase. For canvas drawing use manul.onFrame(t => …).
-- Give every element a person may want to move or change a data-manul-id ("title", "subtitle", "logo"…). Position
-  elements absolutely in px on the stage (manul.width × manul.height).
-- No network: no web fonts, CDNs or remote images. Use inline SVG, CSS shapes/gradients, or files already in the project
-  (relative paths from the clip folder, e.g. ../../media/photo.jpg).
-- Design like a motion designer: one idea per clip, generous margins, big type with tight tracking, two or three colours
-  that suit the footage, purposeful easing (power3/expo out for entrances), motion that settles before the end, a clean
-  last frame. Respect the duration you set; 2–5 s for titles and cards.
-- You get the middle frame back as an image: look at it, and fix the clip (edit the file, then render_clip) if anything
-  is off — overflow, clipping, contrast, alignment. Then insert_clip at the right time.`
+const MOTION_POINTER = `Motion clips (title cards, lower thirds, kinetic text, charts…) are HTML + GSAP that Manul renders frame-exact: ` +
+  `use create_clip / render_clip / insert_clip / rerender_timeline. Read the motion-design skill first when it is enabled.`
 
 /** A clip tool's answer: what was rendered, plus the middle frame so the model can see its design. */
 async function clipResult(p: Project, c: ClipInfo & { frames: number }) {
@@ -102,7 +90,7 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       `then render_clip and rerender_timeline.\n` +
       `- Prefer one well-built ffmpeg command over many small ones. Keep codecs sensible: libx264 -crf 18 -preset veryfast, aac 192k, -movflags +faststart.\n` +
       `- When you need a decision from the user, call ask_user with 2–5 options and stop.\n` +
-      `Write replies in short plain Markdown. Say what you did, not how.\n\n` + MOTION_GUIDE, { tag: false })],
+      `Write replies in short plain Markdown. Say what you did, not how.\n\n` + MOTION_POINTER, { tag: false })],
     tools: [
       defineTool({
         name: 'project_state',
@@ -264,6 +252,21 @@ function memoryExtension(memory: Memory) {
   })
 }
 
+function skillsExtension(skills: Skills) {
+  return defineExtension({
+    name: 'skills',
+    sections: [section('skills', () => skills.prompt() || undefined)],
+    tools: [
+      defineTool({
+        name: 'fork_skill',
+        description: 'Copy a bundled skill into the user\'s skills folder so it can be changed (bundled skills are read-only). Returns the path of the editable SKILL.md.',
+        parameters: Type.Object({ id: Type.String() }),
+        execute: async (args: Any) => text(`Editable copy: ${skills.fork(args.id).path}`),
+      }),
+    ],
+  })
+}
+
 // Preferred model per provider; the first provider with a key wins.
 const PREFER: { provider: string; pick: RegExp[] }[] = [
   { provider: 'anthropic', pick: [/^claude-opus-5/, /^claude-sonnet-5/, /^claude-opus/] },
@@ -273,13 +276,13 @@ const PREFER: { provider: string; pick: RegExp[] }[] = [
 
 export type AgentHandle = Awaited<ReturnType<typeof startAgent>>
 
-export async function startAgent(opts: { dbPath: string; bridge: Bridge; memory: Memory; onEvent: (dir: string, e: BaseEvent) => void }) {
+export async function startAgent(opts: { dbPath: string; bridge: Bridge; memory: Memory; skills: Skills; onEvent: (dir: string, e: BaseEvent) => void }) {
   const models = createModels({ authContext: { env: async (n: string) => process.env[n], fileExists: async (p: string) => existsSync(p) } })
   for (const p of [anthropicProvider, googleProvider, openaiProvider]) models.setProvider(p())
 
   const convDir = new Map<string, string>() // conversation id → project dir
   const registry = createRegistry()
-  for (const ext of [CodingTools, editorExtension(opts.bridge, id => convDir.get(String(id)) || ''), memoryExtension(opts.memory)]) registry.install(ext)
+  for (const ext of [CodingTools, editorExtension(opts.bridge, id => convDir.get(String(id)) || ''), memoryExtension(opts.memory), skillsExtension(opts.skills)]) registry.install(ext)
 
   const harness = await Harness.open(await openNodeSqliteStorage(opts.dbPath), {
     models, registry,

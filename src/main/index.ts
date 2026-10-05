@@ -12,6 +12,7 @@ import { toolPath, toolStatus } from './media'
 import * as Tools from './tools'
 import * as Whisper from './whisper'
 import { Memory } from './memory'
+import { Skills } from './skills'
 import * as Projects from './projects'
 import { composeArgs, duration as timelineDuration, insertAt } from '../shared/timeline'
 import { moveElement, prepareClipHtml } from '../shared/clip-html'
@@ -29,6 +30,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'manul', privileges: { standard:
 let win: BrowserWindow | null = null
 let agent: AgentHandle | null = null
 let memory: Memory
+let skills: Skills
 const open = new Map<string, Project>() // dir → project
 
 const send = (ch: string, ...args: unknown[]) => win?.webContents.send(ch, ...args)
@@ -185,6 +187,13 @@ function wire() {
   ipcMain.handle('tools:install', (_e, id: string) => Tools.install(id))
   ipcMain.handle('tools:remove', (_e, id: string) => Tools.remove(id))
   ipcMain.handle('jobs:list', () => listJobs())
+  const skillState = () => ({ skills: skills.list(), enabled: skills.enabled().map(k => k.id), profile: skills.profile(), profiles: skills.profiles() })
+  ipcMain.handle('skills:state', () => skillState())
+  ipcMain.handle('skills:enable', (_e, id: string, on: boolean) => { skills.setEnabled(id, on); return skillState() })
+  ipcMain.handle('skills:profile', (_e, id: string) => { skills.useProfile(id); return skillState() })
+  ipcMain.handle('skills:newProfile', (_e, name: string) => { const p = skills.createProfile(name); skills.useProfile(p.id); return skillState() })
+  ipcMain.handle('skills:edit', async (_e, id: string) => { const k = skills.fork(id); await shell.openPath(k.path); return skillState() })
+  ipcMain.handle('skills:folder', () => shell.openPath(join(app.getPath('userData'), 'skills')))
   ipcMain.handle('memory:list', () => memory.list())
   ipcMain.handle('memory:save', (_e, name: string, description: string, body: string) => { memory.remember(name, description, body); return memory.list() })
   ipcMain.handle('memory:forget', (_e, name: string) => { memory.forget(name); return memory.list() })
@@ -296,6 +305,11 @@ app.whenReady().then(async () => {
   setClipProtocol(serveMedia)
   loadKeys()
   memory = new Memory(join(app.getPath('userData'), 'memory'))
+  skills = new Skills({
+    bundled: app.isPackaged ? join(process.resourcesPath, 'skills') : join(import.meta.dirname, '../../resources/skills'),
+    user: join(app.getPath('userData'), 'skills'),
+    profiles: join(app.getPath('userData'), 'profiles'),
+  })
   wire()
   onJobs(jobs => send('jobs', jobs))
   createWindow()
@@ -303,6 +317,7 @@ app.whenReady().then(async () => {
     agent = await startAgent({
       dbPath: join(app.getPath('userData'), 'agent.sqlite'),
       memory,
+      skills,
       onEvent: (dir, e) => send('agui', dir, e),
       bridge: {
         project: dir => open.get(dir),
