@@ -93,6 +93,7 @@ const api = {
     onReady: on<[]>('agent:ready'),
   },
   onSeek: on<[string, number]>('seek'),
+  onMenu: on<[string]>('menu'),
   onNotice: on<[string]>('notice'),
 }
 

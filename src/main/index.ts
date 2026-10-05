@@ -6,6 +6,7 @@ import { extname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { startAgent, type AgentHandle } from './agent'
 import { renderClip, setClipProtocol } from './clips'
+import { buildMenu } from './menu'
 import { keyStatus, loadKeys, setKey } from './keys'
 import { asJob, listJobs, onJobs } from './jobs'
 import { toolPath, toolStatus } from './media'
@@ -412,6 +413,7 @@ app.whenReady().then(async () => {
     profiles: join(app.getPath('userData'), 'profiles'),
   })
   wire()
+  buildMenu(() => win)
   onJobs(jobs => send('jobs', jobs))
   createWindow()
   try {

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, AudioLines, Upload, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
 import { JobsTray } from '@/components/JobsTray'
 import { HistoryButton } from '@/components/HistoryButton'
+import { useCommands } from '@/lib/commands'
 import { Button } from '@/components/ui/button'
 import { Tip } from '@/components/ui/tooltip'
 import { Kbd } from '@/components/ui/kbd'
@@ -30,6 +31,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   const [compare, setCompare] = useState<'after' | 'before'>('after')
   const [over, setOver] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [editing, setEditing] = useState<{ itemId: string; clip: string; start: number } | null>(null)
   const [showTranscript, setShowTranscript] = useState(() => localStorage.getItem('manul.transcript') !== '0')
   useEffect(() => { try { localStorage.setItem('manul.transcript', showTranscript ? '1' : '0') } catch { /* private mode */ } }, [showTranscript])
@@ -72,6 +74,22 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
     return () => window.removeEventListener('keydown', onKey)
   })
 
+  const mod = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+'
+  const addMedia = async () => { const f = await window.manul.project.pick(); if (f) await window.manul.project.import(p.dir, f) }
+  useCommands([
+    { id: 'export', title: 'Export…', keywords: 'save render mp4 vertical shorts captions srt', shortcut: `${mod}E`, run: () => setExporting(true) },
+    { id: 'media', title: 'Add media…', keywords: 'import footage image audio', shortcut: `${mod}I`, run: addMedia },
+    { id: 'reveal', title: 'Show project in Finder', keywords: 'folder files', run: () => window.manul.project.reveal(p.dir) },
+    { id: 'transcript', title: 'Show or hide the transcript', keywords: 'words text', shortcut: 'T', run: () => setShowTranscript(x => !x) },
+    { id: 'history', title: 'History', keywords: 'undo restore versions', run: () => setHistoryOpen(true) },
+    { id: 'note', title: 'Add a note at the playhead', shortcut: 'N', run: () => noteHere() },
+    { id: 'box', title: 'Draw a box on the picture', shortcut: 'B', run: () => { stage.current?.video?.pause(); setDrawing(true) } },
+    { id: 'play', title: 'Play or pause', shortcut: 'Space', run: () => { const v = stage.current?.video; if (v) v.paused ? v.play() : v.pause() } },
+    { id: 'agent.new', title: 'New conversation', run: () => window.manul.agent.newConversation(p.dir) },
+    { id: 'agent.focus', title: 'Ask Manul', shortcut: `${mod}L`, run: () => input.current?.focus() },
+    { id: 'agent.stop', title: 'Stop the agent', run: () => window.manul.agent.stop(p.dir) },
+  ], [p.dir])
+
   const current = p.versions.find(v => v.id === p.current)!
   const proposal = p.proposal ? p.versions.find(v => v.id === p.proposal) : undefined
   const onScreen = proposal && compare === 'after' ? proposal : current
@@ -105,7 +123,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
         <span className="flex-1" />
         <JobsTray />
         <Button className="no-drag" size="sm" variant="primary" onClick={() => setExporting(true)}><Upload />Export</Button>
-        <HistoryButton project={p} onRestored={np => { setP(np); setEditing(null) }} />
+        <HistoryButton project={p} open={historyOpen} onOpenChange={setHistoryOpen} onRestored={np => { setP(np); setEditing(null) }} />
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={() => window.manul.project.reveal(p.dir)} title="Show in Finder"><FolderOpen /></Button>
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={onTools} title="Tools"><Package /></Button>
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={onKeys} title="Keys"><KeyRound /></Button>

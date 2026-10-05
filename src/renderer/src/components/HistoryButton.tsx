@@ -6,8 +6,8 @@ import type { Project } from '../../../shared/types'
 
 type Entry = { id: string; message: string; at: number }
 
-export function HistoryButton({ project, onRestored }: { project: Project; onRestored(p: Project): void }) {
-  const [open, setOpen] = useState(false)
+export function HistoryButton({ project, onRestored, open, onOpenChange }: { project: Project; onRestored(p: Project): void; open: boolean; onOpenChange(v: boolean): void }) {
+  const setOpen = onOpenChange
   const [log, setLog] = useState<Entry[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   useEffect(() => { if (open) window.manul.history.log(project.dir).then(setLog) }, [open, project])
