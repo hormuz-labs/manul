@@ -24,5 +24,4 @@ export const rangeOfSelection = (words: Word[], a: number, b: number) => {
   return { t0: words[i].s, t1: words[j].e }
 }
 
-const FILLERS = new Set(['um', 'umm', 'uh', 'uhh', 'erm', 'er', 'ah', 'hmm', 'mm', 'mhm'])
-export const isFiller = (w: Word | string) => FILLERS.has((typeof w === 'string' ? w : w.w).toLowerCase().replace(/[^a-z]/g, ''))
+export { isFiller } from '../../../shared/fillers'

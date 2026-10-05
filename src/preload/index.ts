@@ -48,6 +48,11 @@ const api = {
     render: (dir: string, id: string) => ipcRenderer.invoke('clip:render', dir, id) as Promise<{ video: string; poster: string; frames: number; duration: number; width: number; height: number; fps: number }>,
   },
   transcript: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('transcript:get', dir, mediaRel, make) as Promise<Transcript | null>,
+  export: {
+    run: (dir: string, req: { preset: 'original' | 'landscape' | 'vertical' | 'square'; fit?: 'pad' | 'crop'; captions: 'none' | 'burn' | 'srt'; captionColor?: string }) =>
+      ipcRenderer.invoke('export:run', dir, req) as Promise<{ file: string; srt?: string } | null>,
+    reveal: (file: string) => ipcRenderer.invoke('export:reveal', file),
+  },
   history: {
     log: (dir: string) => ipcRenderer.invoke('history:log', dir) as Promise<{ id: string; message: string; at: number }[]>,
     restore: (dir: string, id: string) => ipcRenderer.invoke('history:restore', dir, id) as Promise<Project>,

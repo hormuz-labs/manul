@@ -17,9 +17,11 @@ import { Skills } from './skills'
 import * as Projects from './projects'
 import { addOverlay, composeArgs, duration as timelineDuration, insertAt } from '../shared/timeline'
 import { moveElement, prepareClipHtml } from '../shared/clip-html'
+import { captionCues, exportArgs, toSrt, type ExportOptions } from '../shared/export'
+import { spawn } from 'node:child_process'
 import { FFMPEG } from './media'
 import { execFile } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import type { Anchor, ClipInfo, ConsentRequest, Project, Transcript } from '../shared/types'
 import type { Timeline } from '../shared/timeline'
 
@@ -196,6 +198,38 @@ async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'age
   return v.id
 }
 
+// ---------------------------------------------------------------- export
+export type ExportRequest = { preset: ExportOptions['preset']; fit?: 'pad' | 'crop'; captions: 'none' | 'burn' | 'srt'; captionColor?: string }
+
+/** Export the version on screen to outAbs (and an .srt next to it when asked). */
+async function exportFilm(p: Project, req: ExportRequest, outAbs: string) {
+  const v = p.versions.find(x => x.id === p.current)!
+  const info = p.media[v.path]
+  return asJob(`Exporting ${outAbs.split('/').pop()}`, 'render', async j => {
+    let srt: string | undefined
+    if (req.captions !== 'none') {
+      j.progress(null, 'Captions')
+      const t = await transcriptOf(p, v.path, { ask: true })
+      srt = outAbs.replace(/\.[^.]+$/, '.srt')
+      await writeFile(srt, toSrt(t ? captionCues(t) : []))
+    }
+    const tmpSrt = req.captions === 'burn' && srt ? join(p.dir, '.manul-captions.srt') : undefined
+    if (tmpSrt) await writeFile(tmpSrt, await readFile(srt!, 'utf8'))
+    const args = exportArgs({ preset: req.preset, fit: req.fit, input: join(p.dir, v.path), out: outAbs, source: info,
+      burnCaptions: tmpSrt ? '.manul-captions.srt' : undefined, fontsDir: join(LIB, 'fonts'), captionColor: req.captionColor })
+    await new Promise<void>((ok, fail) => {
+      const ff = spawn(FFMPEG, ['-y', '-loglevel', 'error', '-progress', 'pipe:1', '-nostats', ...args], { cwd: p.dir })
+      let err = ''
+      ff.stdout.on('data', d => { const m = /out_time_ms=(\d+)/.exec(String(d)); if (m && info.duration) j.progress(Math.min(1, Number(m[1]) / 1e6 / info.duration)) })
+      ff.stderr.on('data', d => { err += d })
+      ff.on('close', c => (c === 0 ? ok() : fail(new Error(err.slice(-1500)))))
+    })
+    if (tmpSrt) await rm(tmpSrt, { force: true })
+    if (req.captions === 'burn' && srt) await rm(srt, { force: true })
+    return { file: outAbs, srt: req.captions === 'srt' ? srt : undefined }
+  }, { project: p.dir, doneTitle: `Exported ${outAbs.split('/').pop()}` })
+}
+
 const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`
 const describe = (a: Anchor) =>
   `@ ${fmt(a.t0)}${a.t1 != null ? `–${fmt(a.t1)}` : ''}${a.box ? `, box ${[a.box.x, a.box.y, a.box.w, a.box.h].map(n => n.toFixed(3)).join(',')}` : ''}` +
@@ -271,6 +305,14 @@ function wire() {
     await checkpoint(p, `Switched to “${p.versions.find(v => v.id === id)?.title}”`)
     return p
   })
+  ipcMain.handle('export:run', async (_e, dir: string, req: ExportRequest) => {
+    const p = projectOf(dir)
+    const suffix = { original: '', landscape: '-16x9', vertical: '-9x16', square: '-1x1' }[req.preset]
+    const r = await dialog.showSaveDialog(win!, { title: 'Export', defaultPath: join(app.getPath('videos'), `${p.title}${suffix}.mp4`), filters: [{ name: 'MP4 video', extensions: ['mp4'] }] })
+    if (r.canceled || !r.filePath) return null
+    return exportFilm(p, req, r.filePath)
+  })
+  ipcMain.handle('export:reveal', (_e, file: string) => shell.showItemInFolder(file))
   ipcMain.handle('history:log', (_e, dir: string) => new History(projectOf(dir).dir).log())
   ipcMain.handle('history:restore', async (_e, dir: string, id: string) => {
     const { clips } = await new History(dir).restore(id)
@@ -411,6 +453,12 @@ app.whenReady().then(async () => {
           if (!c) throw new Error(`No clip "${id}". Create it with create_clip first.`)
           const { timeline } = insertAt(p.timeline!, at, { kind: 'clip', clip: id, dur: c.duration })
           return proposeTimeline(p, timeline, title)
+        },
+        async exportFilm(dir, req) {
+          const p = projectOf(dir)
+          await mkdir(join(p.dir, 'exports'), { recursive: true })
+          const suffix = { original: '', landscape: '-16x9', vertical: '-9x16', square: '-1x1' }[req.preset]
+          return exportFilm(p, req, join(p.dir, 'exports', `${p.title}${suffix}.mp4`))
         },
         rerenderTimeline: (dir, title) => { const p = projectOf(dir); return proposeTimeline(p, p.timeline!, title) },
       },

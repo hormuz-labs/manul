@@ -1,6 +1,6 @@
 // The Screen view: the film, the scrubber with notes, and the agent beside it.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, AudioLines, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
+import { ArrowLeft, AudioLines, Upload, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
 import { JobsTray } from '@/components/JobsTray'
 import { HistoryButton } from '@/components/HistoryButton'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,7 @@ import { AgentPanel } from './AgentPanel'
 import { TranscriptPanel } from './TranscriptPanel'
 import { TimelineStrip } from './TimelineStrip'
 import { ClipEditor } from './ClipEditor'
+import { ExportDialog } from './ExportDialog'
 import { Scrubber } from './Scrubber'
 import { Stage, type StageHandle } from './Stage'
 import type { Anchor, Box, Project } from '../../../shared/types'
@@ -28,6 +29,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   const [drawing, setDrawing] = useState(false)
   const [compare, setCompare] = useState<'after' | 'before'>('after')
   const [over, setOver] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [editing, setEditing] = useState<{ itemId: string; clip: string; start: number } | null>(null)
   const [showTranscript, setShowTranscript] = useState(() => localStorage.getItem('manul.transcript') !== '0')
   useEffect(() => { try { localStorage.setItem('manul.transcript', showTranscript ? '1' : '0') } catch { /* private mode */ } }, [showTranscript])
@@ -87,6 +89,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
         }
       }}
     >
+      <ExportDialog dir={p.dir} open={exporting} onOpenChange={setExporting} />
       {/* title bar */}
       <div className="drag flex h-11 shrink-0 items-center gap-2 border-b border-line pl-20 pr-2">
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={onHome} title="All projects"><ArrowLeft /></Button>
@@ -101,6 +104,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
         </select>
         <span className="flex-1" />
         <JobsTray />
+        <Button className="no-drag" size="sm" variant="primary" onClick={() => setExporting(true)}><Upload />Export</Button>
         <HistoryButton project={p} onRestored={np => { setP(np); setEditing(null) }} />
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={() => window.manul.project.reveal(p.dir)} title="Show in Finder"><FolderOpen /></Button>
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={onTools} title="Tools"><Package /></Button>

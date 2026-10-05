@@ -44,6 +44,7 @@ export type Bridge = {
   bakeClip(dir: string, id: string): Promise<ClipInfo & { frames: number }>
   insertClip(dir: string, id: string, at: number, title: string): Promise<string>
   rerenderTimeline(dir: string, title: string): Promise<string>
+  exportFilm(dir: string, req: { preset: 'original' | 'landscape' | 'vertical' | 'square'; fit?: 'pad' | 'crop'; captions: 'none' | 'burn' | 'srt'; captionColor?: string }): Promise<{ file: string; srt?: string }>
 }
 
 const MOTION_POINTER = `Motion clips (title cards, lower thirds, kinetic text, charts…) are HTML + GSAP that Manul renders frame-exact: ` +
@@ -202,6 +203,20 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
         description: 'Render the current timeline again (after a clip in it changed) and propose it.',
         parameters: Type.Object({ title: Type.String() }),
         execute: async (args: Any, api: Any) => text(`Proposed as version ${await bridge.rerenderTimeline(proj(api).dir, args.title)}.`),
+      }),
+      defineTool({
+        name: 'export_video',
+        description: 'Export the version on screen as a finished MP4 into the project\'s exports/ folder: a size preset (original, landscape 16:9, vertical 9:16 for Shorts/Reels/TikTok, square 1:1) and captions from the transcript (burned in, or an .srt file next to it).',
+        parameters: Type.Object({
+          preset: Type.Union([Type.Literal('original'), Type.Literal('landscape'), Type.Literal('vertical'), Type.Literal('square')]),
+          fit: Type.Optional(Type.Union([Type.Literal('pad'), Type.Literal('crop')], { description: 'other shapes: blurred fill behind the picture (pad, default) or centre crop' })),
+          captions: Type.Union([Type.Literal('none'), Type.Literal('burn'), Type.Literal('srt')]),
+          caption_color: Type.Optional(Type.String({ description: '#rrggbb, default white; follow the user\'s remembered caption style' })),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const r = await bridge.exportFilm(proj(api).dir, { preset: args.preset, fit: args.fit, captions: args.captions, captionColor: args.caption_color })
+          return text(`Exported ${r.file}${r.srt ? ` and ${r.srt}` : ''}.`)
+        },
       }),
       defineTool({
         name: 'propose_version',
