@@ -16,7 +16,7 @@
     "test:watch": "vitest",
     "postinstall": "node scripts/fetch-ffmpeg.mjs && node scripts/copy-libs.mjs",
     "fetch:ffmpeg": "node scripts/fetch-ffmpeg.mjs",
-    "test:e2e": "electron-vite build && node test/e2e/clips.e2e.mjs && node test/e2e/export.e2e.mjs && node test/e2e/menu.e2e.mjs && node test/e2e/proxy.e2e.mjs && node test/e2e/conversations.e2e.mjs",
+    "test:e2e": "electron-vite build && node test/e2e/clips.e2e.mjs && node test/e2e/export.e2e.mjs && node test/e2e/menu.e2e.mjs && node test/e2e/proxy.e2e.mjs && node test/e2e/tabs.e2e.mjs && node test/e2e/conversations.e2e.mjs",
     "package": "electron-vite build && electron-builder",
     "package:dir": "electron-vite build && electron-builder --dir"
   },

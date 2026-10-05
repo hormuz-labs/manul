@@ -14,6 +14,7 @@ import { asJob, listJobs, onJobs } from './jobs'
 import { toolPath, toolStatus } from './media'
 import * as Tools from './tools'
 import * as Whisper from './whisper'
+import { getConfig, setConfig } from './config'
 import { Memory } from './memory'
 import { History } from './history'
 import { Skills } from './skills'
@@ -306,6 +307,8 @@ function wire() {
   ipcMain.handle('agent:ready', async () => !!agent && (await agent.hasModel()))
 
   ipcMain.handle('project:recent', () => Projects.recent())
+  ipcMain.handle('tabs:get', () => getConfig().tabs || { open: [], active: null })
+  ipcMain.handle('tabs:set', (_e, tabs: { open: string[]; active: string | null }) => { setConfig({ tabs }) })
   ipcMain.handle('project:pick', async () => {
     const r = await dialog.showOpenDialog(win!, { properties: ['openFile'], filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'm4v', 'webm', 'mkv'] }] })
     return r.canceled ? null : r.filePaths[0]

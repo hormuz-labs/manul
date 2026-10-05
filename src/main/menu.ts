@@ -17,6 +17,7 @@ export function buildMenu(win: () => BrowserWindow | null) {
       cmd('export', 'Export…', 'CmdOrCtrl+E'),
       { type: 'separator' },
       cmd('reveal', 'Show Project in Finder'),
+      cmd('tab.close', 'Close Tab', 'CmdOrCtrl+W'),
       ...(mac ? [] : [{ type: 'separator' } as MenuItemConstructorOptions, cmd('settings', 'Settings…', 'CmdOrCtrl+,'), { role: 'quit' } as MenuItemConstructorOptions]),
     ] },
     { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
@@ -35,7 +36,11 @@ export function buildMenu(win: () => BrowserWindow | null) {
       { type: 'separator' },
       cmd('settings.skills', 'Skills…'), cmd('settings.memory', 'Memory…'), cmd('settings.keys', 'Keys…'),
     ] },
-    { role: 'windowMenu' },
+    { label: 'Window', submenu: [
+      cmd('tab.next', 'Next Tab', 'Ctrl+Tab'), cmd('tab.prev', 'Previous Tab', 'Ctrl+Shift+Tab'),
+      { label: 'Go to Tab', submenu: Array.from({ length: 9 }, (_, i) => cmd(`tab.${i + 1}`, `Tab ${i + 1}`, `CmdOrCtrl+${i + 1}`)) },
+      { type: 'separator' }, { role: 'minimize' }, { role: 'zoom' }, ...(mac ? [{ type: 'separator' } as MenuItemConstructorOptions, { role: 'front' } as MenuItemConstructorOptions] : []),
+    ] },
     { role: 'help', submenu: [
       { label: 'Roadmap', click: () => shell.openExternal('https://github.com/hormuz-labs/manul/blob/main/ROADMAP.md') },
       { label: 'Report a Problem', click: () => shell.openExternal('https://github.com/hormuz-labs/manul/issues/new') },

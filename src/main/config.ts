@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { WhisperConfig } from '../shared/types'
 
-export type Config = { whisper?: WhisperConfig }
+export type Config = { whisper?: WhisperConfig; /** open project tabs, restored on launch */ tabs?: { open: string[]; active: string | null } }
 
 const file = () => join(app.getPath('userData'), 'config.json')
 let cache: Config | null = null

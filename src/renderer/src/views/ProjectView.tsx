@@ -19,7 +19,7 @@ import { Scrubber } from './Scrubber'
 import { Stage, type StageHandle } from './Stage'
 import type { Anchor, Box, Project } from '../../../shared/types'
 
-export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, ready }: { initial: Project; firstPrompt?: string; onHome(): void; onKeys(): void; onTools(): void; ready: boolean }) {
+export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, ready, active = true, tabbed = false }: { initial: Project; firstPrompt?: string; onHome(): void; onKeys(): void; onTools(): void; ready: boolean; active?: boolean; tabbed?: boolean }) {
   const [p, setP] = useState(initial)
   const agent = useAgent(p.dir)
   const stage = useRef<StageHandle>(null)
@@ -61,7 +61,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   // keyboard: Space play/pause · N note · B box · ←/→ ±1 s (⇧ ±5 s) · Esc clears
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).closest('textarea, input')) return
+      if (!active || (e.target as HTMLElement).closest('textarea, input')) return
       const v = stage.current?.video
       if (e.key === ' ') { e.preventDefault(); if (v) v.paused ? v.play() : v.pause() }
       else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); noteHere() }
@@ -77,7 +77,9 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
 
   const mod = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+'
   const addMedia = async () => { const f = await window.manul.project.pick(); if (f) await window.manul.project.import(p.dir, f) }
-  useCommands([
+  // a background tab stops playing and leaves the menu, palette and keys to the tab on screen
+  useEffect(() => { if (!active) stage.current?.video?.pause() }, [active])
+  useCommands(!active ? [] : [
     { id: 'export', title: 'Export…', keywords: 'save render mp4 vertical shorts captions srt', shortcut: `${mod}E`, run: () => setExporting(true) },
     { id: 'media', title: 'Add media…', keywords: 'import footage image audio', shortcut: `${mod}I`, run: addMedia },
     { id: 'reveal', title: 'Show project in Finder', keywords: 'folder files', run: () => window.manul.project.reveal(p.dir) },
@@ -89,7 +91,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
     { id: 'agent.new', title: 'New conversation', run: () => window.manul.agent.newConversation(p.dir) },
     { id: 'agent.focus', title: 'Ask Manul', shortcut: `${mod}L`, run: () => input.current?.focus() },
     { id: 'agent.stop', title: 'Stop the agent', run: () => window.manul.agent.stop(p.dir) },
-  ], [p.dir])
+  ], [p.dir, active])
 
   const current = p.versions.find(v => v.id === p.current)!
   const proposal = p.proposal ? p.versions.find(v => v.id === p.proposal) : undefined
@@ -110,7 +112,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
     >
       <ExportDialog dir={p.dir} open={exporting} onOpenChange={setExporting} />
       {/* title bar */}
-      <div className="drag flex h-11 shrink-0 items-center gap-2 border-b border-line pl-20 pr-2">
+      <div className={cn('drag flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2', tabbed ? 'pl-2' : 'pl-20')}>
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={onHome} title="All projects"><ArrowLeft /></Button>
         <span className="truncate font-medium">{p.title}</span>
         <select

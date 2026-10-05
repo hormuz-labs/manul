@@ -69,6 +69,10 @@ const api = {
     list: () => ipcRenderer.invoke('keys:list') as Promise<KeyInfo[]>,
     set: (name: string, value: string) => ipcRenderer.invoke('keys:set', name, value) as Promise<KeyInfo[]>,
   },
+  tabs: {
+    get: () => ipcRenderer.invoke('tabs:get') as Promise<{ open: string[]; active: string | null }>,
+    set: (t: { open: string[]; active: string | null }) => ipcRenderer.invoke('tabs:set', t),
+  },
   project: {
     recent: () => ipcRenderer.invoke('project:recent') as Promise<RecentProject[]>,
     pick: () => ipcRenderer.invoke('project:pick') as Promise<string | null>,

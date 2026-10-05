@@ -7,7 +7,7 @@ import type { Project, RecentProject } from '../../../shared/types'
 
 const IDEAS = ['Cut the ums and long pauses', 'Make a 60-second vertical for Shorts', 'Add a fade in and fade out', 'Trim to the best 30 seconds']
 
-export function Start({ onOpen, onKeys, onTools, ready }: { onOpen: (p: Project, prompt?: string) => void; onKeys: () => void; onTools: () => void; ready: boolean }) {
+export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOpen: (p: Project, prompt?: string) => void; onKeys: () => void; onTools: () => void; ready: boolean; tabbed?: boolean }) {
   const [file, setFile] = useState<string | null>(null)
   const [prompt, setPrompt] = useState('')
   const [over, setOver] = useState(false)
@@ -38,7 +38,7 @@ export function Start({ onOpen, onKeys, onTools, ready }: { onOpen: (p: Project,
       onDragLeave={e => { if (e.currentTarget === e.target) setOver(false) }}
       onDrop={e => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files[0]; if (f) choose(window.manul.pathForFile(f)) }}
     >
-      <div className="drag flex h-11 shrink-0 items-center justify-end gap-1 px-3">
+      <div className={cn('flex h-11 shrink-0 items-center justify-end gap-1 px-3', !tabbed && 'drag')}>
         <JobsTray />
         <Button className="no-drag" size="sm" variant="ghost" onClick={onTools}><Package />Tools</Button>
         <Button className="no-drag" size="sm" variant="ghost" onClick={onKeys}><KeyRound />Keys</Button>
