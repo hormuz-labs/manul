@@ -1,8 +1,8 @@
+*.log
+.DS_Store
+dist/
 node_modules/
 out/
-dist/
-.DS_Store
-*.log
 resources/bin/
 resources/lib/*.min.js
 resources/lib/fonts/

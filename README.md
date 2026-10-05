@@ -18,6 +18,12 @@ Layout: `src/main` (Electron main: projects, keys, media tools, pi-durable agent
 (the bridge), `src/renderer` (React + Tailwind; `views/` are the screens, `components/ui/` the shadcn-style primitives),
 `src/shared` (types used on both sides).
 
+## Packaging
+
+```bash
+npm run package    # dist/: macOS .dmg + .zip, or Linux .deb + AppImage (signing/notarizing happens in CI)
+```
+
 ## Tests
 
 Development is test-driven: every change comes with tests.
@@ -27,6 +33,7 @@ npm test           # unit + integration (Vitest); Electron is stubbed, ffmpeg is
 MANUL_TEST_TOOLS=<tools folder with whisper installed> npm test   # also runs the downloaded-engine test
 npm run test:e2e   # the real app: motion clips render frame-exact, clips have no network
 npm run smoke      # the real app, end to end (Playwright)
+npm run package:dir && node test/e2e/packaged.e2e.mjs   # the packaged app: tools, clips, skills, export from the bundle
 ```
 
 Integration tests that need something this machine lacks (whisper.cpp, macOS `say`, an installed tool) skip themselves.

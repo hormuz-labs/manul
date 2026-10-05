@@ -1,0 +1,56 @@
+# Packaging: macOS (.dmg + .zip for updates), Linux (.deb + AppImage). Release builds run in CI (.github/workflows).
+appId: com.hormuzlabs.manul
+productName: Manul
+copyright: Copyright © 2026 Hormuz Labs
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+asar: true
+# Manul's own tools and assets live next to the app, never inside the asar archive
+extraResources:
+  - from: resources/bin/${platform}-${arch}
+    to: bin
+    filter: ["ffmpeg", "ffprobe", "whisper-cli"]
+  - from: resources/lib
+    to: lib
+  - from: resources/skills
+    to: skills
+  - from: resources/py
+    to: py
+  - from: THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
+mac:
+  category: public.app-category.video
+  target:
+    - target: dmg
+    - target: zip
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  icon: build/icon.icns
+  minimumSystemVersion: "12.0"
+dmg:
+  title: Manul
+  artifactName: Manul-${version}-${arch}.dmg
+linux:
+  category: AudioVideo
+  icon: build/icons
+  maintainer: Hormuz Labs <hello@hormuz-labs.dev>
+  synopsis: An agentic video editor
+  description: Drop in a video, say what you want, and Manul does the edit.
+  target:
+    - target: deb
+    - target: AppImage
+  artifactName: manul_${version}_${arch}.${ext}
+deb:
+  packageCategory: video
+  priority: optional
+publish:
+  provider: github
+  owner: hormuz-labs
+  repo: manul
