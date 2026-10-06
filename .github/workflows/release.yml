@@ -46,6 +46,8 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           npx electron-vite build
+          # an empty CSC_LINK makes electron-builder read the project folder as the certificate: unset what isn't configured
+          for v in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do [ -n "${!v}" ] || unset "$v"; done
           NOTARIZE=false
           if [ "$RUNNER_OS" = macOS ] && [ -n "$APPLE_ID" ]; then NOTARIZE=true; fi
           npx electron-builder ${{ matrix.target }} --${{ matrix.arch }} --publish always -c.mac.notarize=$NOTARIZE
