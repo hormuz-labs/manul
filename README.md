@@ -156,12 +156,13 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 
 ## Get Manul
 
-> **Manul is in early days.** Signed downloads are on the way:
+> **Manul is in early days.**
 
 ```bash
-brew install --cask manul      # macOS (coming soon)
-sudo apt install manul         # Debian / Ubuntu (coming soon)
+brew install hormuz-labs/tap/manul     # macOS
 ```
+
+On Linux, grab the `.deb` or AppImage from the [latest release](https://github.com/hormuz-labs/manul/releases/latest). An apt repository is on the way.
 
 It's free and open source. Bring a Claude, Gemini or OpenAI key (it's kept in your system's keychain), or wait for the single **Manul key**, coming soon.
 

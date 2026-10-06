@@ -1,4 +1,4 @@
-// Render Manul's Homebrew cask (for the hormuz-labs/homebrew-tap repository).
+// Render Manul's Homebrew cask. The hormuz-labs/homebrew-tap repository runs this from each release tag itself.
 //   node scripts/homebrew-cask.mjs <version> <arm64 dmg sha256> <x64 dmg sha256>  > Casks/manul.rb
 // auto_updates: Manul updates itself (electron-updater), so `brew upgrade` leaves it alone.
 import { fileURLToPath } from 'node:url'
@@ -27,6 +27,12 @@ export function renderCask({ version, arm64, x64 }) {
   depends_on macos: ">= :monterey"
 
   app "Manul.app"
+
+  # builds aren't notarized yet: without this macOS calls the downloaded app "damaged". Drop it once releases are signed.
+  postflight do
+    system_command "/usr/bin/xattr",
+                   args: ["-dr", "com.apple.quarantine", "#{appdir}/Manul.app"]
+  end
 
   zap trash: [
     "~/Library/Application Support/Manul",

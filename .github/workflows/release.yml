@@ -1,5 +1,5 @@
 # Push a tag like v0.2.0 → build, sign and notarize (macOS), publish to GitHub Releases (the auto-update feed),
-# then update the Homebrew tap and the apt repository.
+# then update the apt repository. The Homebrew tap (hormuz-labs/homebrew-tap) picks up new releases on its own.
 name: Release
 on:
   push:
@@ -55,36 +55,6 @@ jobs:
         with:
           name: deb-${{ matrix.arch }}
           path: dist/*.deb
-
-  homebrew:
-    needs: build
-    runs-on: ubuntu-24.04
-    if: ${{ vars.HOMEBREW_TAP != '' }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Checksums of the published .dmg files
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          V="${GITHUB_REF_NAME#v}"
-          gh release download "$GITHUB_REF_NAME" -p "Manul-$V-arm64.dmg" -p "Manul-$V-x64.dmg" -D dmg
-          echo "ARM=$(sha256sum "dmg/Manul-$V-arm64.dmg" | cut -d' ' -f1)" >> "$GITHUB_ENV"
-          echo "X64=$(sha256sum "dmg/Manul-$V-x64.dmg" | cut -d' ' -f1)" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ vars.HOMEBREW_TAP }}
-          token: ${{ secrets.TAP_TOKEN }}
-          path: tap
-      - name: Update the cask
-        run: |
-          mkdir -p tap/Casks
-          node scripts/homebrew-cask.mjs "${GITHUB_REF_NAME#v}" "$ARM" "$X64" > tap/Casks/manul.rb
-          cd tap
-          git config user.name agenthormuz
-          git config user.email 275594696+hormuz-labs@users.noreply.github.com
-          git add Casks/manul.rb
-          git commit -m "manul ${GITHUB_REF_NAME#v}"
-          git push
 
   apt:
     needs: build
