@@ -40,13 +40,17 @@ Video editors make **you** operate them. AI video tools take your footage away a
 <tr>
 <td width="50%" valign="top">
 
-### 👉 You point. It edits.
+<img src="docs/icons/mouse-pointer-click.svg" width="44" alt="">
+
+### You point. It edits.
 Draw a box around a number plate that needs blurring. Drag across the sentence that drags on. Click the one word in a title that's wrong. Your note sits on that exact spot and moment, and that's the spot Manul changes.
 
 </td>
 <td width="50%" valign="top">
 
-### ⚖️ It proposes. You decide.
+<img src="docs/icons/git-compare-arrows.svg" width="44" alt="">
+
+### It proposes. You decide.
 Nothing is overwritten. Every edit arrives as a new version you can scrub before and after, then keep or send back with a reply. Every version you ever kept is one click away.
 
 </td>
@@ -54,13 +58,17 @@ Nothing is overwritten. Every edit arrives as a new version you can scrub before
 <tr>
 <td width="50%" valign="top">
 
-### 🎞️ Your pixels stay real.
+<img src="docs/icons/film.svg" width="44" alt="">
+
+### Your pixels stay real.
 Manul cuts **your** footage. It doesn't generate fake frames. Titles, lower thirds and captions are real typography, drawn frame-perfect, and you can still drag the words around after Manul has made them.
 
 </td>
 <td width="50%" valign="top">
 
-### 🔒 Your footage stays home.
+<img src="docs/icons/lock-keyhole.svg" width="44" alt="">
+
+### Your footage stays home.
 No upload queue, no cloud project, no waiting for a render farm. The editing and even the transcription run on your computer. The AI you bring your own key for only ever sees text and still frames.
 
 </td>
@@ -87,15 +95,36 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 
 ## What's in the box
 
-| | What it means for you |
-|---|---|
-| ✂️ **Word-accurate cuts** | Every spoken word is transcribed with its timing, so "cut the ums" or "drop the second take" lands on the exact word |
-| ✨ **Titles it designs** | Title cards, lower thirds, callouts and animated text, timed to your film and editable by hand |
-| 🎚️ **A mix you hear live** | Music loops to the length of your film and ducks under speech. Move a slider and you hear it at once, before anything renders |
-| 📐 **One film, every shape** | 16:9 for YouTube, 9:16 for Shorts, Reels and TikTok, 1:1 for feeds, with captions burned in or as a file |
-| 🌐 **Its own browser** | It looks up references and finds footage in a browser of its own, never yours, unless you switch that on |
-| 🧠 **A memory for taste** | Say "captions are always yellow" once and every project after that knows it |
-| 🗂️ **Tabs and any model** | Several films open at once, each with its own conversation. Claude, Gemini or GPT, picked per project |
+<table>
+<tr>
+<td width="56" align="center"><img src="docs/icons/scissors.svg" width="36" alt=""></td>
+<td><b>Word-accurate cuts</b><br>Every spoken word is transcribed with its timing, so "cut the ums" or "drop the second take" lands on the exact word</td>
+</tr>
+<tr>
+<td width="56" align="center"><img src="docs/icons/type.svg" width="36" alt=""></td>
+<td><b>Titles it designs</b><br>Title cards, lower thirds, callouts and animated text, timed to your film and editable by hand</td>
+</tr>
+<tr>
+<td width="56" align="center"><img src="docs/icons/audio-waveform.svg" width="36" alt=""></td>
+<td><b>A mix you hear live</b><br>Music loops to the length of your film and ducks under speech. Move a slider and you hear it at once, before anything renders</td>
+</tr>
+<tr>
+<td width="56" align="center"><img src="docs/icons/ratio.svg" width="36" alt=""></td>
+<td><b>One film, every shape</b><br>16:9 for YouTube, 9:16 for Shorts, Reels and TikTok, 1:1 for feeds, with captions burned in or as a file</td>
+</tr>
+<tr>
+<td width="56" align="center"><img src="docs/icons/globe.svg" width="36" alt=""></td>
+<td><b>Its own browser</b><br>It looks up references and finds footage in a browser of its own, never yours, unless you switch that on</td>
+</tr>
+<tr>
+<td width="56" align="center"><img src="docs/icons/brain.svg" width="36" alt=""></td>
+<td><b>A memory for taste</b><br>Say "captions are always yellow" once and every project after that knows it</td>
+</tr>
+<tr>
+<td width="56" align="center"><img src="docs/icons/layers-2.svg" width="36" alt=""></td>
+<td><b>Tabs and any model</b><br>Several films open at once, each with its own conversation. Claude, Gemini or GPT, picked per project</td>
+</tr>
+</table>
 
 ## Get Manul
 
@@ -112,12 +141,28 @@ Want it today? Run it from source with **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 ## Where it's going
 
-| | | |
-|:-:|---|:-:|
-| **Now** | Directing by talking and pointing, titles, music, every export shape | 🚧 |
-| **Next** | Hand the cut to Premiere, Resolve or Final Cut · publish straight to YouTube | ⬜ |
-| **Then** | One Manul key for every model · heavy tools in the cloud · your apps connected | ⬜ |
-| **Later** | Shoot on your phone straight into a project · clients leave notes on the frame · teams | ⬜ |
+<table>
+<tr>
+<td width="72"><b>Now</b></td>
+<td>Directing by talking and pointing, titles, music, every export shape</td>
+<td width="40" align="center"><img src="docs/icons/circle-dot.svg" width="20" alt=""></td>
+</tr>
+<tr>
+<td width="72"><b>Next</b></td>
+<td>Hand the cut to Premiere, Resolve or Final Cut · publish straight to YouTube</td>
+<td width="40" align="center"><img src="docs/icons/circle-dashed.svg" width="20" alt=""></td>
+</tr>
+<tr>
+<td width="72"><b>Then</b></td>
+<td>One Manul key for every model · heavy tools in the cloud · your apps connected</td>
+<td width="40" align="center"><img src="docs/icons/circle-dashed.svg" width="20" alt=""></td>
+</tr>
+<tr>
+<td width="72"><b>Later</b></td>
+<td>Shoot on your phone straight into a project · clients leave notes on the frame · teams</td>
+<td width="40" align="center"><img src="docs/icons/circle-dashed.svg" width="20" alt=""></td>
+</tr>
+</table>
 
 <p align="center"><b><a href="ROADMAP.md">See the full roadmap →</a></b></p>
 
