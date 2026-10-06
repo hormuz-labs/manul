@@ -31,3 +31,12 @@ describe('Homebrew cask', () => {
     expect(() => renderCask({ version: '1.0.0', arm64: 'nope', x64: 'b'.repeat(64) })).toThrow(/sha256/)
   })
 })
+
+describe('Linux package', () => {
+  it('depends on ALSA, so the app starts on a clean Debian or Ubuntu', async () => {
+    const { readFileSync } = await import('node:fs')
+    const yml = readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8')
+    expect(yml).toMatch(/depends: \[[^\]]*"libasound2t64 \| libasound2"/)
+    expect(yml).toMatch(/depends: \[[^\]]*libnss3/)
+  })
+})

@@ -1,0 +1,38 @@
+# Build the signed apt repository for a release and push it to the `apt` branch, which Cloudflare Pages serves
+# at apt.manul.si. Only small files go there; the .deb downloads redirect to GitHub Releases (see scripts/apt-repo.sh).
+# Called by release.yml after publishing; "Run workflow" with a tag rebuilds it for an existing release.
+name: apt
+on:
+  workflow_call:
+    inputs:
+      tag: { type: string, required: true }
+  workflow_dispatch:
+    inputs:
+      tag: { type: string, required: true, description: "Release tag, e.g. v0.1.0" }
+
+permissions:
+  contents: write
+
+jobs:
+  apt:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: The release's .deb files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "${{ inputs.tag }}" -p "*.deb" -D debs
+      - name: Signing key
+        run: |
+          echo "${{ secrets.APT_GPG_PRIVATE_KEY }}" | gpg --batch --import
+          sudo apt-get update && sudo apt-get install -y apt-utils
+      - run: ./scripts/apt-repo.sh debs site "${{ vars.APT_GPG_KEY_ID }}" "${{ inputs.tag }}"
+      - name: Publish to the apt branch
+        run: |
+          cd site
+          git init -q -b apt
+          git config user.name agenthormuz
+          git config user.email 275594696+hormuz-labs@users.noreply.github.com
+          git add -A
+          git commit -qm "apt repository for ${{ inputs.tag }}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" apt
