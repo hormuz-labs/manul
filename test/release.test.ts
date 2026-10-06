@@ -13,7 +13,7 @@ describe('Homebrew cask', () => {
 
   it('lets the app update itself and needs macOS 12+', () => {
     expect(cask).toContain('auto_updates true')
-    expect(cask).toContain('depends_on macos: ">= :monterey"')
+    expect(cask).toContain('depends_on macos: :monterey')
     expect(cask).toContain('app "Manul.app"')
   })
 

@@ -24,7 +24,7 @@ export function renderCask({ version, arm64, x64 }) {
   homepage "https://github.com/hormuz-labs/manul"
 
   auto_updates true
-  depends_on macos: ">= :monterey"
+  depends_on macos: :monterey
 
   app "Manul.app"
 
