@@ -29,7 +29,8 @@ Add a key in **Settings → Keys** (⌘,), drop a video on the start screen, and
 | `npm test` | Unit and integration tests (Vitest) |
 | `npm run test:e2e` | The real app, end to end (Playwright) |
 | `npm run smoke` | Builds, launches, screenshots each screen (set `GEMINI_API_KEY` and pass a prompt to test the agent) |
-| `node scripts/screenshot.mjs` | Retakes the README screenshot (`docs/screenshot.png`) |
+| `node scripts/screenshot.mjs` | Takes a demo screenshot of a staged project (`docs/screenshot.png`) |
+| `node scripts/annotate.mjs <spec.json>` | Turns screenshots into the README's annotated images (arrows, labels, blurred areas) |
 | `npm run package` | `dist/`: macOS `.dmg` + `.zip`, or Linux `.deb` + AppImage |
 
 ## How it fits together

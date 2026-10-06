@@ -27,7 +27,7 @@
 <br>
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="Manul: every spoken word with the ums marked, the film, and a request typed for Manul" width="100%">
+  <img src="docs/editor.png" alt="The Manul editor: the film, notes on the scrubber, the agent's steps, a note pinned to a box on the frame, and a before/after proposal" width="100%">
 </p>
 
 <br>
@@ -77,6 +77,11 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 
 ## What a session feels like
 
+<p align="center">
+  <img src="docs/start.png" alt="The start screen: drop a video and say what you want, start from an idea, or open a recent film" width="100%">
+</p>
+
+
 > **You:** cut the ums, and the bit where I lose my train of thought
 >
 > **Manul:** Cut 9 fillers and the restart at 0:42. *2:31 → 2:12.* &nbsp; `before / after` &nbsp; **Keep** · **Send back**
@@ -123,6 +128,23 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 <tr>
 <td width="56" align="center"><img src="docs/icons/layers-2.svg" width="36" alt=""></td>
 <td><b>Tabs and any model</b><br>Several films open at once, each with its own conversation. Claude, Gemini or GPT, picked per project</td>
+</tr>
+</table>
+
+## You stay in charge
+
+<table>
+<tr>
+<td width="50%" valign="top" align="center">
+<img src="docs/settings-browser.png" alt="Settings, Browser: Manul's own browser by default, your Chrome only if you choose it" width="100%">
+<br><b>Which browser it uses</b><br>
+<sub>Its own, by default. Yours only if you say so.</sub>
+</td>
+<td width="50%" valign="top" align="center">
+<img src="docs/settings-tools.png" alt="Settings, Tools: built-in tools, speech recognition found on this computer, heavier tools downloaded only when needed" width="100%">
+<br><b>What it installs</b><br>
+<sub>Nothing heavy until you ask, and it uses what you already have.</sub>
+</td>
 </tr>
 </table>
 
