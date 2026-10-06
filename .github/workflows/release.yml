@@ -80,7 +80,7 @@ jobs:
       - name: One Mac feed for both architectures
         run: |
           node scripts/merge-mac-feed.mjs out/latest-mac-*.part.yml > out/latest-mac.yml
-          rm out/latest-mac-*.part.yml
+          rm out/latest-mac-*.part.yml out/builder-debug.yml 2>/dev/null || true
           cat out/latest-mac.yml
       - name: Publish the release
         env:
