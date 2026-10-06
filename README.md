@@ -162,11 +162,17 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 brew install hormuz-labs/tap/manul     # macOS
 ```
 
+Or hand it to your coding agent (Claude Code, Cursor, Codex…) and let it do the install:
+
+```text
+Install Manul from https://github.com/hormuz-labs/manul. On macOS run `brew install hormuz-labs/tap/manul`. On Linux, download the .deb (Debian/Ubuntu) or AppImage for this machine's architecture from https://github.com/hormuz-labs/manul/releases/latest and install it. Then open Manul.
+```
+
 On Linux, grab the `.deb` or AppImage from the [latest release](https://github.com/hormuz-labs/manul/releases/latest). An apt repository is on the way.
 
 It's free and open source. Bring a Claude, Gemini or OpenAI key (it's kept in your system's keychain), or wait for the single **Manul key**, coming soon.
 
-Want it today? Run it from source with **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+Want to hack on it? Run it from source with **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 ## Where it's going
 
