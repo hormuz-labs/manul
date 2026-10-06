@@ -63,6 +63,8 @@ export function agentEnv(mode: BrowserMode, o: { bundledDir: string; privateHome
 export class BskDaemon {
   port: number | null = null
   private child: ChildProcess | null = null
+  /** the pid of the daemon that has answered since it started (running means ready, not just spawned) */
+  private readyPid: number | null = null
   private stopping = false
   private restarts = 0
 
@@ -70,7 +72,7 @@ export class BskDaemon {
 
   get home() { return this.o.home }
   get pid() { return this.child?.pid ?? null }
-  get running() { return !!this.child && this.child.exitCode == null && !this.child.killed }
+  get running() { return !!this.child && this.child.exitCode == null && !this.child.killed && this.readyPid === this.child.pid }
   get env() { return { ...process.env, BSK_HOME: this.o.home, BSK_AUTO_START: '0', BSK_BROWSER_WAIT_MS: '0' } }
 
   /** Run Manul's bsk CLI against the private daemon; JSON output is parsed. */
@@ -110,7 +112,7 @@ export class BskDaemon {
     for (;;) {
       try {
         const info = JSON.parse(readFileSync(join(this.o.home, 'daemon.json'), 'utf8'))
-        if (info.ws_port === this.port && info.pid === child.pid) { await this.cli(['status', '--json']); this.restarts = 0; return }
+        if (info.ws_port === this.port && info.pid === child.pid) { await this.cli(['status', '--json']); this.restarts = 0; this.readyPid = child.pid ?? null; return }
       } catch { /* not yet */ }
       if (child.exitCode != null) throw new Error('The browser daemon stopped while starting.')
       if (Date.now() > until) throw new Error('The browser daemon did not start.')

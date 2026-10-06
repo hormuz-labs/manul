@@ -93,11 +93,13 @@ describe('the private daemon (real bundled bsk)', () => {
     expect(await d.cli(['browsers', '--json'])).toEqual([]) // nothing connected yet — in particular not the user's Chrome
   })
 
-  it('comes back by itself if it dies', async () => {
-    const before = d.pid
-    process.kill(before!, 'SIGKILL')
-    await expect.poll(() => d.pid && d.pid !== before && d.running, { timeout: 10_000 }).toBeTruthy()
-    expect(await d.cli(['browsers', '--json'])).toEqual([])
+  it('comes back by itself if it dies, and only counts as running once it answers', async () => {
+    for (let i = 0; i < 3; i++) { // the window between relaunch and ready is small; poll tightly, several times
+      const before = d.pid
+      process.kill(before!, 'SIGKILL')
+      await expect.poll(() => d.pid && d.pid !== before && d.running, { timeout: 15_000, interval: 5 }).toBeTruthy()
+      expect(await d.cli(['browsers', '--json'])).toEqual([]) // the moment it says running, it answers
+    }
   })
 
   it('stops cleanly', async () => {
