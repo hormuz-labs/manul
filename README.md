@@ -26,9 +26,9 @@
 
 <br>
 
-https://github.com/user-attachments/assets/084276fb-6129-47e2-9cba-4724c1432990
+https://github.com/user-attachments/assets/b4c9b9f2-5490-4028-90cf-a077e53f05a4
 
-<p align="center"><sub>90 seconds with Manul, starring the grumpiest cat on Earth. Pallas's cat footage: BBC, <i>Frozen Planet II</i>.</sub></p>
+<p align="center"><sub>90 seconds with Manul, starring the grumpiest cat on Earth: Timofey, from the Moscow Zoo (<a href="https://commons.wikimedia.org/wiki/File:%D0%9C%D0%B0%D0%BD%D1%83%D0%BB_%D0%A2%D0%B8%D0%BC%D0%BE%D1%84%D0%B5%D0%B9_%D0%BD%D0%B0_%D1%80%D0%B0%D0%B7%D0%B6%D0%B8%D1%80%D0%BE%D0%B2%D0%BA%D0%B5.webm">CC BY 4.0</a>).</sub></p>
 
 <br>
 
