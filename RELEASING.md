@@ -27,7 +27,7 @@ When `resources/skills/**` changes on main, `.github/workflows/skills.yml` signs
 | `hormuz-labs/homebrew-tap` repository | GitHub | `brew install hormuz-labs/tap/manul`. Its own workflow checks Manul's releases hourly and rewrites the cask with `scripts/homebrew-cask.mjs` from the release tag, so no token is shared ("Run workflow" there to update at once) |
 | A file host for the apt repository (e.g. Cloudflare R2) | — | `.deb` files are ~150–200 MB; GitHub Pages and git refuse files over 100 MB |
 | `APT_BUCKET`, `APT_ENDPOINT`, `APT_GPG_KEY_ID` (variables); `APT_ACCESS_KEY_ID`, `APT_SECRET_ACCESS_KEY`, `APT_GPG_PRIVATE_KEY` (secrets) | repo settings | upload + signing of the apt repository |
-| A domain for the apt repository (placeholder `apt.manul.app` in `scripts/apt-repo.sh`) | DNS | the line users add to their sources |
+| A domain for the apt repository (`apt.manul.si`, an R2 custom domain on Cloudflare) | DNS | the line users add to their sources |
 
 Without the Apple secrets, releases still build but the Mac app is unsigned: the cask clears the quarantine flag for Homebrew users, and anyone downloading the .dmg directly must right-click → Open.
 
@@ -38,8 +38,8 @@ brew install hormuz-labs/tap/manul
 ```
 
 ```bash
-curl -fsSL https://apt.manul.app/manul.gpg | sudo gpg --dearmor -o /usr/share/keyrings/manul.gpg
-echo "deb [signed-by=/usr/share/keyrings/manul.gpg] https://apt.manul.app stable main" | sudo tee /etc/apt/sources.list.d/manul.list
+curl -fsSL https://apt.manul.si/manul.gpg | sudo gpg --dearmor -o /usr/share/keyrings/manul.gpg
+echo "deb [signed-by=/usr/share/keyrings/manul.gpg] https://apt.manul.si stable main" | sudo tee /etc/apt/sources.list.d/manul.list
 sudo apt update && sudo apt install manul
 ```
 

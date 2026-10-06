@@ -3,8 +3,8 @@
 #   scripts/apt-repo.sh <dir with .deb files> <repo dir> <gpg key id>
 # Layout: pool/main/m/manul/*.deb, dists/stable/main/binary-{amd64,arm64}/Packages(.gz), dists/stable/{Release,InRelease,Release.gpg}
 # Users:
-#   curl -fsSL https://apt.manul.app/manul.gpg | sudo gpg --dearmor -o /usr/share/keyrings/manul.gpg
-#   echo "deb [signed-by=/usr/share/keyrings/manul.gpg] https://apt.manul.app stable main" | sudo tee /etc/apt/sources.list.d/manul.list
+#   curl -fsSL https://apt.manul.si/manul.gpg | sudo gpg --dearmor -o /usr/share/keyrings/manul.gpg
+#   echo "deb [signed-by=/usr/share/keyrings/manul.gpg] https://apt.manul.si stable main" | sudo tee /etc/apt/sources.list.d/manul.list
 #   sudo apt update && sudo apt install manul
 set -eu
 DEBS=$1

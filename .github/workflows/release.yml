@@ -106,10 +106,12 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.APT_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.APT_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
         run: aws s3 sync "s3://${{ vars.APT_BUCKET }}" repo --endpoint-url "${{ vars.APT_ENDPOINT }}" || mkdir -p repo
       - run: ./scripts/apt-repo.sh debs repo "${{ vars.APT_GPG_KEY_ID }}"
       - name: Publish
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.APT_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.APT_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
         run: aws s3 sync repo "s3://${{ vars.APT_BUCKET }}" --endpoint-url "${{ vars.APT_ENDPOINT }}"
