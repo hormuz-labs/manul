@@ -22,7 +22,7 @@
 |---|---|:-:|:-:|:-:|
 | [**0 · Foundations**](#phase-0-foundations) | `██████░░░░` 55% | 5 | 1 | 4 |
 | [**1 · MVP (v0.1)**](#phase-1-mvp-v01) | `████████░░` 75% | 13 | 4 | 3 |
-| [**2 · Hand-off and publishing**](#phase-2-hand-off-and-publishing) | `░░░░░░░░░░` 0% | 0 | 0 | 4 |
+| [**2 · Generated shots, hand-off, publishing**](#phase-2-generated-shots-hand-off-publishing) | `░░░░░░░░░░` 0% | 0 | 0 | 9 |
 | [**3 · Manul key and Pro**](#phase-3-manul-key-and-pro) | `░░░░░░░░░░` 0% | 0 | 0 | 5 |
 | [**4 · Cloud, mobile, teams**](#phase-4-cloud-mobile-teams) | `░░░░░░░░░░` 0% | 0 | 0 | 7 |
 
@@ -50,6 +50,8 @@ pro editors can take a Manul rough cut into their own editor.
 5. **Drop media anywhere.** Drop on the picture to replace a shot, on the timeline to insert, on a note to say "use this here".
 6. **Ask before anything costly.** Big downloads, missing keys and costly steps pause and ask with a card. No surprises.
 7. **Local first.** Everything works on your machine with your own keys. The cloud is optional and paid.
+8. **Your footage is the film.** Generated shots go only where you ask for one (a b-roll, a frame extended, a boxed
+   spot filled in), and each one is labelled as generated in the history and the export.
 
 ## 3. Core experience (v1)
 
@@ -111,7 +113,9 @@ pro editors can take a Manul rough cut into their own editor.
 
 - **Text models:** Anthropic (Opus…), Gemini, OpenAI and anything pi-ai supports.
 - **Voice:** ElevenLabs, Gemini TTS, OpenAI TTS, all behind one `speak(text, voice, style) → audio` interface.
-- Every request goes through a **router that works by capability** (chat · image · voice · transcription), so the
+- **Video generation (phase 2):** video models such as Veo, Runway, Kling and Sora, behind one
+  `generate(prompt, { frame?, box?, range?, aspect }) → clip` interface, with your own key or the Manul key.
+- Every request goes through a **router that works by capability** (chat · image · voice · transcription · video), so the
   later Manul key slots in without feature code changes.
 
 ### Keys screen
@@ -182,7 +186,16 @@ pro editors can take a Manul rough cut into their own editor.
 - 🚧 macOS (signed + notarized) and Linux builds; Homebrew cask; apt repository (pipeline ready, see RELEASING.md; needs the accounts and secrets)
 - ⬜ driver.js first-run tour
 
-### Phase 2: Hand-off and publishing
+### Phase 2: Generated shots, hand-off, publishing
+- ⬜ **Video capability in the router:** text-to-video and image-to-video models behind one interface; your key or the Manul key;
+      cost shown before each generation
+- ⬜ **B-roll on the fly:** "cut to the city at night here" → a few generated takes, pick one, it lands on that sentence
+      (as a new version with before/after, like every other edit)
+- ⬜ **Extend the frame:** fill a shot out to a new aspect ratio (16:9 → 9:16) or past its edges, matched to the footage,
+      instead of cropping
+- ⬜ **Complete the shot:** draw a box over a time range and say what belongs there; only that box and range are generated
+- ⬜ **Label every generated shot** in the history, on the timeline and in the exported file's metadata (C2PA content
+      credentials where the provider supports them)
 - ⬜ Export to **Premiere / DaVinci Resolve / Final Cut** (FCPXML, XML, EDL via OpenTimelineIO)
 - ⬜ YouTube publishing (upload, schedule, thumbnails, chapters)
 - ⬜ Spending view in Settings (from the usage meter)
@@ -229,6 +242,7 @@ Rules:
   contributions land, if we ever want to relicense.
 - **Windows:** when?
 - **Personality:** how much manul (mascot, warm colours, orbs) versus a quiet pro tool?
+- **Video models:** which to support first, and whether generation runs only through the Manul key (simpler billing) or also with users' own keys.
 - Pro price point and credit size.
 - ffmpeg build: GPL (x264) or LGPL (hardware encoders only)?
 - **GSAP licence:** GSAP is 100% free, including commercial use and every plugin (SplitText, MorphSVG…), thanks to

@@ -67,7 +67,7 @@ Nothing is overwritten. Every edit arrives as a new version you can scrub before
 <img src="docs/icons/film.svg" width="44" alt="">
 
 ### Your pixels stay real.
-Manul cuts **your** footage. It doesn't generate fake frames. Titles, lower thirds and captions are real typography, drawn frame-perfect, and you can still drag the words around after Manul has made them.
+Manul cuts **your** footage. It never swaps your shots for generated ones: generated b-roll is coming, but only where you ask, labelled as generated. Titles, lower thirds and captions are real typography, drawn frame-perfect, and you can still drag the words around after Manul has made them.
 
 </td>
 <td width="50%" valign="top">
@@ -165,10 +165,18 @@ brew install hormuz-labs/tap/manul     # macOS
 Or hand it to your coding agent (Claude Code, Cursor, Codex…) and let it do the install:
 
 ```text
-Install Manul from https://github.com/hormuz-labs/manul. On macOS run `brew install hormuz-labs/tap/manul`. On Linux, download the .deb (Debian/Ubuntu) or AppImage for this machine's architecture from https://github.com/hormuz-labs/manul/releases/latest and install it. Then open Manul.
+Install Manul from https://github.com/hormuz-labs/manul. On macOS run `brew install hormuz-labs/tap/manul`. On Debian or Ubuntu, add the apt repository at https://apt.manul.si (the three commands are on that page) and run `sudo apt install manul`; on other Linux, download the AppImage for this machine's architecture from https://github.com/hormuz-labs/manul/releases/latest. Then open Manul.
 ```
 
-On Linux, grab the `.deb` or AppImage from the [latest release](https://github.com/hormuz-labs/manul/releases/latest). An apt repository is on the way.
+On Debian or Ubuntu, add the signed apt repository once and apt keeps Manul up to date:
+
+```bash
+curl -fsSL https://apt.manul.si/manul.gpg | sudo gpg --dearmor -o /usr/share/keyrings/manul.gpg
+echo "deb [signed-by=/usr/share/keyrings/manul.gpg] https://apt.manul.si stable main" | sudo tee /etc/apt/sources.list.d/manul.list
+sudo apt update && sudo apt install manul
+```
+
+Other Linux: grab the AppImage from the [latest release](https://github.com/hormuz-labs/manul/releases/latest). More at **[manul.si](https://manul.si)**.
 
 It's free and open source. Bring a Claude, Gemini or OpenAI key (it's kept in your system's keychain), or wait for the single **Manul key**, coming soon.
 
