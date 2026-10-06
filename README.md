@@ -26,6 +26,12 @@
 
 <br>
 
+https://github.com/user-attachments/assets/084276fb-6129-47e2-9cba-4724c1432990
+
+<p align="center"><sub>90 seconds with Manul, starring the grumpiest cat on Earth. Pallas's cat footage: BBC, <i>Frozen Planet II</i>.</sub></p>
+
+<br>
+
 <p align="center">
   <img src="docs/editor.png" alt="The Manul editor: the film, notes on the scrubber, the agent's steps, a note pinned to a box on the frame, and a before/after proposal" width="100%">
 </p>
