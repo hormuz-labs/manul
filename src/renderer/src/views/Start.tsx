@@ -100,9 +100,9 @@ export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOp
             <div className="mb-3 text-xs font-medium uppercase tracking-wider text-faint">Recent</div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
               {recent.map(r => (
-                <button key={r.dir} onClick={async () => onOpen(await window.manul.project.open(r.dir))} className="group overflow-hidden rounded-card border border-line bg-panel text-left hover:border-line-strong">
+                <button key={r.dir} onClick={async () => onOpen(await window.manul.project.open(r.dir))} className="group overflow-hidden rounded-card bg-panel text-left transition-colors hover:bg-hover">
                   <div className="aspect-video bg-raised">
-                    {r.thumb && <img src={mediaUrl(r.thumb)} className="size-full object-cover opacity-90 transition-opacity group-hover:opacity-100" />}
+                    {r.thumb && <img src={mediaUrl(r.thumb)} alt="" onError={e => { e.currentTarget.style.display = 'none' }} className="size-full object-cover opacity-90 transition-opacity group-hover:opacity-100" />}
                   </div>
                   <div className="truncate px-3 py-2 font-medium">{r.title}</div>
                 </button>
