@@ -100,9 +100,11 @@ try {
   await handle.waitFor({ timeout: 10000 })
   const b = await handle.boundingBox()
   const versionsBefore = (await win.evaluate(dir => window.manul.project.open(dir), p.dir)).versions.length
-  await win.mouse.move(b.x + 20, b.y + 20)
+  // Use the element's interior: its top-left can be covered by the editor toolbar.
+  const dragX = b.x + b.width / 2, dragY = b.y + b.height / 2
+  await win.mouse.move(dragX, dragY)
   await win.mouse.down()
-  await win.mouse.move(b.x + 80, b.y + 20, { steps: 6 })
+  await win.mouse.move(dragX + 60, dragY, { steps: 6 })
   await win.mouse.up()
   let html = ''
   for (let i = 0; i < 60 && !/translate:/.test(html); i++) { await win.waitForTimeout(250); html = readFileSync(join(p.dir, 'clips', 'card', 'clip.html'), 'utf8') }
@@ -114,11 +116,17 @@ try {
   await win.screenshot({ path: join(tmp, 'editor.png') })
   // a click (no drag) picks the element for a note
   const b2 = await handle.boundingBox()
-  await win.mouse.click(b2.x + 30, b2.y + 30)
+  await win.mouse.click(b2.x + b2.width / 2, b2.y + b2.height / 2)
   await win.waitForSelector('div.cursor-move.border-note:has(span:text-is("title"))', { timeout: 5000 }) // picked for the next note
   console.log('editor screenshot:', join(tmp, 'editor.png'))
 
   // history: every step is a point; going back before the drag undoes it (HTML and version)
+  // A version is published before checkpoint() finishes writing its history commit.
+  // Wait for that commit, rather than treating the earlier project update as completion.
+  await win.waitForFunction(async dir => {
+    const entries = await window.manul.history.log(dir)
+    return entries[0]?.message === 'Moved title in card'
+  }, p.dir, { timeout: 15000 })
   const log = await win.evaluate(dir => window.manul.history.log(dir), p.dir)
   const msgs = log.map(e => e.message)
   assert.equal(msgs[0], 'Moved title in card')
