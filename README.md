@@ -46,3 +46,25 @@ npm run package:dir && node test/e2e/packaged.e2e.mjs   # the packaged app: tool
 ```
 
 Integration tests that need something this machine lacks (whisper.cpp, macOS `say`, an installed tool) skip themselves.
+
+## Design references
+
+UI libraries and sites to draw from (from the original lightroom design guide):
+
+- https://jakubantalik.com/
+- https://ui.watermelon.sh
+- https://reactbits.dev
+- https://21st.dev
+- https://3dicons.co
+- driver.js
+- eraser.io
+- https://orbs.jakubantalik.com/
+- https://klayeducation.com/ (web design)
+- https://www.vengenceui.com/components/diagonal-carousel
+- https://www.drawably.dev/
+- libraries.dev
+- https://dotmatrix.zzzzshawn.cloud
+- https://www.obsidianui.dev/components
+- https://amicro.vercel.app/buttons/btn-2
+- Josh Kern
+- https://componentry.dev/docs

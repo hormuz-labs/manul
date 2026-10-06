@@ -123,7 +123,7 @@ pro editors can take a Manul rough cut into their own editor.
 ## 5. Phases
 
 ### Phase 0: Foundations
-- [ ] Repo, licence, CONTRIBUTING, CI (lint, typecheck, build per platform)
+- [~] Repo, licence, CONTRIBUTING, CI (lint, typecheck, build per platform) (repo hormuz-labs/manul, GPL-3.0, CI workflows done; CONTRIBUTING to do)
 - [ ] UI mockups: start screen, Screen view with notes on the picture, agent panel (plan + tool cards + permission
       cards), Keys tabs, Tools page
 - [x] Electron shell + React/shadcn/Tailwind design system (dark theme, warm accents)
@@ -203,8 +203,9 @@ Rules:
 
 ## 7. Open questions 💬
 
-- **Licence:** closed source, or open-core (AGPL editor + commercial cloud/Pro)? Not MIT if we want to charge. *Decide
-  before outside contributions land* (a contributor licence agreement may be needed).
+- **Licence:** the editor is GPL-3.0 (LICENSE, chosen 2026-10-06). Still open: the paid cloud parts (Manul key gateway,
+  storage) can stay closed as separate services; a contributor licence agreement may be needed before outside
+  contributions land, if we ever want to relicense.
 - **Windows:** when?
 - **Personality:** how much manul (mascot, warm colours, orbs) versus a quiet pro tool?
 - Pro price point and credit size.
