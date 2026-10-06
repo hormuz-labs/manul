@@ -87,7 +87,7 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 
 ## What's in the box
 
-| | |
+| | What it means for you |
 |---|---|
 | ✂️ **Word-accurate cuts** | Every spoken word is transcribed with its timing, so "cut the ums" or "drop the second take" lands on the exact word |
 | ✨ **Titles it designs** | Title cards, lower thirds, callouts and animated text, timed to your film and editable by hand |
