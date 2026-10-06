@@ -1,5 +1,7 @@
-# Push a tag like v0.2.0 → build, sign and notarize (macOS), publish to GitHub Releases (the auto-update feed),
-# then update the apt repository. The Homebrew tap (hormuz-labs/homebrew-tap) picks up new releases on its own.
+# Push a tag like v0.2.0 → build, sign and notarize (macOS) on four runners, then publish ONE GitHub release
+# (the auto-update feed) with every build's files, and update the apt repository.
+# The Homebrew tap (hormuz-labs/homebrew-tap) picks up new releases on its own.
+# Builds don't publish themselves: parallel uploads made duplicate releases and one Mac feed overwrote the other.
 name: Release
 on:
   push:
@@ -36,9 +38,8 @@ jobs:
       - name: Version from the tag
         run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
       - run: npm test
-      - name: Build, sign, notarize, publish
+      - name: Build, sign, notarize
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -50,23 +51,51 @@ jobs:
           for v in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do [ -n "${!v}" ] || unset "$v"; done
           NOTARIZE=false
           if [ "$RUNNER_OS" = macOS ] && [ -n "$APPLE_ID" ]; then NOTARIZE=true; fi
-          npx electron-builder ${{ matrix.target }} --${{ matrix.arch }} --publish always -c.mac.notarize=$NOTARIZE
-      - name: Keep the .deb for the apt repository
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+          npx electron-builder ${{ matrix.target }} --${{ matrix.arch }} --publish never -c.mac.notarize=$NOTARIZE
+      - name: Rename the Mac feed so the two architectures don't collide
+        if: runner.os == 'macOS'
+        run: mv dist/latest-mac.yml "dist/latest-mac-${{ matrix.arch }}.part.yml"
+      - uses: actions/upload-artifact@v4
         with:
-          name: deb-${{ matrix.arch }}
-          path: dist/*.deb
+          name: dist-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.blockmap
+            dist/*.deb
+            dist/*.AppImage
+            dist/*.yml
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: out
+      - name: One Mac feed for both architectures
+        run: |
+          node scripts/merge-mac-feed.mjs out/latest-mac-*.part.yml > out/latest-mac.yml
+          rm out/latest-mac-*.part.yml
+          cat out/latest-mac.yml
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" out/* --title "${GITHUB_REF_NAME#v}" --generate-notes --verify-tag
 
   apt:
-    needs: build
+    needs: publish
     runs-on: ubuntu-24.04
     if: ${{ vars.APT_BUCKET != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: deb-*
+          pattern: dist-ubuntu-*
           merge-multiple: true
           path: debs
       - name: Signing key

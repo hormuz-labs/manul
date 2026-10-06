@@ -8,7 +8,7 @@ git tag v0.1.0 && git push origin v0.1.0
 
 `.github/workflows/release.yml` then:
 1. builds on four runners (macOS arm64 + Intel, Linux x64 + arm64): bundled whisper.cpp, pinned ffmpeg, tests;
-2. packages, **signs and notarizes** the Mac app (when the Apple secrets exist), and publishes `.dmg`, `.zip`,
+2. packages, **signs and notarizes** the Mac app (when the Apple secrets exist); then one job merges the two Mac update feeds and publishes `.dmg`, `.zip`,
    `.deb`, AppImage and the `latest*.yml` update files to **GitHub Releases** — this is what installed apps update from;
 3. rebuilds and signs the **apt repository** and uploads it (when `APT_BUCKET` is set).
 
