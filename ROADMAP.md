@@ -20,7 +20,7 @@
 
 | Phase | Progress | ✅ Done | 🚧 Doing | ⬜ Next |
 |---|---|:-:|:-:|:-:|
-| [**0 · Foundations**](#phase-0-foundations) | `█████░░░░░` 50% | 4 | 2 | 4 |
+| [**0 · Foundations**](#phase-0-foundations) | `██████░░░░` 55% | 5 | 1 | 4 |
 | [**1 · MVP (v0.1)**](#phase-1-mvp-v01) | `████████░░` 75% | 13 | 4 | 3 |
 | [**2 · Hand-off and publishing**](#phase-2-hand-off-and-publishing) | `░░░░░░░░░░` 0% | 0 | 0 | 4 |
 | [**3 · Manul key and Pro**](#phase-3-manul-key-and-pro) | `░░░░░░░░░░` 0% | 0 | 0 | 5 |
@@ -144,7 +144,7 @@ pro editors can take a Manul rough cut into their own editor.
 ## 5. Phases
 
 ### Phase 0: Foundations
-- 🚧 Repo, licence, CONTRIBUTING, CI (lint, typecheck, build per platform) (repo hormuz-labs/manul, GPL-3.0, CI workflows done; CONTRIBUTING to do)
+- ✅ Repo, licence, CONTRIBUTING, CI (lint, typecheck, build per platform)
 - ⬜ UI mockups: start screen, Screen view with notes on the picture, agent panel (plan + tool cards + permission
       cards), Keys tabs, Tools page
 - ✅ Electron shell + React/shadcn/Tailwind design system (dark theme, warm accents)
