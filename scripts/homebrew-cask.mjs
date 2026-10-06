@@ -12,10 +12,12 @@ export function renderCask({ version, arm64, x64 }) {
 
   on_arm do
     sha256 "${arm64}"
+
     url "${url('arm64')}"
   end
   on_intel do
     sha256 "${x64}"
+
     url "${url('x64')}"
   end
 
@@ -28,10 +30,13 @@ export function renderCask({ version, arm64, x64 }) {
 
   app "Manul.app"
 
-  # builds aren't notarized yet: without this macOS calls the downloaded app "damaged". Drop it once releases are signed.
-  postflight do
-    system_command "/usr/bin/xattr",
-                   args: ["-dr", "com.apple.quarantine", "#{appdir}/Manul.app"]
+  # Not notarized yet: without this, macOS calls the downloaded app "damaged". Drop once releases are signed.
+  postflight_steps do
+    run "/usr/bin/xattr",
+        args:           ["-dr", "com.apple.quarantine", "Manul.app"],
+        chdir:          "{{appdir}}",
+        writable_paths: ["Manul.app"],
+        writable_base:  :appdir
   end
 
   zap trash: [

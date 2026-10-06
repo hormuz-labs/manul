@@ -18,7 +18,7 @@ describe('Homebrew cask', () => {
   })
 
   it('opens without a Gatekeeper block while builds are unsigned', () => {
-    expect(cask).toMatch(/postflight do\s+system_command "\/usr\/bin\/xattr",\s+args: \["-dr", "com\.apple\.quarantine", "#\{appdir\}\/Manul\.app"\]/)
+    expect(cask).toMatch(/postflight_steps do\s+run "\/usr\/bin\/xattr",\s+args: +\["-dr", "com\.apple\.quarantine", "Manul\.app"\],\s+chdir: +"\{\{appdir\}\}"/)
   })
 
   it('cleans up on zap', () => {
