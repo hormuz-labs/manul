@@ -12,6 +12,7 @@ import { fetchSkillUpdates, SKILLS_FEED } from './skill-updates'
 import { keyStatus, loadKeys, setKey } from './keys'
 import { asJob, listJobs, onJobs } from './jobs'
 import { toolPath, toolStatus } from './media'
+import { thumbnails } from './thumbnails'
 import * as Tools from './tools'
 import * as Whisper from './whisper'
 import { getConfig, setConfig } from './config'
@@ -339,6 +340,12 @@ function wire() {
     return r.canceled ? null : r.filePaths[0]
   })
   ipcMain.handle('transcript:get', async (_e, dir: string, mediaRel: string, make: boolean) => transcriptOf(projectOf(dir), mediaRel, { ask: make }))
+  ipcMain.handle('media:thumbnails', (_e, dir: string, src: string, count: number, start?: number, end?: number) => {
+    const p = projectOf(dir)
+    const info = p.media[src]
+    if (!info || !info.width || !info.height) return []
+    return thumbnails(p.dir, src, info.duration, count, start, end, info.fps)
+  })
   ipcMain.handle('consent:list', () => [...consents.values()].map(c => c.req))
   ipcMain.handle('consent:answer', (_e, id: string, ok: boolean) => {
     const c = consents.get(id)
