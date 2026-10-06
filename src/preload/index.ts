@@ -1,7 +1,7 @@
 // The renderer's only door to the main process. Keys never come back through here: only whether they are set.
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { BaseEvent } from '@ag-ui/core'
-import type { Anchor, ConsentRequest, Job, KeyInfo, OnDemandTool, Project, RecentProject, ToolStatus, Transcript, WhisperConfig, WhisperStatus } from '../shared/types'
+import type { Anchor, BrowserMode, BrowserState, ChromeBsk, ConsentRequest, Job, KeyInfo, OnDemandTool, Project, RecentProject, ToolStatus, Transcript, WhisperConfig, WhisperStatus } from '../shared/types'
 
 type SkillState = { skills: { id: string; name: string; description: string; path: string; source: 'bundled' | 'user' }[]; enabled: string[]; profile: { id: string; name: string }; profiles: { id: string; name: string }[] }
 
@@ -72,6 +72,25 @@ const api = {
   keys: {
     list: () => ipcRenderer.invoke('keys:list') as Promise<KeyInfo[]>,
     set: (name: string, value: string) => ipcRenderer.invoke('keys:set', name, value) as Promise<KeyInfo[]>,
+  },
+  /** Manul's own browser (the Browser panel) and which browser the agent drives. */
+  browser: {
+    state: () => ipcRenderer.invoke('browser:state') as Promise<BrowserState>,
+    onState: on<[BrowserState]>('browser:state'),
+    /** the agent opened or focused a window: show the panel */
+    onReveal: on<[number]>('browser:reveal'),
+    /** where the panel's page area is (CSS px in the window), or null while hidden or covered */
+    setBounds: (r: { x: number; y: number; width: number; height: number } | null) => ipcRenderer.send('browser:bounds', r),
+    navigate: (url: string) => ipcRenderer.invoke('browser:navigate', url),
+    back: () => ipcRenderer.invoke('browser:back'),
+    forward: () => ipcRenderer.invoke('browser:forward'),
+    reload: () => ipcRenderer.invoke('browser:reload'),
+    select: (id: number) => ipcRenderer.invoke('browser:select', id),
+    close: (id: number) => ipcRenderer.invoke('browser:close', id),
+    newTab: () => ipcRenderer.invoke('browser:new'),
+    mode: () => ipcRenderer.invoke('browser:mode') as Promise<BrowserMode>,
+    setMode: (m: BrowserMode) => ipcRenderer.invoke('browser:set-mode', m) as Promise<BrowserMode>,
+    chrome: () => ipcRenderer.invoke('browser:chrome') as Promise<ChromeBsk>,
   },
   tabs: {
     get: () => ipcRenderer.invoke('tabs:get') as Promise<{ open: string[]; active: string | null }>,

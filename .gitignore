@@ -6,3 +6,4 @@ out/
 resources/bin/
 resources/lib/*.min.js
 resources/lib/fonts/
+resources/bsk-ext/

@@ -21,7 +21,13 @@ export class Skills {
       const path = join(dir, id, 'SKILL.md')
       if (!existsSync(path)) return []
       const head = /^---\n([\s\S]*?)\n---/.exec(readFileSync(path, 'utf8'))
-      const field = (k: string) => (head && new RegExp(`^${k}:\\s*(.*)$`, 'm').exec(head[1])?.[1]?.trim()) || ''
+      const field = (k: string) => {
+        const m = head && new RegExp(`^${k}:[ \\t]*(.*)$((?:\\n[ \\t]+.*)*)`, 'm').exec(head[1])
+        if (!m) return ''
+        // a YAML block (| or >) or a value continued on indented lines: joined into one line
+        const v = /^[|>][+-]?$/.test(m[1].trim()) ? m[2] : `${m[1]}${m[2]}`
+        return v.split('\n').map(s => s.trim()).filter(Boolean).join(' ')
+      }
       return [{ id, name: field('name') || id, description: field('description'), path, source }]
     })
   }

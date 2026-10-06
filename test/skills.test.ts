@@ -28,6 +28,13 @@ describe('skills and profiles', () => {
     ])
   })
 
+  it('reads multi-line (YAML block) descriptions', () => {
+    const { s, user } = setup()
+    mkdirSync(join(user, 'web'), { recursive: true })
+    writeFileSync(join(user, 'web', 'SKILL.md'), `---\nname: web\ndescription: |\n  Drive a browser: read pages,\n  fill forms.\nother: x\n---\nbody\n`)
+    expect(s.list().find(k => k.id === 'web')?.description).toBe('Drive a browser: read pages, fill forms.')
+  })
+
   it('the default profile has every skill on', () => {
     const { s } = setup()
     expect(s.profile()).toMatchObject({ id: 'default' })

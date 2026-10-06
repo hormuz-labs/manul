@@ -9,7 +9,7 @@ import type { MediaInfo, ToolStatus } from '../shared/types'
 const run = promisify(execFile)
 // Manul's own pinned ffmpeg/ffprobe (scripts/fetch-ffmpeg.mjs): resources/bin/<platform>-<arch>/ in development,
 // <app>/Contents/Resources/bin/ when packaged (electron-builder extraResources).
-const BIN = app.isPackaged
+export const BIN = app.isPackaged
   ? join(process.resourcesPath, 'bin')
   : join(import.meta.dirname, '../../resources/bin', `${process.platform}-${process.arch}`)
 

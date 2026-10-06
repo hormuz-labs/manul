@@ -1,6 +1,6 @@
 // The Screen view: the film, the scrubber with notes, and the agent beside it.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, AudioLines, Loader2, Upload, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
+import { ArrowLeft, AudioLines, Globe, Loader2, Upload, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
 import { JobsTray } from '@/components/JobsTray'
 import { HistoryButton } from '@/components/HistoryButton'
 import { useCommands } from '@/lib/commands'
@@ -10,6 +10,7 @@ import { Kbd } from '@/components/ui/kbd'
 import { useAgent } from '@/lib/agui'
 import { cn, mediaUrl, timecode } from '@/lib/utils'
 import { AgentPanel } from './AgentPanel'
+import { BrowserPanel } from './BrowserPanel'
 import { TranscriptPanel } from './TranscriptPanel'
 import { TimelineStrip } from './TimelineStrip'
 import { ClipEditor } from './ClipEditor'
@@ -42,6 +43,9 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   const [showTranscript, setShowTranscript] = useState(() => localStorage.getItem('manul.transcript') !== '0')
   useEffect(() => { try { localStorage.setItem('manul.transcript', showTranscript ? '1' : '0') } catch { /* private mode */ } }, [showTranscript])
   const sentFirst = useRef(false)
+  const [browsing, setBrowsing] = useState(false)
+  // the agent opened or focused a browser window: show it (in the project on screen)
+  useEffect(() => window.manul.browser.onReveal(() => { if (active) setBrowsing(true) }), [active])
 
   useEffect(() => window.manul.project.onChange(np => { if (np.dir === p.dir) setP(np) }), [p.dir])
   useEffect(() => window.manul.onSeek((dir, t) => { if (dir === p.dir && stage.current?.video) stage.current.video.currentTime = t }), [p.dir])
@@ -96,6 +100,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
     { id: 'agent.new', title: 'New conversation', run: () => window.manul.agent.newConversation(p.dir) },
     { id: 'agent.focus', title: 'Ask Manul', shortcut: `${mod}L`, run: () => input.current?.focus() },
     { id: 'agent.stop', title: 'Stop the agent', run: () => window.manul.agent.stop(p.dir) },
+    { id: 'browser', title: 'Show or hide the browser', keywords: 'web internet bsk sign in google youtube', shortcut: `${mod}⇧B`, run: () => setBrowsing(x => !x) },
   ], [p.dir, active])
 
   const current = p.versions.find(v => v.id === p.current)!
@@ -137,6 +142,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
         </select>
         <span className="flex-1" />
         <JobsTray />
+        <Button className="no-drag" size="sm" variant={browsing ? 'secondary' : 'ghost'} onClick={() => setBrowsing(x => !x)} title="Manul's browser (the agent uses it for the web)"><Globe />Browser</Button>
         <Button className="no-drag" size="sm" variant="primary" onClick={() => setExporting(true)}><Upload />Export</Button>
         <HistoryButton project={p} open={historyOpen} onOpenChange={setHistoryOpen} onRestored={np => { setP(np); setEditing(null) }} />
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={() => window.manul.project.reveal(p.dir)} title="Show in Finder"><FolderOpen /></Button>
@@ -157,7 +163,8 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
           </div>
         )}
         {/* the film */}
-        <div className={cn('flex min-w-0 flex-1 flex-col gap-2 p-3', over && 'bg-amber-soft')}>
+        <div className={cn('relative flex min-w-0 flex-1 flex-col gap-2 p-3', over && 'bg-amber-soft')}>
+          <BrowserPanel visible={browsing && active} onClose={() => setBrowsing(false)} />
           {proposal && (
             <div className="flex items-center gap-2 rounded-lg border border-amber/30 bg-amber-soft px-3 py-1.5">
               <span className="font-medium text-amber">Proposed:</span>

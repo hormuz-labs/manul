@@ -65,6 +65,7 @@ export function App() {
     { id: 'settings.keys', title: 'Settings: Keys', keywords: 'api gemini anthropic openai elevenlabs', run: () => setSettings('keys') },
     { id: 'settings.skills', title: 'Settings: Skills', keywords: 'profiles', run: () => setSettings('skills') },
     { id: 'settings.memory', title: 'Settings: Memory', keywords: 'remember', run: () => setSettings('memory') },
+    { id: 'settings.browser', title: 'Settings: Browser', keywords: 'chrome bsk web sign in agent browser', run: () => setSettings('browser') },
     { id: 'update.check', title: 'Check for updates', run: () => { setSettings('about'); window.manul.updates.check() } },
     { id: 'about', title: 'About Manul and updates', keywords: 'version update', run: () => setSettings('about') },
     { id: 'settings.tools', title: 'Settings: Tools', keywords: 'whisper ffmpeg download', run: () => setSettings('tools') },

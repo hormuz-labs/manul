@@ -1,0 +1,180 @@
+import { afterAll, describe, expect, it } from 'vitest'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { agentEnv, browserPrompt, chromeBsk, BskDaemon, BSK_BIN, daemonArgs, liveEnv, DEFAULT_PORT, extensionStorage, findUserBsk, freePort, privateHome } from '../src/main/bsk'
+// @ts-expect-error plain JS module
+import { CLI, EXTENSION } from '../scripts/fetch-bsk.mjs'
+
+describe('pinned BrowserSkill', () => {
+  it('pins the CLI for every platform Manul ships and the extension, by SHA-256', () => {
+    for (const t of ['darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64']) {
+      expect(CLI.builds[t].url).toMatch(/^https:\/\/github\.com\/Tencent\/BrowserSkill\/releases\/download\/cli-v/)
+      expect(CLI.builds[t].sha256).toMatch(/^[0-9a-f]{64}$/)
+    }
+    expect(EXTENSION.url).toMatch(/ext-v[\d.]+\/browser-skill-extension-v[\d.]+-chrome\.zip$/)
+    expect(EXTENSION.sha256).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('is fetched into resources (bin/<target>/bsk and bsk-ext/)', () => {
+    expect(existsSync(BSK_BIN)).toBe(true)
+    const manifest = JSON.parse(readFileSync(join(BSK_BIN, '../../../bsk-ext/manifest.json'), 'utf8'))
+    expect(manifest.name).toBe('BrowserSkill')
+  })
+})
+
+describe("Manul's private bsk", () => {
+  it('lives in its own home, never the user\'s ~/.bsk', () => {
+    expect(privateHome('/Users/a/Library/Application Support/Manul', '/Users/a')).toBe('/Users/a/Library/Application Support/Manul/bsk')
+  })
+
+  it('moves to a short home when the socket path would be too long for macOS', () => {
+    const long = `/Users/a/${'x'.repeat(90)}`
+    expect(privateHome(long, '/Users/a')).toMatch(/^\/Users\/a\/\.manul\/bsk-[0-9a-f]{8}$/)
+    expect(privateHome(`${long}2`, '/Users/a')).not.toBe(privateHome(long, '/Users/a')) // two installs never share a daemon
+  })
+
+  it('never uses the default port, so the user\'s Chrome extension cannot find it', async () => {
+    expect(() => daemonArgs(DEFAULT_PORT)).toThrow(/default port/)
+    const port = await freePort()
+    expect(port).not.toBe(DEFAULT_PORT)
+    expect(daemonArgs(port)).toEqual(expect.arrayContaining(['daemon', 'start', '--foreground', '--port', String(port)]))
+  })
+
+  it('freePort skips a port that is taken', async () => {
+    const taken = await freePort()
+    const srv = createServer().listen(taken, '127.0.0.1')
+    await new Promise(r => srv.once('listening', r))
+    try { expect(await freePort([taken])).not.toBe(taken) } finally { srv.close() }
+  })
+
+  it("points Manul's embedded extension at the private port, labelled Manul", () => {
+    expect(extensionStorage(53111)).toEqual({ bsk_daemon_port: 53111, bh_label: 'Manul', bh_connection_enabled: true })
+  })
+})
+
+describe('which browser the agent drives', () => {
+  const base = { bundledDir: '/app/bin', privateHome: '/ud/bsk', userHome: '/Users/a', path: '/usr/bin' }
+
+  it("default: Manul's own browser — private home, no auto-start, bundled CLI first", () => {
+    expect(agentEnv('manul', { ...base, userBsk: '/Users/a/.local/bin/bsk' })).toEqual({ BSK_HOME: '/ud/bsk', BSK_AUTO_START: '0', PATH: '/app/bin:/usr/bin' })
+  })
+
+  it("Chrome: the user's own bsk and daemon (their logins)", () => {
+    expect(agentEnv('chrome', { ...base, userBsk: '/Users/a/.local/bin/bsk' })).toEqual({ BSK_HOME: '/Users/a/.bsk', BSK_AUTO_START: '1', PATH: '/Users/a/.local/bin:/usr/bin' })
+  })
+
+  it('Chrome without an installed CLI falls back to the bundled one on the user\'s daemon', () => {
+    expect(agentEnv('chrome', { ...base, userBsk: null })).toMatchObject({ BSK_HOME: '/Users/a/.bsk', PATH: '/app/bin:/usr/bin' })
+  })
+
+  it("finds the user's own bsk, never Manul's bundled copy", () => {
+    const home = mkdtempSync(join(tmpdir(), 'manul-home-'))
+    mkdirSync(join(home, '.local/bin'), { recursive: true })
+    expect(findUserBsk({ home, bundled: BSK_BIN, path: '' })).toBeNull()
+    writeFileSync(join(home, '.local/bin/bsk'), '#!/bin/sh\n', { mode: 0o755 })
+    expect(findUserBsk({ home, bundled: BSK_BIN, path: '' })).toBe(join(home, '.local/bin/bsk'))
+    expect(findUserBsk({ home: '/nowhere', bundled: BSK_BIN, path: join(BSK_BIN, '..') })).toBeNull()
+    rmSync(home, { recursive: true })
+  })
+})
+
+describe('the private daemon (real bundled bsk)', () => {
+  const home = mkdtempSync('/tmp/mbsk-')
+  const d = new BskDaemon({ bin: BSK_BIN, home })
+  afterAll(async () => { await d.stop(); rmSync(home, { recursive: true, force: true }) })
+
+  it('starts on its own port in its own home and answers its own CLI', async () => {
+    const { port } = await d.start()
+    expect(port).not.toBe(DEFAULT_PORT)
+    const info = JSON.parse(readFileSync(join(home, 'daemon.json'), 'utf8'))
+    expect(info.ws_port).toBe(port)
+    expect(await d.cli(['browsers', '--json'])).toEqual([]) // nothing connected yet — in particular not the user's Chrome
+  })
+
+  it('comes back by itself if it dies', async () => {
+    const before = d.pid
+    process.kill(before!, 'SIGKILL')
+    await expect.poll(() => d.pid && d.pid !== before && d.running, { timeout: 10_000 }).toBeTruthy()
+    expect(await d.cli(['browsers', '--json'])).toEqual([])
+  })
+
+  it('stops cleanly', async () => {
+    const pid = d.pid!
+    await d.stop()
+    expect(() => process.kill(pid, 0)).toThrow()
+  })
+})
+
+describe('agent instructions and live environment', () => {
+  it("Manul mode: Manul's own browser, never --browser, never touch the daemon", () => {
+    const p = browserPrompt('manul')
+    expect(p).toMatch(/Manul's own browser/)
+    expect(p).toMatch(/never.*--browser/i)
+    expect(p).toMatch(/BSK_HOME/)
+    expect(p).toMatch(/import_media/)
+  })
+
+  it("Chrome mode: the user's real Chrome, pick the browser, ask when unsure", () => {
+    const p = browserPrompt('chrome')
+    expect(p).toMatch(/user's own Chrome/)
+    expect(p).toMatch(/bsk browsers/)
+    expect(p).toMatch(/ask_user/)
+  })
+
+  it('the shell environment follows the setting as it changes', () => {
+    let mode: 'manul' | 'chrome' = 'manul'
+    const env = liveEnv(() => agentEnv(mode, { bundledDir: '/b', privateHome: '/p', userHome: '/u', userBsk: null, path: '/usr/bin' }))
+    expect({ ...env }.BSK_HOME).toBe('/p')
+    mode = 'chrome'
+    expect({ ...env }.BSK_HOME).toBe('/u/.bsk')
+    expect(Object.keys(env).sort()).toEqual(['BSK_AUTO_START', 'BSK_HOME', 'PATH'])
+  })
+})
+
+describe("the agent's shell", () => {
+  it('runs bsk commands with the environment of the current setting', async () => {
+    const { NodeExecutionEnv } = await import('@earendil-works/pi-durable/env/node')
+    const { BACKGROUND_CONTEXT } = await import('@earendil-works/chord/context')
+    let mode: 'manul' | 'chrome' = 'manul'
+    const shellEnv = liveEnv(() => agentEnv(mode, { bundledDir: join(BSK_BIN, '..'), privateHome: '/p', userHome: '/u', userBsk: null, path: process.env.PATH || '' }))
+    const env = new NodeExecutionEnv({ cwd: tmpdir(), shellEnv })
+    const run = async () => {
+      let out = ''
+      await env.exec('echo "$BSK_HOME|$BSK_AUTO_START|$(command -v bsk)"', { onOutput: (t: string) => { out += t } }, BACKGROUND_CONTEXT)
+      return out.trim()
+    }
+    expect(await run()).toBe(`/p|0|${BSK_BIN}`)
+    mode = 'chrome'
+    expect(await run()).toBe(`/u/.bsk|1|${BSK_BIN}`)
+  })
+})
+
+describe('browserExtension', () => {
+  it('import_media brings a downloaded file into the project, and only from inside it', async () => {
+    const { browserExtension } = await import('../src/main/agent')
+    const dir = mkdtempSync(join(tmpdir(), 'manul-proj-'))
+    mkdirSync(join(dir, 'downloads'))
+    writeFileSync(join(dir, 'downloads', 'song.mp3'), 'x')
+    const got: string[] = []
+    const bridge = { project: () => ({ dir }), importMedia: async (_d: string, abs: string) => { got.push(abs); return 'media/song.mp3' } }
+    const ext = browserExtension(bridge as never, () => dir, () => 'Browser: test') as unknown as { tools: { name: string; execute: (a: object, api: object) => Promise<{ content: { text: string }[] }> }[] }
+    const tool = ext.tools.find(t => t.name === 'import_media')!
+    const out = await tool.execute({ path: 'downloads/song.mp3' }, { conversationId: '1' })
+    expect(out.content[0].text).toContain('media/song.mp3')
+    expect(got).toEqual([join(dir, 'downloads', 'song.mp3')])
+    await expect(tool.execute({ path: '/etc/hosts' }, { conversationId: '1' })).rejects.toThrow(/inside the project/)
+    await expect(tool.execute({ path: 'downloads/none.mp3' }, { conversationId: '1' })).rejects.toThrow(/No file/)
+  })
+})
+
+describe("the user's own Chrome bsk (Settings → Browser)", () => {
+  it('reports no daemon without starting one', async () => {
+    const home = mkdtempSync('/tmp/mhome-')
+    const s = await chromeBsk({ userHome: home, bundled: BSK_BIN, path: '' })
+    expect(s).toEqual({ cli: null, daemon: false, browsers: [] })
+    expect(existsSync(join(home, '.bsk', 'daemon.json'))).toBe(false)
+    rmSync(home, { recursive: true, force: true })
+  })
+})

@@ -145,3 +145,11 @@ export type WhisperStatus = {
 export type Word = { w: string; s: number; e: number; p?: number }
 export type Segment = { s: number; e: number; text: string; words: Word[] }
 export type Transcript = { media: string; language: string; model: string; segments: Segment[]; createdAt: number }
+
+// ---------------------------------------------------------------- the agent's browser
+export type BrowserTab = { id: number; title: string; url: string; loading: boolean; agent: boolean; canBack: boolean; canForward: boolean }
+export type BrowserState = { tabs: BrowserTab[]; active: number | null; bsk: { connected: boolean; status: string } }
+/** manul: Manul's own browser with its private bsk (default). chrome: the user's own Chrome through their bsk. */
+export type BrowserMode = 'manul' | 'chrome'
+/** What Settings → Browser shows about the user's own Chrome bsk. */
+export type ChromeBsk = { cli: string | null; daemon: boolean; browsers: { id: string; label: string }[] }

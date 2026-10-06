@@ -14,11 +14,15 @@ asar: true
 extraResources:
   - from: resources/bin/${platform}-${arch}
     to: bin
-    filter: ["ffmpeg", "ffprobe", "whisper-cli"]
+    filter: ["ffmpeg", "ffprobe", "whisper-cli", "bsk"]
   - from: resources/lib
     to: lib
   - from: resources/skills
     to: skills
+  # BrowserSkill's extension, run inside Manul's own browser (scripts/fetch-bsk.mjs)
+  - from: resources/bsk-ext
+    to: bsk-ext
+    filter: ["**/*", "!.sha256"]
   - from: resources/py
     to: py
   - from: THIRD_PARTY_NOTICES.md

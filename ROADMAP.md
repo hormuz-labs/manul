@@ -64,8 +64,10 @@ pro editors can take a Manul rough cut into their own editor.
   chat log.
 - **Tracks drawer:** the full timeline and mix, for power users.
 - **Background tray:** renders, imports, downloads and agent background tasks, with one progress style.
-- **Agent browser:** the agent uses its own built-in browser, never the user's personal one. A small live window
-  appears while it browses; click it to take over (for example, to sign in).
+- **Agent browser:** the agent uses Manul's own built-in browser (the Browser panel), never the user's personal one.
+  It is driven by a private, bundled BrowserSkill (bsk): its own daemon home and port, so a bsk the user installed in
+  Chrome never sees it. The user browses and signs in in the same panel and can interrupt the agent there.
+  Settings → Browser lets the user choose their own Chrome instead (their logins), on purpose.
 - **⌘K command palette** reaches everything. Selecting a range plus ⌘K offers actions on that range.
 
 ## 4. Architecture decisions
@@ -148,7 +150,7 @@ pro editors can take a Manul rough cut into their own editor.
 - [x] Slide editing by the agent: pick an element, then a note scoped to that element; the agent changes only it
 - [x] Transcript panel with text-based editing (click to seek, drag to select a range, fillers marked, find)
 - [ ] Tracks drawer (timeline, mix, inspector)
-- [ ] Agent browser with take-over
+- [x] Agent browser with take-over (Manul's own browser via private bsk; Settings → Browser switches to the user's Chrome)
 - [ ] Bring in your own footage, images and extra videos anywhere
 - [x] Carry over the existing editor features: several projects and conversations, model picker, skills and profiles, memory,
       history (git underneath), move elements, live mix, proxies, native menu, ⌘K

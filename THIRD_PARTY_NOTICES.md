@@ -15,6 +15,12 @@ Manul runs FFmpeg as separate programs; it does not link against it.
 MIT licence, https://github.com/ggml-org/whisper.cpp. Built statically by `scripts/build-whisper.sh` (Metal embedded on
 macOS). The model (ggml-base, MIT, from huggingface.co/ggerganov/whisper.cpp) is downloaded on first use, SHA-256 checked.
 
+## BrowserSkill 0.3.2 (bsk CLI, its Chrome extension, its agent skill)
+
+MIT licence, Copyright (c) 2026 Tencent, https://github.com/Tencent/BrowserSkill. Release binaries and the extension
+package are pinned by SHA-256 in `scripts/fetch-bsk.mjs`; the agent skill (`skills/browser-skill`) is copied from the
+same release with only its description changed. Manul runs the extension unmodified inside its own browser.
+
 ## Tools downloaded on demand
 
 Downloaded only after the user agrees, into Manul's own folder: uv (Apache-2.0/MIT), faster-whisper (MIT),

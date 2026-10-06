@@ -1,6 +1,6 @@
-// Settings: one place for keys, models, skills, memory and tools.
+// Settings: one place for keys, models, skills, memory, the agent's browser and tools.
 import * as D from '@radix-ui/react-dialog'
-import { Brain, Info, KeyRound, Package, Sparkles, X } from 'lucide-react'
+import { Brain, Globe, Info, KeyRound, Package, Sparkles, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { KeysPanel } from './KeysPanel'
@@ -8,12 +8,14 @@ import { MemoryPanel } from './MemoryPanel'
 import { AboutPanel } from './AboutPanel'
 import { SkillsPanel } from './SkillsPanel'
 import { ToolsPanel } from './ToolsPanel'
+import { BrowserSettingsPanel } from './BrowserSettingsPanel'
 
-export type Section = 'keys' | 'skills' | 'memory' | 'tools' | 'about'
+export type Section = 'keys' | 'skills' | 'memory' | 'browser' | 'tools' | 'about'
 const SECTIONS: { id: Section; label: string; icon: ReactNode; panel: () => ReactNode }[] = [
   { id: 'keys', label: 'Keys', icon: <KeyRound />, panel: () => <KeysPanel /> },
   { id: 'skills', label: 'Skills', icon: <Sparkles />, panel: () => <SkillsPanel /> },
   { id: 'memory', label: 'Memory', icon: <Brain />, panel: () => <MemoryPanel /> },
+  { id: 'browser', label: 'Browser', icon: <Globe />, panel: () => <BrowserSettingsPanel /> },
   { id: 'tools', label: 'Tools', icon: <Package />, panel: () => <ToolsPanel /> },
   { id: 'about', label: 'About', icon: <Info />, panel: () => <AboutPanel /> },
 ]

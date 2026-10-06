@@ -25,6 +25,7 @@ export function buildMenu(win: () => BrowserWindow | null) {
       cmd('palette', 'Command Palette…', 'CmdOrCtrl+K'),
       cmd('transcript', 'Transcript', 'CmdOrCtrl+Shift+T'),
       cmd('history', 'History', 'CmdOrCtrl+Shift+H'),
+      cmd('browser', 'Browser', 'CmdOrCtrl+Shift+B'),
       { type: 'separator' },
       { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' },
       ...(app.isPackaged ? [] : [{ type: 'separator' } as MenuItemConstructorOptions, { role: 'reload' } as MenuItemConstructorOptions, { role: 'toggleDevTools' } as MenuItemConstructorOptions]),
@@ -34,7 +35,7 @@ export function buildMenu(win: () => BrowserWindow | null) {
       cmd('agent.focus', 'Ask Manul', 'CmdOrCtrl+L'),
       cmd('agent.stop', 'Stop', 'CmdOrCtrl+.'),
       { type: 'separator' },
-      cmd('settings.skills', 'Skills…'), cmd('settings.memory', 'Memory…'), cmd('settings.keys', 'Keys…'),
+      cmd('settings.skills', 'Skills…'), cmd('settings.memory', 'Memory…'), cmd('settings.keys', 'Keys…'), cmd('settings.browser', 'Browser…'),
     ] },
     { label: 'Window', submenu: [
       cmd('tab.next', 'Next Tab', 'Ctrl+Tab'), cmd('tab.prev', 'Previous Tab', 'Ctrl+Shift+Tab'),

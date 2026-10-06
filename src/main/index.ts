@@ -2,7 +2,7 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron'
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { extname, join, resolve, sep } from 'node:path'
+import { dirname, extname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { startAgent, type AgentHandle } from './agent'
 import { renderClip, setClipProtocol } from './clips'
@@ -18,6 +18,9 @@ import { getConfig, setConfig } from './config'
 import { Memory } from './memory'
 import { History } from './history'
 import { Skills } from './skills'
+import { Browser } from './browser'
+import { agentEnv, browserPrompt, BskDaemon, BSK_BIN, chromeBsk, extensionStorage, findUserBsk, privateHome } from './bsk'
+import { homedir } from 'node:os'
 import * as Projects from './projects'
 import { addOverlay, composeArgs, duration as timelineDuration, insertAt } from '../shared/timeline'
 import { moveElement, prepareClipHtml } from '../shared/clip-html'
@@ -28,7 +31,7 @@ import { spawn } from 'node:child_process'
 import { FFMPEG } from './media'
 import { execFile } from 'node:child_process'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
-import type { Anchor, ClipInfo, ConsentRequest, Project, Transcript } from '../shared/types'
+import type { Anchor, BrowserMode, ClipInfo, ConsentRequest, Project, Transcript } from '../shared/types'
 import type { Timeline } from '../shared/timeline'
 
 app.setName('Manul')
@@ -42,6 +45,9 @@ let memory: Memory
 let skills: Skills
 let updates: ReturnType<typeof startUpdates> | null = null
 const open = new Map<string, Project>() // dir → project
+let browser: Browser | null = null
+let bskd: BskDaemon | null = null
+const browserMode = (): BrowserMode => getConfig().browser?.mode ?? 'manul'
 
 const send = (ch: string, ...args: unknown[]) => win?.webContents.send(ch, ...args)
 const projectOf = (dir: string) => {
@@ -361,6 +367,19 @@ function wire() {
   ipcMain.handle('project:open', (_e, dir: string) => openProject(dir))
   ipcMain.handle('project:close', (_e, dir: string) => { agent?.close(dir); open.delete(dir) })
   ipcMain.handle('project:reveal', (_e, dir: string) => shell.openPath(dir))
+  // ---------------------------------------------------------------- the browser panel and which browser the agent drives
+  ipcMain.handle('browser:state', () => browser?.state() ?? { tabs: [], active: null, bsk: { connected: false, status: 'starting' } })
+  ipcMain.on('browser:bounds', (_e, r) => browser?.setBounds(r))
+  ipcMain.handle('browser:navigate', (_e, url: string) => browser?.navigate(url))
+  ipcMain.handle('browser:back', () => browser?.back())
+  ipcMain.handle('browser:forward', () => browser?.forward())
+  ipcMain.handle('browser:reload', () => browser?.reload())
+  ipcMain.handle('browser:select', (_e, id: number) => browser?.activate(id))
+  ipcMain.handle('browser:close', (_e, id: number) => browser?.closeTab(id))
+  ipcMain.handle('browser:new', () => browser?.createTab({ url: 'https://www.google.com/' }))
+  ipcMain.handle('browser:mode', () => browserMode())
+  ipcMain.handle('browser:set-mode', (_e, mode: BrowserMode) => { setConfig({ browser: { mode: mode === 'chrome' ? 'chrome' : 'manul' } }); return browserMode() })
+  ipcMain.handle('browser:chrome', () => chromeBsk({ userHome: homedir(), bundled: BSK_BIN }))
   ipcMain.handle('project:import', async (_e, dir: string, file: string) => { const p = projectOf(dir); const rel = await Projects.importMedia(p, file); send('project', p); ensureProxy(p, rel); autoTranscribe(p, rel); return rel })
   ipcMain.handle('project:decide', async (_e, dir: string, accept: boolean) => {
     const p = projectOf(dir)
@@ -503,8 +522,12 @@ app.whenReady().then(async () => {
   if (feed) { setTimeout(pullSkills, 15_000); setInterval(pullSkills, 6 * 3600_000).unref?.() }
   onJobs(jobs => send('jobs', jobs))
   createWindow()
+  startBrowser(resources)
   try {
     agent = await startAgent({
+      // which browser the agent's bsk reaches: Manul's own (private daemon) unless the user chose their Chrome
+      shellEnv: () => agentEnv(browserMode(), { bundledDir: dirname(BSK_BIN), privateHome: bskd!.home, userHome: homedir(), userBsk: findUserBsk({ home: homedir(), bundled: BSK_BIN }), path: process.env.PATH || '' }),
+      browserPrompt: () => browserPrompt(browserMode()),
       dbPath: join(app.getPath('userData'), 'agent.sqlite'),
       memory,
       skills,
@@ -550,6 +573,13 @@ app.whenReady().then(async () => {
           return exportFilm(p, req, join(p.dir, 'exports', `${p.title}${suffix}.mp4`))
         },
         setMix: (dir, mix) => applyMix(projectOf(dir), mix),
+        async importMedia(dir, abs) {
+          const p = projectOf(dir)
+          const rel = await Projects.importMedia(p, abs)
+          await checkpoint(p, `Added ${rel}`)
+          ensureProxy(p, rel); autoTranscribe(p, rel)
+          return rel
+        },
         rerenderTimeline: (dir, title) => { const p = projectOf(dir); return proposeTimeline(p, p.timeline!, title) },
       },
     })
@@ -560,5 +590,26 @@ app.whenReady().then(async () => {
   }
 })
 
-app.on('window-all-closed', async () => { await agent?.shutdown().catch(() => {}); app.quit() })
+/** Manul's browser: its private bsk daemon (own home, own port) and the bundled extension running against its tabs. */
+async function startBrowser(resources: string) {
+  bskd = new BskDaemon({ bin: BSK_BIN, home: privateHome(app.getPath('userData'), homedir()), log: s => { if (/ERROR/.test(s)) console.warn('[bsk]', s.trim().slice(0, 300)) } })
+  try {
+    const { port } = await bskd.start()
+    browser = new Browser({
+      win: () => win, dataDir: join(app.getPath('userData'), 'browser'), extDir: join(resources, 'bsk-ext'),
+      preloadDir: join(import.meta.dirname, '../preload'), storagePreset: extensionStorage(port), send,
+    })
+    await browser.startHost()
+  } catch (e) {
+    console.warn('browser', e)
+    send('notice', `Manul's browser could not start: ${(e as Error).message}`)
+  }
+}
+
+app.on('window-all-closed', async () => {
+  browser?.destroy()
+  await Promise.all([agent?.shutdown().catch(() => {}), bskd?.stop()])
+  app.quit()
+})
+app.on('will-quit', () => bskd?.killNow())
 app.on('activate', () => { if (!win) createWindow() })

@@ -18,6 +18,7 @@ import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
 import { AguiAdapter } from './agui'
+import { liveEnv } from './bsk'
 import { chooseModel, describeModels } from './models'
 import type { Memory } from './memory'
 import type { Skills } from './skills'
@@ -45,6 +46,8 @@ export type Bridge = {
   insertClip(dir: string, id: string, at: number, title: string): Promise<string>
   rerenderTimeline(dir: string, title: string): Promise<string>
   setMix(dir: string, mix: { filmDb: number; music?: { src: string; db: number; duckDb: number } }): Promise<string>
+  /** Copy a file (e.g. a download) into media/ and add it to the project. */
+  importMedia(dir: string, absPath: string): Promise<string>
   exportFilm(dir: string, req: { preset: 'original' | 'landscape' | 'vertical' | 'square'; fit?: 'pad' | 'crop'; captions: 'none' | 'burn' | 'srt'; captionColor?: string }): Promise<{ file: string; srt?: string }>
 }
 
@@ -299,6 +302,29 @@ function memoryExtension(memory: Memory) {
   })
 }
 
+/** The agent's browser: which one its bsk commands reach (Settings → Browser) and bringing downloads into the project. */
+export function browserExtension(bridge: Bridge, dirOf: (convId: string) => string, prompt: () => string) {
+  return defineExtension({
+    name: 'browser',
+    sections: [section('browser', () => prompt(), { tag: false })],
+    tools: [
+      defineTool({
+        name: 'import_media',
+        description: 'Add a file in the project folder (e.g. one you downloaded to downloads/) to the project\'s media, so it can be used in the edit. Returns its path in media/.',
+        parameters: Type.Object({ path: Type.String({ description: 'relative to the project folder, e.g. downloads/music.mp3' }) }),
+        execute: async (args: Any, api: Any) => {
+          const dir = dirOf(api.conversationId)
+          if (!dir || !bridge.project(dir)) throw new Error('This project is not open.')
+          const abs = isAbsolute(args.path) ? args.path : resolve(dir, args.path)
+          if (!abs.startsWith(dir + '/')) throw new Error('The file must be inside the project folder (download it to downloads/ first).')
+          if (!existsSync(abs)) throw new Error(`No file at ${args.path}.`)
+          return text(`Added as ${await bridge.importMedia(dir, abs)}`)
+        },
+      }),
+    ],
+  })
+}
+
 function skillsExtension(skills: Skills) {
   return defineExtension({
     name: 'skills',
@@ -316,17 +342,26 @@ function skillsExtension(skills: Skills) {
 
 export type AgentHandle = Awaited<ReturnType<typeof startAgent>>
 
-export async function startAgent(opts: { dbPath: string; bridge: Bridge; memory: Memory; skills: Skills; onEvent: (dir: string, e: BaseEvent) => void }) {
+export async function startAgent(opts: {
+  dbPath: string; bridge: Bridge; memory: Memory; skills: Skills; onEvent: (dir: string, e: BaseEvent) => void
+  /** Extra environment for the agent's shell, read at each command (which bsk / daemon it reaches). */
+  shellEnv?: () => Record<string, string>
+  /** The browser section of the instructions, for the current setting. */
+  browserPrompt?: () => string
+}) {
   const models = createModels({ authContext: { env: async (n: string) => process.env[n], fileExists: async (p: string) => existsSync(p) } })
   for (const p of [anthropicProvider, googleProvider, openaiProvider]) models.setProvider(p())
 
   const convDir = new Map<string, string>() // conversation id → project dir
   const registry = createRegistry()
-  for (const ext of [CodingTools, editorExtension(opts.bridge, id => convDir.get(String(id)) || ''), memoryExtension(opts.memory), skillsExtension(opts.skills)]) registry.install(ext)
+  const dirOf = (id: string) => convDir.get(String(id)) || ''
+  for (const ext of [CodingTools, editorExtension(opts.bridge, dirOf), memoryExtension(opts.memory), skillsExtension(opts.skills),
+    ...(opts.browserPrompt ? [browserExtension(opts.bridge, dirOf, opts.browserPrompt)] : [])]) registry.install(ext)
+  const shellEnv = opts.shellEnv ? liveEnv(opts.shellEnv) : undefined
 
   const harness = await Harness.open(await openNodeSqliteStorage(opts.dbPath), {
     models, registry,
-    env: ({ cwd }: Any) => new NodeExecutionEnv({ cwd: cwd ?? process.cwd() }),
+    env: ({ cwd }: Any) => new NodeExecutionEnv({ cwd: cwd ?? process.cwd(), shellEnv }),
   } as any, ctx)
   harness.resume() // finish any run a crash or quit left unfinished
 
