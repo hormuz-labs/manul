@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -100,5 +100,15 @@ describe('burned captions look right', () => {
     expect(Math.max(...rows)).toBeLessThan(0.88) // clear of the platform's buttons and caption area
     const tall = Math.max(...rows) - Math.min(...rows)
     expect(tall).toBeGreaterThan(0.02); expect(tall).toBeLessThan(0.06)
+  })
+})
+
+describe('caption fonts', () => {
+  it('ships Inter as TTF next to the woff2 (libass cannot read woff2, so captions would fall back to another font)', () => {
+    const fonts = join(import.meta.dirname, '..', 'resources', 'lib', 'fonts')
+    for (const f of ['Inter-Regular.ttf', 'Inter-Bold.ttf']) {
+      const head = readFileSync(join(fonts, f)).subarray(0, 4)
+      expect(head.equals(Buffer.from([0, 1, 0, 0]))).toBe(true) // a TrueType font
+    }
   })
 })

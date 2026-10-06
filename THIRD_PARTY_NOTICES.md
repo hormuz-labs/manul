@@ -21,6 +21,11 @@ MIT licence, Copyright (c) 2026 Tencent, https://github.com/Tencent/BrowserSkill
 package are pinned by SHA-256 in `scripts/fetch-bsk.mjs`; the agent skill (`skills/browser-skill`) is copied from the
 same release with only its description changed. Manul runs the extension unmodified inside its own browser.
 
+## Inter 4.1 (font)
+
+SIL Open Font License 1.1, https://github.com/rsms/inter. Used for clip typography (woff2, via @fontsource-variable/inter)
+and for burned-in captions (`Inter-Regular.ttf`, `Inter-Bold.ttf` from the v4.1 release; licence in `lib/fonts/Inter-LICENSE.txt`).
+
 ## Tools downloaded on demand
 
 Downloaded only after the user agrees, into Manul's own folder: uv (Apache-2.0/MIT), faster-whisper (MIT),
