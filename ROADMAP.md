@@ -206,6 +206,7 @@ pro editors can take a Manul rough cut into their own editor.
       transcription). It checks the key, counts usage, and forwards to providers with our keys
 - ⬜ Optional accounts, licence check (works offline for a month), credits, top-ups
 - ⬜ Pro plan: AI included, cloud versions of heavy tools (demucs, upscaling), publishing automation, premium skill packs
+- 🚧 **Cloud tools on Manul's worker** (`worker.trypitch.co`): Upscale (Real-ESRGAN) has its place in Tools as *Coming soon*; only the shot being processed is sent
 - ⬜ Integrations through **Composio**: Google Drive, Dropbox, OneDrive, Slack, Notion, Gmail, TikTok,
       Instagram, LinkedIn, X. Large files go by direct signed upload/download links, never through tool calls
 - ⬜ Phone capture over **local Wi-Fi** (QR pairing, free)
