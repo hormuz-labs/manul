@@ -22,7 +22,7 @@ export function CommandPalette({ open, onOpenChange, onAsk }: { open: boolean; o
         <D.Overlay className="fixed inset-0 z-40 bg-black/50" />
         <D.Content className="fixed left-1/2 top-[18vh] z-50 w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-hidden rounded-card border border-line bg-panel shadow-2xl shadow-black/60 focus:outline-none">
           <D.Title className="sr-only">Command palette</D.Title>
-          <div className="flex items-center gap-2 border-b border-line px-3">
+          <div className="flex items-center gap-2 bg-bg/40 px-3">
             <Search className="size-4 text-faint" />
             <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Type a command, or ask Manul…"
               onKeyDown={e => {

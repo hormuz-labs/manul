@@ -376,7 +376,7 @@ function wire() {
   ipcMain.handle('browser:reload', () => browser?.reload())
   ipcMain.handle('browser:select', (_e, id: number) => browser?.activate(id))
   ipcMain.handle('browser:close', (_e, id: number) => browser?.closeTab(id))
-  ipcMain.handle('browser:new', () => browser?.createTab({ url: 'https://www.google.com/' }))
+  ipcMain.handle('browser:new', () => { browser?.createTab({ url: 'https://www.google.com/' }) })
   ipcMain.handle('browser:mode', () => browserMode())
   ipcMain.handle('browser:set-mode', (_e, mode: BrowserMode) => { setConfig({ browser: { mode: mode === 'chrome' ? 'chrome' : 'manul' } }); return browserMode() })
   ipcMain.handle('browser:chrome', () => chromeBsk({ userHome: homedir(), bundled: BSK_BIN }))

@@ -7,6 +7,7 @@
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 
   --color-bg: #0e0d0c;
+  --color-canvas: #121110; /* the work area (film, browser): between the window chrome and the side panels */
   --color-panel: #161412;
   --color-raised: #1d1a17;
   --color-hover: #25211d;

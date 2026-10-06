@@ -72,9 +72,22 @@ try {
   assert.ok(ref, 'the button has a ref')
   await bsk('click', ref[1], '--session', session)
   assert.match((await bsk('observe', '--session', session)).text, /Clicked by the agent/)
-  await win.waitForSelector('[data-testid="browser-panel"] .border-amber\\/60', { timeout: 5000 }) // the agent's tab, marked
+  await win.waitForSelector('[data-testid="browser-panel"] [data-agent-tab]', { timeout: 5000 }) // the agent's tab, marked
+  // one toolbar level with the transcript and agent headers (no second bar of lines)
+  const tops = await win.evaluate(() => [...document.querySelectorAll('[data-panel-header]')].filter(e => e.checkVisibility()).map(e => Math.round(e.getBoundingClientRect().bottom)))
+  assert.ok(tops.length >= 3 && new Set(tops).size === 1, `transcript, browser and agent headers line up (${tops})`)
   const shown = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.isVisible()).contentView.children.filter(v => v.getVisible()).length)
   assert.equal(await shown(), 1, 'the page is on screen')
+  // no duplicate tabs: the address bar is the current tab; only the other tabs get pills
+  assert.match(await win.locator('[data-testid="browser-address"]').innerText(), /Manul test page/)
+  assert.equal(await win.locator('[data-testid="browser-tab"]').count(), 0, 'one tab: no pills')
+  await win.evaluate(() => window.manul.browser.newTab())
+  await until('second tab', async () => (await win.locator('[data-testid="browser-tab"]').count()) === 1, 10_000)
+  assert.match(await win.locator('[data-testid="browser-tab"]').innerText(), /Manul test page/, 'the other tab is the pill')
+  await win.locator('[data-testid="browser-tab"]').click() // back to the agent's tab
+  await until('back on one pill for the new tab', async () => /Manul test page/.test(await win.locator('[data-testid="browser-address"]').innerText().catch(() => '')), 10_000)
+  await win.evaluate(async () => { const st = await window.manul.browser.state(); for (const t of st.tabs) if (t.id !== st.active) await window.manul.browser.close(t.id) })
+  await until('pill gone', async () => (await win.locator('[data-testid="browser-tab"]').count()) === 0, 5000)
   await win.screenshot({ path: join(tmp, 'browser.png') })
   // the page itself is a native view over the panel: capture it to prove it draws the clicked page
   const png = await app.evaluate(async ({ BrowserWindow }) => {
@@ -86,7 +99,7 @@ try {
   console.log(`  screenshots: ${join(tmp, 'browser.png')}, ${join(tmp, 'page.png')}`)
 
   // 4. a dialog over the panel hides the native page; closing it brings the page back
-  await win.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,')
+  await app.evaluate(({ Menu }) => { const f = it => { for (const i of it) { if (i.label === 'Settings…') return i; const s = i.submenu && f(i.submenu.items); if (s) return s } }; f(Menu.getApplicationMenu().items).click() })
   await win.waitForSelector('text=Settings')
   await until('page hidden under the dialog', async () => (await shown()) === 0, 3000)
 

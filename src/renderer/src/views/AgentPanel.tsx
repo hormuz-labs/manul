@@ -44,14 +44,14 @@ function ToolCard({ call, state, result }: { call: Call; state: 'streaming' | 'r
   const t = TOOL[call.name] || { icon: <Wrench />, title: () => call.name.replace(/_/g, ' ') }
   const [open, setOpen] = useState(false)
   return (
-    <div className={cn('rounded-lg border bg-raised/50 text-xs', state === 'running' || state === 'streaming' ? 'beam border-line' : state === 'error' ? 'border-bad/40' : 'border-line')}>
+    <div className={cn('rounded-lg bg-raised/70 text-xs', state === 'running' || state === 'streaming' ? 'beam' : state === 'error' && 'ring-1 ring-bad/40')}>
       <button className="flex w-full items-center gap-2 px-2.5 py-2 text-left" onClick={() => setOpen(!open)}>
         <span className={cn('[&_svg]:size-3.5', state === 'error' ? 'text-bad' : 'text-dim')}>{state === 'running' || state === 'streaming' ? <Loader2 className="size-3.5 animate-spin text-amber" /> : t.icon}</span>
         <span className="flex-1 truncate text-fg/90">{t.title(call.args)}</span>
         {state === 'error' && <TriangleAlert className="size-3.5 text-bad" />}
       </button>
       {(t.body || (open && result)) && (
-        <div className="space-y-1.5 border-t border-line px-2.5 py-2">
+        <div className="space-y-1.5 px-2.5 pb-2">
           {t.body?.(call.args)}
           {open && result && <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[10.5px] text-faint" data-selectable>{result}</pre>}
         </div>
@@ -132,7 +132,7 @@ export function AgentPanel({ project, projectInfo, model, agent, anchor, onClear
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-3">
+      <div className="flex h-11 shrink-0 items-center gap-2 px-3" data-panel-header>
         <div className={cn('size-3 rounded-full', agent.busy ? 'orb' : 'bg-line-strong')} />
         {agent.busy ? <span className="font-medium">Working…</span> : <Conversations project={projectInfo} />}
         <span className="flex-1" />
@@ -160,11 +160,11 @@ export function AgentPanel({ project, projectInfo, model, agent, anchor, onClear
         )}
       </div>
 
-      <div className="border-t border-line p-2">
+      <div className="p-2">
         {!ready ? (
           <button onClick={onKeys} className="w-full rounded-xl border border-dashed border-amber/50 px-3 py-3 text-amber hover:bg-amber-soft">Add an API key to start editing</button>
         ) : (
-          <div className={cn('rounded-xl border bg-raised/60 focus-within:border-line-strong', anchor ? 'border-amber/40' : 'border-line')}>
+          <div className={cn('rounded-xl bg-raised ring-1 focus-within:ring-line-strong', anchor ? 'ring-amber/40' : 'ring-transparent')}>
             {anchor && (
               <div className="flex items-center gap-1.5 px-2.5 pt-2">
                 <span className="inline-flex items-center gap-1 rounded bg-amber-soft px-1.5 py-0.5 text-[11px] text-amber"><MessageSquareText className="size-3" />Note at {anchorLabel}</span>

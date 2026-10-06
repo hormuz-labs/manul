@@ -28,7 +28,7 @@ export function SettingsDialog({ section, onSection, onClose }: { section: Secti
         <D.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px]" />
         <D.Content className="fixed left-1/2 top-1/2 z-50 flex h-[640px] max-h-[calc(100vh-48px)] w-[820px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-card border border-line bg-panel shadow-2xl shadow-black/50 focus:outline-none">
           <D.Title className="sr-only">Settings</D.Title>
-          <nav className="w-44 shrink-0 space-y-0.5 border-r border-line bg-bg/40 p-2">
+          <nav className="w-44 shrink-0 space-y-0.5 bg-bg/50 p-2">
             <div className="px-2 pb-2 pt-1 text-xs font-medium uppercase tracking-wider text-faint">Settings</div>
             {SECTIONS.map(s => (
               <button key={s.id} onClick={() => onSection(s.id)}

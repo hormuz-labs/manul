@@ -1,7 +1,7 @@
 // What is said, word by word, in sync with the film. Click a word to jump there; drag across words to select a range
 // (it becomes the anchor of the next request, e.g. "cut this"). Fillers are marked so "cut the ums" is visible.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AudioLines, Loader2, Search } from 'lucide-react'
+import { AudioLines, Loader2, PanelLeftClose, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useJobs } from '@/components/JobsTray'
 import { flatWords, isFiller, rangeOfSelection, wordIndexAt } from '@/lib/transcript'
@@ -10,9 +10,9 @@ import type { Project, Transcript } from '../../../shared/types'
 
 const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '').slice(0, 300)
 
-type Props = { project: Project; media: string; time: number; onSeek(t: number): void; onRange(r: { t0: number; t1: number }): void }
+type Props = { project: Project; media: string; time: number; onSeek(t: number): void; onRange(r: { t0: number; t1: number }): void; onCollapse?(): void }
 
-export function TranscriptPanel({ project, media, time, onSeek, onRange }: Props) {
+export function TranscriptPanel({ project, media, time, onSeek, onRange, onCollapse }: Props) {
   const [t, setT] = useState<Transcript | null>(null)
   const [state, setState] = useState<'loading' | 'none' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -57,11 +57,12 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange }: Props
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-3">
+      <div className="flex h-11 shrink-0 items-center gap-2 px-3" data-panel-header>
         <AudioLines className="size-4 text-dim" />
         <span className="font-medium">Transcript</span>
         <span className="flex-1" />
         {state === 'ready' && fillers > 0 && <span className="rounded bg-amber-soft px-1.5 py-0.5 text-[10.5px] text-amber" title="Filler words (um, uh…)">{fillers} fillers</span>}
+        {onCollapse && <Button size="iconSm" variant="ghost" onClick={onCollapse} title="Collapse the transcript (T)" aria-label="Collapse the transcript"><PanelLeftClose /></Button>}
       </div>
 
       {state === 'ready' && t && t.segments.length === 0 && (
@@ -70,7 +71,7 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange }: Props
 
       {state === 'ready' && t && t.segments.length > 0 && (
         <>
-          <div className="flex items-center gap-2 border-b border-line px-3 py-1.5">
+          <div className="mx-3 mb-1 flex items-center gap-2 rounded-md bg-raised px-2.5 py-1">
             <Search className="size-3.5 text-faint" />
             <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find in transcript" className="h-6 flex-1 bg-transparent text-xs outline-none placeholder:text-faint" />
           </div>

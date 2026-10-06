@@ -129,7 +129,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
     >
       <ExportDialog dir={p.dir} open={exporting} onOpenChange={setExporting} />
       {/* title bar */}
-      <div className={cn('drag flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2', tabbed ? 'pl-2' : 'pl-20')}>
+      <div className={cn('drag flex h-11 shrink-0 items-center gap-2 bg-bg pr-2', tabbed ? 'pl-2' : 'pl-20')}>
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={onHome} title="All projects"><ArrowLeft /></Button>
         <span className="truncate font-medium">{p.title}</span>
         <select
@@ -151,19 +151,31 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {showTranscript && (
-          <div className="w-[300px] shrink-0 border-r border-line bg-panel">
+        {showTranscript ? (
+          <div className="w-[300px] shrink-0 bg-panel">
             <TranscriptPanel
               project={p}
               media={onScreen.path}
               time={time}
               onSeek={seek}
+              onCollapse={() => setShowTranscript(false)}
               onRange={r => { stage.current?.video?.pause(); setAnchor({ ...r, box: anchor?.box }); input.current?.focus() }}
             />
           </div>
+        ) : (
+          /* collapsed: a slim rail that opens it again */
+          <button
+            onClick={() => setShowTranscript(true)}
+            title="Show the transcript (T)"
+            aria-label="Show the transcript"
+            className="group flex w-10 shrink-0 flex-col items-center gap-3 bg-panel pt-3 text-dim hover:bg-hover hover:text-fg"
+          >
+            <AudioLines className="size-4" />
+            <span className="text-[11px] tracking-wide [writing-mode:vertical-rl]">Transcript</span>
+          </button>
         )}
         {/* the film */}
-        <div className={cn('relative flex min-w-0 flex-1 flex-col gap-2 p-3', over && 'bg-amber-soft')}>
+        <div className={cn('relative flex min-w-0 flex-1 flex-col gap-2 bg-canvas p-3', over && 'bg-amber-soft')}>
           <BrowserPanel visible={browsing && active} onClose={() => setBrowsing(false)} />
           {proposal && (
             <div className="flex items-center gap-2 rounded-lg border border-amber/30 bg-amber-soft px-3 py-1.5">
@@ -252,9 +264,6 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             <span className="tabular text-xs text-dim">{timecode(time)} <span className="text-faint">/ {timecode(duration)}</span></span>
             <span className="flex-1" />
             <MixPanel project={p} mix={mix} applied={applied} onChange={setMix} />
-            <Tip label={<>Transcript <Kbd>T</Kbd></>}>
-              <Button size="sm" variant={showTranscript ? 'secondary' : 'ghost'} onClick={() => setShowTranscript(x => !x)}><AudioLines />Transcript</Button>
-            </Tip>
             <Tip label={<>Note at the playhead <Kbd>N</Kbd></>}>
               <Button size="sm" variant="ghost" onClick={noteHere}><MessageSquarePlus />Note</Button>
             </Tip>
@@ -271,7 +280,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
         </div>
 
         {/* the agent */}
-        <div className="w-[360px] shrink-0 border-l border-line bg-panel">
+        <div className="w-[360px] shrink-0 bg-panel">
           <AgentPanel
             project={p.dir}
             projectInfo={p}

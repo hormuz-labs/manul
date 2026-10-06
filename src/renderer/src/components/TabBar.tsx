@@ -30,7 +30,7 @@ function Tab({ dir, title, active, onSelect, onClose, onDrop }: { dir: string; t
 
 export function TabBar({ open, active, titles, onSelect, onClose, onMove }: Props) {
   return (
-    <div className="drag flex h-10 shrink-0 items-center gap-1 border-b border-line bg-bg pl-20 pr-2">
+    <div className="drag flex h-10 shrink-0 items-center gap-1 bg-bg pl-20 pr-2">
       {open.map((d, i) => (
         <Tab key={d} dir={d} title={titles[d] || d.split('/').pop()!} active={d === active} onSelect={() => onSelect(d)} onClose={() => onClose(d)} onDrop={from => onMove(from, i)} />
       ))}
