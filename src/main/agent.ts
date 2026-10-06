@@ -44,6 +44,7 @@ export type Bridge = {
   bakeClip(dir: string, id: string): Promise<ClipInfo & { frames: number }>
   insertClip(dir: string, id: string, at: number, title: string): Promise<string>
   rerenderTimeline(dir: string, title: string): Promise<string>
+  setMix(dir: string, mix: { filmDb: number; music?: { src: string; db: number; duckDb: number } }): Promise<string>
   exportFilm(dir: string, req: { preset: 'original' | 'landscape' | 'vertical' | 'square'; fit?: 'pad' | 'crop'; captions: 'none' | 'burn' | 'srt'; captionColor?: string }): Promise<{ file: string; srt?: string }>
 }
 
@@ -203,6 +204,24 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
         description: 'Render the current timeline again (after a clip in it changed) and propose it.',
         parameters: Type.Object({ title: Type.String() }),
         execute: async (args: Any, api: Any) => text(`Proposed as version ${await bridge.rerenderTimeline(proj(api).dir, args.title)}.`),
+      }),
+      defineTool({
+        name: 'set_mix',
+        description: 'Set the film\'s mix: its own audio level (dB), and optional background music (an audio file already in the project, e.g. media/song.mp3) with its level and how far it dips under speech. Music loops to the film\'s length with a 1 s fade in and 2 s fade out. Applies at once (the user hears it and can undo from History).',
+        parameters: Type.Object({
+          film_db: Type.Number({ description: '0 = as is; e.g. -3 quieter, +3 louder' }),
+          music: Type.Optional(Type.Object({
+            src: Type.String({ description: 'project-relative audio file' }),
+            db: Type.Number({ description: 'music level, typically -18 to -10 under speech-heavy films' }),
+            duck_db: Type.Number({ description: 'how far the music dips while someone speaks; 8–14 is natural, 0 = no ducking' }),
+          })),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const mix = { filmDb: args.film_db, ...(args.music ? { music: { src: args.music.src, db: args.music.db, duckDb: args.music.duck_db } } : {}) }
+          if (mix.music && !p.media[mix.music.src]) throw new Error(`${mix.music.src} is not in the project; the user can add music with Add media.`)
+          return text(`Mixed as version ${await bridge.setMix(p.dir, mix)}.`)
+        },
       }),
       defineTool({
         name: 'export_video',

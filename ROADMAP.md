@@ -150,10 +150,10 @@ pro editors can take a Manul rough cut into their own editor.
 - [ ] Tracks drawer (timeline, mix, inspector)
 - [ ] Agent browser with take-over
 - [ ] Bring in your own footage, images and extra videos anywhere
-- [~] Carry over the existing editor features: several projects and conversations, model picker, skills and profiles, memory,
+- [x] Carry over the existing editor features: several projects and conversations, model picker, skills and profiles, memory,
       history (git underneath), move elements, live mix, proxies, native menu, ⌘K
-      (done: conversations, model picker, skills + profiles, memory, history, move elements in clips; next: project tabs,
-      live mix, proxies, native menu, ⌘K)
+      (all done: conversations, model picker, skills + profiles, memory, history, move elements in clips, project tabs,
+      live mix with music ducking, preview copies, native menu, ⌘K)
 - [x] Export: MP4 presets (16:9, 9:16, 1:1), captions burned in or as sidecar files
 - [x] Over-the-air updates for skills (Ed25519-signed feed, no rollbacks, user copies win)
 - [~] macOS (signed + notarized) and Linux builds; Homebrew cask; apt repository (pipeline ready, see RELEASING.md; needs the accounts and secrets)

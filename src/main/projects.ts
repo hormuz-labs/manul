@@ -88,10 +88,10 @@ export async function importMedia(p: Project, file: string) {
   return rel
 }
 
-export async function addVersion(p: Project, absPath: string, title: string, by: Version['by'], timeline?: Version['timeline']) {
+export async function addVersion(p: Project, absPath: string, title: string, by: Version['by'], timeline?: Version['timeline'], dry?: string) {
   const rel = relative(p.dir, absPath)
   p.media[rel] = await probe(absPath)
-  const v: Version = { id: id(), path: rel, title, createdAt: Date.now(), by, ...(timeline ? { timeline } : {}) }
+  const v: Version = { id: id(), path: rel, title, createdAt: Date.now(), by, ...(timeline ? { timeline } : {}), ...(dry ? { dry: relative(p.dir, dry) } : {}) }
   p.versions.push(v)
   return v
 }

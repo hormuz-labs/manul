@@ -8,7 +8,7 @@ export type Item = MediaItem | ClipItem
 export type Format = { width: number; height: number; fps: number }
 /** A clip laid over the film (transparent background) from start for dur seconds: lower thirds, captions, callouts. */
 export type Overlay = { id: string; clip: string; start: number; dur: number }
-export type Timeline = Format & { items: Item[]; overlays?: Overlay[] }
+export type Timeline = Format & { items: Item[]; overlays?: Overlay[]; /** film level, music and ducking (see mix.ts) */ mix?: { filmDb: number; music?: { src: string; db: number; duckDb: number } } }
 
 let seq = 0
 const newId = () => `i${Date.now().toString(36)}${(seq++).toString(36)}`

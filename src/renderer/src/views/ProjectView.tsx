@@ -14,6 +14,9 @@ import { TranscriptPanel } from './TranscriptPanel'
 import { TimelineStrip } from './TimelineStrip'
 import { ClipEditor } from './ClipEditor'
 import { ExportDialog } from './ExportDialog'
+import { MixPanel } from './MixPanel'
+import { useLiveMix } from '@/lib/liveMix'
+import type { Mix } from '../../../shared/mix'
 import { needsProxy } from '../../../shared/proxy'
 import { Scrubber } from './Scrubber'
 import { Stage, type StageHandle } from './Stage'
@@ -33,6 +36,8 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   const [over, setOver] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
+  const [regions, setRegions] = useState<[number, number][]>([])
   const [editing, setEditing] = useState<{ itemId: string; clip: string; start: number } | null>(null)
   const [showTranscript, setShowTranscript] = useState(() => localStorage.getItem('manul.transcript') !== '0')
   useEffect(() => { try { localStorage.setItem('manul.transcript', showTranscript ? '1' : '0') } catch { /* private mode */ } }, [showTranscript])
@@ -96,6 +101,13 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   const current = p.versions.find(v => v.id === p.current)!
   const proposal = p.proposal ? p.versions.find(v => v.id === p.proposal) : undefined
   const onScreen = proposal && compare === 'after' ? proposal : current
+  // the live mix starts from the mix the version on screen was rendered with; the player plays its dry film
+  const applied: Mix = onScreen.timeline?.mix || { filmDb: 0 }
+  const [mix, setMix] = useState<Mix>(applied)
+  useEffect(() => { setMix(applied) }, [onScreen.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { window.manul.mix.speech(p.dir, onScreen.id).then(setRegions).catch(() => setRegions([])) }, [p.dir, onScreen.id, p.transcripts])
+  useLiveMix(videoEl, p.dir, mix, regions)
+  const playable = onScreen.dry || onScreen.path
   const decide = async (accept: boolean) => setP(await window.manul.project.decide(p.dir, accept))
 
   return (
@@ -183,7 +195,8 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             )}
             <Stage
               ref={stage}
-              src={mediaUrl(`${p.dir}/${p.proxies?.[onScreen.path] || onScreen.path}`)}
+              src={mediaUrl(`${p.dir}/${p.proxies?.[playable] || playable}`)}
+              onVideo={setVideoEl}
               notes={p.notes}
               time={time}
               drawing={drawing}
@@ -231,6 +244,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             </Button>
             <span className="tabular text-xs text-dim">{timecode(time)} <span className="text-faint">/ {timecode(duration)}</span></span>
             <span className="flex-1" />
+            <MixPanel project={p} mix={mix} applied={applied} onChange={setMix} />
             <Tip label={<>Transcript <Kbd>T</Kbd></>}>
               <Button size="sm" variant={showTranscript ? 'secondary' : 'ghost'} onClick={() => setShowTranscript(x => !x)}><AudioLines />Transcript</Button>
             </Tip>

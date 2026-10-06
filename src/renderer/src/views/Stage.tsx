@@ -20,6 +20,8 @@ type Props = {
   onTime(t: number): void
   onDuration(d: number): void
   onPlaying(p: boolean): void
+  /** the <video> element (a new one each time the source changes) */
+  onVideo?(v: HTMLVideoElement | null): void
 }
 
 const clamp = (v: number) => Math.min(1, Math.max(0, v))
@@ -98,7 +100,7 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage(p, ref) {
       }}
     >
       <video
-        ref={video}
+        ref={el => { video.current = el; p.onVideo?.(el) }}
         key={p.src}
         src={p.src}
         crossOrigin="anonymous"

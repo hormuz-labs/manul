@@ -23,6 +23,7 @@ import { addOverlay, composeArgs, duration as timelineDuration, insertAt } from 
 import { moveElement, prepareClipHtml } from '../shared/clip-html'
 import { captionCues, exportArgs, toSrt, type ExportOptions } from '../shared/export'
 import { needsProxy, proxyArgs } from '../shared/proxy'
+import { duckEnvelope, mixArgs, mixCommands, regionsOnTimeline, type Mix } from '../shared/mix'
 import { spawn } from 'node:child_process'
 import { FFMPEG } from './media'
 import { execFile } from 'node:child_process'
@@ -203,10 +204,46 @@ async function bakeClip(p: Project, id: string, title?: string) {
   return { ...info, frames: r.frames }
 }
 
+/** Transcripts already made for the timeline's media (never asks; speech without a transcript just isn't ducked). */
+async function transcriptsFor(p: Project, tl: Timeline) {
+  const out: Record<string, Transcript | undefined> = {}
+  for (const it of tl.items) if (it.kind === 'media' && !(it.src in out)) out[it.src] = (await transcriptOf(p, it.src, { ask: false }).catch(() => null)) || undefined
+  return out
+}
+
+/** Mix a dry render into the final file (film level, music, ducking under speech); the picture is copied. */
+async function mixInto(p: Project, tl: Timeline, dryRel: string, outRel: string) {
+  const mix = tl.mix!
+  let commands: string | undefined
+  if (mix.music && mix.music.duckDb > 0) {
+    commands = '.manul-duck.cmd'
+    await writeFile(join(p.dir, commands), mixCommands(duckEnvelope(regionsOnTimeline(tl, await transcriptsFor(p, tl)), mix.music.duckDb)))
+  }
+  const args = mixArgs({ dry: dryRel, duration: timelineDuration(tl), mix, commands, out: outRel })
+  await new Promise<void>((ok, fail) => execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { cwd: p.dir, maxBuffer: 1 << 24 }, (err, _o, stderr) => (err ? fail(new Error(stderr.slice(-1500) || err.message)) : ok())))
+  if (commands) await rm(join(p.dir, commands), { force: true })
+}
+
+/** The film's mix changed only: reuse the version on screen as the dry film and mix it (fast: audio only). */
+async function applyMix(p: Project, mix: Mix) {
+  const cur = p.versions.find(v => v.id === p.current)!
+  const tl = { ...(cur.timeline || p.timeline!), mix }
+  const dry = cur.dry || cur.path
+  const out = join('renders', `mix-${p.versions.length + 1}.mp4`)
+  await asJob('Mixing', 'render', () => mixInto(p, tl, dry, out), { project: p.dir, doneTitle: 'Mixed' })
+  const v = await Projects.addVersion(p, join(p.dir, out), describeMix(mix), 'user', tl, join(p.dir, dry))
+  Projects.accept(p, v.id)
+  await checkpoint(p, describeMix(mix))
+  return v.id
+}
+const describeMix = (m: Mix) => m.music ? `Mix: music ${m.music.src.split('/').pop()} at ${m.music.db} dB, ducked ${m.music.duckDb} dB` : `Mix: film audio ${m.filmDb >= 0 ? '+' : ''}${m.filmDb} dB`
+
 /** Render a timeline into renders/ and propose it as a version (or, for the user's own edits, make it current). */
 async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'agent' | 'user' = 'agent') {
   const n = p.versions.length + 1
-  const out = join('renders', `timeline-${n}.mp4`)
+  const mixed = !!tl.mix && (!!tl.mix.music || tl.mix.filmDb !== 0)
+  const final = join('renders', `timeline-${n}.mp4`)
+  const out = mixed ? join('renders', `timeline-${n}.dry.mp4`) : final
   const rendered = (id: string) => p.clips?.[id]?.video && existsSync(join(p.dir, p.clips[id].video))
   for (const id of new Set([...tl.items.flatMap(it => (it.kind === 'clip' ? [it.clip] : [])), ...(tl.overlays || []).map(o => o.clip)])) if (!rendered(id)) await bakeClip(p, id)
   const args = composeArgs(tl, {
@@ -219,8 +256,9 @@ async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'age
     j.progress(null, `${timelineDuration(tl).toFixed(1)} s`)
     execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { cwd: p.dir, maxBuffer: 1 << 24 }, (err, _o, stderr) => (err ? fail(new Error(stderr.slice(-1500) || err.message)) : ok()))
   }), { project: p.dir, doneTitle: `Rendered “${title}”` })
+  if (mixed) await asJob('Mixing', 'render', () => mixInto(p, tl, out, final), { project: p.dir, doneTitle: 'Mixed' })
   if (by === 'agent' && p.proposal) p.versions = p.versions.filter(v => v.id !== p.proposal)
-  const v = await Projects.addVersion(p, join(p.dir, out), title, by, tl)
+  const v = await Projects.addVersion(p, join(p.dir, final), title, by, tl, mixed ? join(p.dir, out) : undefined)
   if (by === 'user') Projects.accept(p, v.id)
   else p.proposal = v.id
   await checkpoint(p, by === 'user' ? title : `Proposed “${title}”`)
@@ -349,6 +387,12 @@ function wire() {
     return exportFilm(p, req, r.filePath)
   })
   ipcMain.handle('export:reveal', (_e, file: string) => shell.showItemInFolder(file))
+  ipcMain.handle('mix:speech', async (_e, dir: string, versionId?: string) => {
+    const p = projectOf(dir)
+    const tl = p.versions.find(v => v.id === (versionId || p.current))?.timeline || p.timeline!
+    return regionsOnTimeline(tl, await transcriptsFor(p, tl))
+  })
+  ipcMain.handle('mix:apply', async (_e, dir: string, mix: Mix) => { const p = projectOf(dir); await applyMix(p, mix); return p })
   ipcMain.handle('history:log', (_e, dir: string) => new History(projectOf(dir).dir).log())
   ipcMain.handle('history:restore', async (_e, dir: string, id: string) => {
     const { clips } = await new History(dir).restore(id)
@@ -505,6 +549,7 @@ app.whenReady().then(async () => {
           const suffix = { original: '', landscape: '-16x9', vertical: '-9x16', square: '-1x1' }[req.preset]
           return exportFilm(p, req, join(p.dir, 'exports', `${p.title}${suffix}.mp4`))
         },
+        setMix: (dir, mix) => applyMix(projectOf(dir), mix),
         rerenderTimeline: (dir, title) => { const p = projectOf(dir); return proposeTimeline(p, p.timeline!, title) },
       },
     })

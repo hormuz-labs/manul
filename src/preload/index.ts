@@ -55,6 +55,10 @@ const api = {
       ipcRenderer.invoke('export:run', dir, req) as Promise<{ file: string; srt?: string } | null>,
     reveal: (file: string) => ipcRenderer.invoke('export:reveal', file),
   },
+  mix: {
+    speech: (dir: string, versionId?: string) => ipcRenderer.invoke('mix:speech', dir, versionId) as Promise<[number, number][]>,
+    apply: (dir: string, mix: { filmDb: number; music?: { src: string; db: number; duckDb: number } }) => ipcRenderer.invoke('mix:apply', dir, mix) as Promise<Project>,
+  },
   history: {
     log: (dir: string) => ipcRenderer.invoke('history:log', dir) as Promise<{ id: string; message: string; at: number }[]>,
     restore: (dir: string, id: string) => ipcRenderer.invoke('history:restore', dir, id) as Promise<Project>,

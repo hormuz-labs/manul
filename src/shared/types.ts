@@ -29,6 +29,9 @@ export type Version = {
   by: 'import' | 'agent' | 'user'
   /** The timeline this version was rendered from (accepting it makes it the project's timeline). */
   timeline?: Timeline
+  /** When the version has a mix: the same film before mixing (picture + its own sound), which the player uses so the
+   *  live mix can change levels without stacking on the rendered mix. */
+  dry?: string
 }
 
 /** A motion clip: agent-made HTML + GSAP in clips/<id>/, rendered frame-exact to clip.mp4. */
