@@ -248,6 +248,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             />
           )}
           <Scrubber
+            media={{ dir: p.dir, src: onScreen.path, revision: onScreen.createdAt, fps: p.media[onScreen.path]?.fps || 30 }}
             duration={duration}
             time={time}
             notes={p.notes}

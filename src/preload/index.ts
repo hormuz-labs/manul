@@ -50,6 +50,7 @@ const api = {
     render: (dir: string, id: string) => ipcRenderer.invoke('clip:render', dir, id) as Promise<{ video: string; poster: string; frames: number; duration: number; width: number; height: number; fps: number }>,
   },
   transcript: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('transcript:get', dir, mediaRel, make) as Promise<Transcript | null>,
+  thumbnails: (dir: string, src: string, count: number, start?: number, end?: number) => ipcRenderer.invoke('media:thumbnails', dir, src, count, start, end) as Promise<string[]>,
   export: {
     run: (dir: string, req: { preset: 'original' | 'landscape' | 'vertical' | 'square'; fit?: 'pad' | 'crop'; captions: 'none' | 'burn' | 'srt'; captionColor?: string }) =>
       ipcRenderer.invoke('export:run', dir, req) as Promise<{ file: string; srt?: string } | null>,
