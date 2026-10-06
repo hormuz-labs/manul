@@ -1,11 +1,32 @@
-# Manul — Roadmap
+<p align="center">
+  <img src="build/icons/256x256.png" width="88" alt="Manul">
+</p>
+
+<h1 align="center">Manul Roadmap</h1>
+
+<p align="center">
+  <b>Where Manul is going, and what's done so far.</b><br>
+  This is the shared plan: anyone can add to it. <a href="#how-to-contribute">How to contribute ↓</a>
+</p>
+
+<p align="center">
+  <a href="README.md">README</a> &nbsp;·&nbsp; <a href="#1-vision">Vision</a> &nbsp;·&nbsp; <a href="#5-phases">Phases</a> &nbsp;·&nbsp; <a href="#6-business-model">Business model</a> &nbsp;·&nbsp; <a href="#7-open-questions-">Open questions</a>
+</p>
 
 > **Manul** is an agentic video editor, named after the Pallas cat.
 > Drop in a video, say what you want, and it does it. Then you leave notes right on the picture and it fixes them.
 
-This file is the shared plan. Anyone can add to it. See [How to contribute](#how-to-contribute) at the bottom.
+## At a glance
 
-Status legend: `[ ]` not started · `[~]` in progress · `[x]` done · 💬 open question
+| Phase | Progress | ✅ Done | 🚧 Doing | ⬜ Next |
+|---|---|:-:|:-:|:-:|
+| [**0 · Foundations**](#phase-0-foundations) | `█████░░░░░` 50% | 4 | 2 | 4 |
+| [**1 · MVP (v0.1)**](#phase-1-mvp-v01) | `████████░░` 75% | 13 | 4 | 3 |
+| [**2 · Hand-off and publishing**](#phase-2-hand-off-and-publishing) | `░░░░░░░░░░` 0% | 0 | 0 | 4 |
+| [**3 · Manul key and Pro**](#phase-3-manul-key-and-pro) | `░░░░░░░░░░` 0% | 0 | 0 | 5 |
+| [**4 · Cloud, mobile, teams**](#phase-4-cloud-mobile-teams) | `░░░░░░░░░░` 0% | 0 | 0 | 7 |
+
+<sub>✅ done &nbsp;·&nbsp; 🚧 in progress &nbsp;·&nbsp; ⬜ not started &nbsp;·&nbsp; 💬 open question &nbsp;·&nbsp; progress counts 🚧 as half</sub>
 
 ---
 
@@ -123,68 +144,68 @@ pro editors can take a Manul rough cut into their own editor.
 ## 5. Phases
 
 ### Phase 0: Foundations
-- [~] Repo, licence, CONTRIBUTING, CI (lint, typecheck, build per platform) (repo hormuz-labs/manul, GPL-3.0, CI workflows done; CONTRIBUTING to do)
-- [ ] UI mockups: start screen, Screen view with notes on the picture, agent panel (plan + tool cards + permission
+- 🚧 Repo, licence, CONTRIBUTING, CI (lint, typecheck, build per platform) (repo hormuz-labs/manul, GPL-3.0, CI workflows done; CONTRIBUTING to do)
+- ⬜ UI mockups: start screen, Screen view with notes on the picture, agent panel (plan + tool cards + permission
       cards), Keys tabs, Tools page
-- [x] Electron shell + React/shadcn/Tailwind design system (dark theme, warm accents)
-- [x] pi-durable agent in the main process → **AG-UI adapter** → IPC → renderer
-- [x] Generic tool card + per-tool card registry
-- [~] Capability router (chat · image · voice · transcription) + bring-your-own-key keystore (keystore, Keys tabs, model picker done)
-- [ ] Local usage meter (provider, model, tokens or characters, cost) for every request
-- [x] Bundled ffmpeg/ffprobe; **Tools page** (installed, size, update, remove); on-demand installer with checksums
-- [ ] First-run setup checks (dependency doctor)
-- [ ] Email GSAP/Webflow for a written OK on Manul's use (AI-written GSAP + drag-to-edit clips)
+- ✅ Electron shell + React/shadcn/Tailwind design system (dark theme, warm accents)
+- ✅ pi-durable agent in the main process → **AG-UI adapter** → IPC → renderer
+- ✅ Generic tool card + per-tool card registry
+- 🚧 Capability router (chat · image · voice · transcription) + bring-your-own-key keystore (keystore, Keys tabs, model picker done)
+- ⬜ Local usage meter (provider, model, tokens or characters, cost) for every request
+- ✅ Bundled ffmpeg/ffprobe; **Tools page** (installed, size, update, remove); on-demand installer with checksums
+- ⬜ First-run setup checks (dependency doctor)
+- ⬜ Email GSAP/Webflow for a written OK on Manul's use (AI-written GSAP + drag-to-edit clips)
 
 ### Phase 1: MVP (v0.1)
-- [~] Import: drop a file or link → read details, make a preview copy, transcribe, split into scenes, tag (details + transcription done)
-- [x] Start screen: request plus video in one step
-- [x] Screen view: player, scrubber notes, agent input at the playhead
-- [~] Notes on the picture: element pick, box on the frame, timestamp/range (box + time + range done)
-- [x] Before/after proposals: scrub, accept, reject, reply
-- [x] **HTML motion clips:** the agent builds `clip.html` (slides, title cards, charts, kinetic type, GSAP motion
+- 🚧 Import: drop a file or link → read details, make a preview copy, transcribe, split into scenes, tag (details + transcription done)
+- ✅ Start screen: request plus video in one step
+- ✅ Screen view: player, scrubber notes, agent input at the playhead
+- 🚧 Notes on the picture: element pick, box on the frame, timestamp/range (box + time + range done)
+- ✅ Before/after proposals: scrub, accept, reject, reply
+- ✅ **HTML motion clips:** the agent builds `clip.html` (slides, title cards, charts, kinetic type, GSAP motion
       design) as timeline items next to MP4s and images. They are sandboxed, run on Manul's clock and render frame-exactly
-- [x] Clip renderer: offscreen Chromium frame stepping → ffmpeg; "bake to MP4"; final export mixes clips with footage
-- [~] Motion skill(s): house style, easing and layout rules so agent-made motion looks designed, not generic
-- [x] Make room on the timeline: split at a point and open a gap so the agent can insert (or propose an insertion) in between
-- [x] Slide editing by hand: drag, resize and edit text/images/shapes on the picture, written back to the HTML
-- [x] Slide editing by the agent: pick an element, then a note scoped to that element; the agent changes only it
-- [x] Transcript panel with text-based editing (click to seek, drag to select a range, fillers marked, find)
-- [ ] Tracks drawer (timeline, mix, inspector)
-- [x] Agent browser with take-over (Manul's own browser via private bsk; Settings → Browser switches to the user's Chrome)
-- [ ] Bring in your own footage, images and extra videos anywhere
-- [x] Carry over the existing editor features: several projects and conversations, model picker, skills and profiles, memory,
+- ✅ Clip renderer: offscreen Chromium frame stepping → ffmpeg; "bake to MP4"; final export mixes clips with footage
+- 🚧 Motion skill(s): house style, easing and layout rules so agent-made motion looks designed, not generic
+- ✅ Make room on the timeline: split at a point and open a gap so the agent can insert (or propose an insertion) in between
+- ✅ Slide editing by hand: drag, resize and edit text/images/shapes on the picture, written back to the HTML
+- ✅ Slide editing by the agent: pick an element, then a note scoped to that element; the agent changes only it
+- ✅ Transcript panel with text-based editing (click to seek, drag to select a range, fillers marked, find)
+- ⬜ Tracks drawer (timeline, mix, inspector)
+- ✅ Agent browser with take-over (Manul's own browser via private bsk; Settings → Browser switches to the user's Chrome)
+- ⬜ Bring in your own footage, images and extra videos anywhere
+- ✅ Carry over the existing editor features: several projects and conversations, model picker, skills and profiles, memory,
       history (git underneath), move elements, live mix, proxies, native menu, ⌘K
       (all done: conversations, model picker, skills + profiles, memory, history, move elements in clips, project tabs,
       live mix with music ducking, preview copies, native menu, ⌘K)
-- [x] Export: MP4 presets (16:9, 9:16, 1:1), captions burned in or as sidecar files
-- [x] Over-the-air updates for skills (Ed25519-signed feed, no rollbacks, user copies win)
-- [~] macOS (signed + notarized) and Linux builds; Homebrew cask; apt repository (pipeline ready, see RELEASING.md; needs the accounts and secrets)
-- [ ] driver.js first-run tour
+- ✅ Export: MP4 presets (16:9, 9:16, 1:1), captions burned in or as sidecar files
+- ✅ Over-the-air updates for skills (Ed25519-signed feed, no rollbacks, user copies win)
+- 🚧 macOS (signed + notarized) and Linux builds; Homebrew cask; apt repository (pipeline ready, see RELEASING.md; needs the accounts and secrets)
+- ⬜ driver.js first-run tour
 
 ### Phase 2: Hand-off and publishing
-- [ ] Export to **Premiere / DaVinci Resolve / Final Cut** (FCPXML, XML, EDL via OpenTimelineIO)
-- [ ] YouTube publishing (upload, schedule, thumbnails, chapters)
-- [ ] Spending view in Settings (from the usage meter)
-- [ ] Manul key early-access sign-up live
+- ⬜ Export to **Premiere / DaVinci Resolve / Final Cut** (FCPXML, XML, EDL via OpenTimelineIO)
+- ⬜ YouTube publishing (upload, schedule, thumbnails, chapters)
+- ⬜ Spending view in Settings (from the usage meter)
+- ⬜ Manul key early-access sign-up live
 
 ### Phase 3: Manul key and Pro
-- [ ] **Manul gateway**: an LLM endpoint (pi-ai uses a custom base URL) plus a media endpoint (voice, images,
+- ⬜ **Manul gateway**: an LLM endpoint (pi-ai uses a custom base URL) plus a media endpoint (voice, images,
       transcription). It checks the key, counts usage, and forwards to providers with our keys
-- [ ] Optional accounts, licence check (works offline for a month), credits, top-ups
-- [ ] Pro plan: AI included, cloud versions of heavy tools (demucs, upscaling), publishing automation, premium skill packs
-- [ ] Integrations through **Composio**: Google Drive, Dropbox, OneDrive, Slack, Notion, Gmail, TikTok,
+- ⬜ Optional accounts, licence check (works offline for a month), credits, top-ups
+- ⬜ Pro plan: AI included, cloud versions of heavy tools (demucs, upscaling), publishing automation, premium skill packs
+- ⬜ Integrations through **Composio**: Google Drive, Dropbox, OneDrive, Slack, Notion, Gmail, TikTok,
       Instagram, LinkedIn, X. Large files go by direct signed upload/download links, never through tool calls
-- [ ] Phone capture over **local Wi-Fi** (QR pairing, free)
+- ⬜ Phone capture over **local Wi-Fi** (QR pairing, free)
 
 ### Phase 4: Cloud, mobile, teams
-- [ ] **Manul Cloud storage** (Cloudflare R2): base amount included in Pro, add-on blocks, pooled for teams
-- [ ] **Mobile app** (React Native/Expo): record → footage lands in the project; "Send to Manul" share option; talk
+- ⬜ **Manul Cloud storage** (Cloudflare R2): base amount included in Pro, add-on blocks, pooled for teams
+- ⬜ **Mobile app** (React Native/Expo): record → footage lands in the project; "Send to Manul" share option; talk
       to the agent over AG-UI
-- [ ] **Team plan:** shared projects, **review links** where clients comment on the frame, shared brand kits and skills
-- [ ] Recording integrations: Zoom, Riverside, Loom, Google Meet → auto-import
-- [ ] Stock media: Pexels, Pixabay, Unsplash, Giphy; licensed music (Epidemic Sound, Artlist)
-- [ ] Brand sources: Canva, Figma
-- [ ] **Skill marketplace** (style packs, with a revenue share for whoever made them)
+- ⬜ **Team plan:** shared projects, **review links** where clients comment on the frame, shared brand kits and skills
+- ⬜ Recording integrations: Zoom, Riverside, Loom, Google Meet → auto-import
+- ⬜ Stock media: Pexels, Pixabay, Unsplash, Giphy; licensed music (Epidemic Sound, Artlist)
+- ⬜ Brand sources: Canva, Figma
+- ⬜ **Skill marketplace** (style packs, with a revenue share for whoever made them)
 
 ## 6. Business model
 
@@ -220,8 +241,8 @@ Rules:
 ## How to contribute
 
 - **Ideas or changes to this roadmap:** open a PR that edits `ROADMAP.md`, or an issue labelled `roadmap`. Add new items
-  under the right phase with `[ ]`. If you're unsure where something goes, put it under *Open questions* with 💬.
-- **Picking up an item:** comment on its issue (or open one), then change `[ ]` to `[~]` with your handle, e.g.
-  `[~] Tools page (@yourname)`.
+  under the right phase with ⬜. If you're unsure where something goes, put it under *Open questions* with 💬.
+- **Picking up an item:** comment on its issue (or open one), then change ⬜ to 🚧 with your handle, e.g.
+  `🚧 Tools page (@yourname)`.
 - **Discuss before building** anything that changes an architecture decision in section 4.
 - Keep PRs small. One roadmap item per PR is ideal.
