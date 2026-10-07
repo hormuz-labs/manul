@@ -1,6 +1,6 @@
 // Real speech → real whisper.cpp. Runs where `say` (macOS) and whisper-cli + a ggml model exist; skipped elsewhere.
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -32,7 +32,56 @@ describe.skipIf(!ready)('transcription with whisper.cpp', () => {
     expect(existsSync(join(dir, 'transcripts', 'clip.json'))).toBe(true)
     expect(existsSync(join(dir, 'transcripts', '.clip.wav'))).toBe(false) // temp audio cleaned up
   }, 120_000)
+
+  // Narration over music, with pauses: where whisper.cpp's own word times drift by seconds (they spread words over pauses and music).
+  // The reference is a forced alignment of the clean voice; the pauses are where the clean voice is silent.
+  it('puts word cut points in the pauses of narration over music', async () => {
+    const fixture = join(import.meta.dirname, 'fixtures', 'speech', 'narration-music.flac')
+    const ref = JSON.parse(readFileSync(fixture.replace(/\.flac$/, '.reference.json'), 'utf8')) as { words: { w: string; s: number; e: number }[]; pauses: [number, number][] }
+    const dir = mkdtempSync(join(tmpdir(), 'manul-stt-'))
+    setConfig({ whisper: { engine: 'system', mode: 'custom', binary: bins[0], model } })
+    const t = await transcribe(fixture, join(dir, 'narration.json'), 'Transcribing narration-music.flac')
+    const words = t.segments.flatMap(s => s.words)
+    const pairs = matchWords(ref.words.map(w => w.w), words.map(w => w.w))
+    expect(pairs.length).toBeGreaterThan(ref.words.length * 0.8)
+
+    const errs = pairs.map(([i, j]) => Math.abs(words[j].s - ref.words[i].s)).sort((a, b) => a - b)
+    expect(errs[Math.floor(errs.length / 2)]).toBeLessThan(0.06) // median word start within 60 ms
+
+    let edges = 0
+    for (const [a0, a1] of ref.pauses) {
+      for (const [i, j] of pairs) {
+        const r = ref.words[i], w = words[j]
+        if (Math.abs(r.e - a0) < 0.25) { // the word before the pause: its cut-out keeps the word, stays in the pause
+          edges++
+          expect(w.e, `end of "${r.w}"`).toBeGreaterThanOrEqual(r.e - 0.12)
+          expect(w.e, `end of "${r.w}"`).toBeLessThanOrEqual(a1)
+        }
+        if (Math.abs(r.s - a1) < 0.12) { // the word after it: its cut-in lies in the pause, before the word starts
+          edges++
+          expect(w.s, `start of "${r.w}"`).toBeGreaterThanOrEqual(a0)
+          expect(w.s, `start of "${r.w}"`).toBeLessThanOrEqual(r.s + 0.04)
+        }
+      }
+    }
+    expect(edges).toBeGreaterThanOrEqual(7)
+  }, 120_000)
 })
+
+/** Index pairs of the same words in two transcripts (longest common subsequence, punctuation and case ignored). */
+function matchWords(a: string[], b: string[]): [number, number][] {
+  const n = (w: string) => w.toLowerCase().replace(/[^a-z']/g, '')
+  const A = a.map(n), B = b.map(n)
+  const L = Array.from({ length: A.length + 1 }, () => new Array<number>(B.length + 1).fill(0))
+  for (let i = A.length - 1; i >= 0; i--) for (let j = B.length - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1])
+  const out: [number, number][] = []
+  for (let i = 0, j = 0; i < A.length && j < B.length;) {
+    if (A[i] === B[j]) out.push([i++, j++])
+    else if (L[i + 1][j] >= L[i][j + 1]) i++
+    else j++
+  }
+  return out
+}
 
 describe('silent media', () => {
   it('gives an empty transcript instead of failing', async () => {

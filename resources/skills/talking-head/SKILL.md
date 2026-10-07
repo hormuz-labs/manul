@@ -17,7 +17,8 @@ Work from the `transcript` tool: every word has a start and end time, fillers in
 ## How to cut
 - Plan every cut from word times first, then render once with one ffmpeg command (trim/atrim + concat, or
   select/aselect with `between(t,a,b)`).
-- Leave ~0.05 s of air around each cut so words are not clipped; never cut inside a word.
+- Cut on word boundaries: to drop words a–b, cut from a's start to b's end (the transcript tool's notes say how
+  much room its times already leave). Never cut inside a word.
 - Many cuts close together read as jumpy: if two cuts are under 0.4 s apart, merge them into one.
 - Keep audio and video in sync: cut both with the same ranges.
 

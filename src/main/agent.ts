@@ -89,7 +89,8 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       `- Start with project_state to see the versions, the current one, open notes and media details.\n` +
       `- Edit with the ffmpeg tool (bundled; also on PATH for bash). Read the current version, write new files to renders/. Never overwrite media/.\n` +
       `- For anything about speech (cut ums or pauses, remove a sentence, find a moment, captions) read the transcript tool first and cut on word times. ` +
-      `To cut many pieces, build one ffmpeg command with trim/atrim + concat (or select/aselect) from the word times; keep ~0.05 s of air around cuts.\n` +
+      `Each word's start and end are cut points already placed in the quiet around it: cut exactly on them (to drop words a–b, cut from a's start to b's end). ` +
+      `To cut many pieces, build one ffmpeg command with trim/atrim + concat (or select/aselect) from the word times.\n` +
       `- Get it right in one render: plan every cut from the transcript first. Check a render at most once (e.g. the transcript of the output) ` +
       `and only when unsure; never re-render just to polish. The user will ask if they want more.\n` +
       `- When a cut is ready, call propose_version: the user sees it as a before/after and accepts or rejects it. One proposal per request.\n` +
@@ -145,7 +146,7 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       }),
       defineTool({
         name: 'transcript',
-        description: 'What is said in a media file, with word timings (seconds), fillers (um, uh) included. Made on first use; if no speech recognition is installed the user is asked to download it. ' +
+        description: 'What is said in a media file, with word timings (seconds), fillers (um, uh) included. Word starts and ends are cut points already placed in the quiet around each word: cut exactly on them, no extra room needed. Made on first use; if no speech recognition is installed the user is asked to download it. ' +
           'Lines are "start–end  text" per sentence, then each word as word@start-end. Use t0/t1 to read part of a long file, search to find words.',
         parameters: Type.Object({
           media: Type.Optional(Type.String({ description: 'project-relative path; default the current version' })),
