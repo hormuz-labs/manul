@@ -1,5 +1,5 @@
 // Manul's main process: the window, the media protocol, projects, keys, and the agent (pi-durable → AG-UI → renderer).
-import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, powerMonitor, protocol, shell } from 'electron'
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve, sep } from 'node:path'
@@ -16,6 +16,7 @@ import { thumbnails } from './thumbnails'
 import * as Tools from './tools'
 import * as Whisper from './whisper'
 import { getConfig, setConfig } from './config'
+import { UsageTelemetry } from './telemetry'
 import { Memory } from './memory'
 import { History } from './history'
 import { Skills } from './skills'
@@ -35,6 +36,8 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import type { Anchor, BrowserMode, ClipInfo, ConsentRequest, Project, Transcript } from '../shared/types'
 import type { Timeline } from '../shared/timeline'
 
+declare const __MANUL_TELEMETRY_URL__: string
+
 app.setName('Manul')
 process.env.PATH = toolPath() // the agent's bash and tools find the bundled ffmpeg / ffprobe first
 
@@ -45,6 +48,7 @@ let agent: AgentHandle | null = null
 let memory: Memory
 let skills: Skills
 let updates: ReturnType<typeof startUpdates> | null = null
+let telemetry: UsageTelemetry
 const open = new Map<string, Project>() // dir → project
 let browser: Browser | null = null
 let bskd: BskDaemon | null = null
@@ -316,6 +320,12 @@ function wire() {
   ipcMain.handle('update:check', () => updates?.check())
   ipcMain.handle('update:install', () => updates?.install())
   ipcMain.handle('app:notices', () => shell.openPath(app.isPackaged ? join(process.resourcesPath, 'THIRD_PARTY_NOTICES.md') : join(import.meta.dirname, '../../THIRD_PARTY_NOTICES.md')))
+  ipcMain.handle('telemetry:state', () => ({ enabled: !!getConfig().telemetry?.enabled, available: !!__MANUL_TELEMETRY_URL__ }))
+  ipcMain.handle('telemetry:set', (_e, enabled: boolean) => {
+    setConfig({ telemetry: { enabled: enabled === true && !!__MANUL_TELEMETRY_URL__ } })
+    telemetry.setEnabled(!!getConfig().telemetry?.enabled)
+    return { enabled: !!getConfig().telemetry?.enabled, available: !!__MANUL_TELEMETRY_URL__ }
+  })
   ipcMain.handle('tools:status', () => toolStatus())
   ipcMain.handle('tools:list', () => Tools.listTools())
   ipcMain.handle('tools:install', (_e, id: string) => Tools.install(id))
@@ -511,6 +521,13 @@ app.whenReady().then(async () => {
   protocol.handle('manul', serveMedia)
   setClipProtocol(serveMedia)
   loadKeys()
+  telemetry = new UsageTelemetry({
+    file: join(app.getPath('userData'), 'usage.json'), endpoint: __MANUL_TELEMETRY_URL__,
+    enabled: () => !!getConfig().telemetry?.enabled,
+    focused: () => !!win?.isFocused() && !win.isMinimized(),
+    idleSeconds: () => powerMonitor.getSystemIdleTime(),
+  })
+  telemetry.start()
   memory = new Memory(join(app.getPath('userData'), 'memory'))
   const resources = app.isPackaged ? process.resourcesPath : join(import.meta.dirname, '../../resources')
   skills = new Skills({
@@ -618,5 +635,5 @@ app.on('window-all-closed', async () => {
   await Promise.all([agent?.shutdown().catch(() => {}), bskd?.stop()])
   app.quit()
 })
-app.on('will-quit', () => bskd?.killNow())
+app.on('will-quit', () => { telemetry?.stop(); bskd?.killNow() })
 app.on('activate', () => { if (!win) createWindow() })

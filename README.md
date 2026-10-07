@@ -172,6 +172,8 @@ On Linux, grab the `.deb` or AppImage from the [latest release](https://github.c
 
 It's free and open source. Bring a Claude, Gemini or OpenAI key (it's kept in your system's keychain), or wait for the single **Manul key**, coming soon.
 
+Anonymous active-time reporting is optional and off by default. If enabled in Settings → About, Manul sends a random installation ID and foreground active seconds, never your footage, project data, prompts, or keys. [How it works and what download counts mean](telemetry/README.md).
+
 Want to hack on it? Run it from source with **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 ## Where it's going

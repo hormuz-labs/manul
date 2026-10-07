@@ -40,6 +40,7 @@ jobs:
       - run: npm test
       - name: Build, sign, notarize
         env:
+          MANUL_TELEMETRY_URL: ${{ vars.MANUL_TELEMETRY_URL }}
           CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}

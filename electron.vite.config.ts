@@ -21,7 +21,7 @@ function extensionPreloads(): Plugin {
 }
 
 export default defineConfig({
-  main: { plugins: [externalizeDepsPlugin()] },
+  main: { plugins: [externalizeDepsPlugin()], define: { __MANUL_TELEMETRY_URL__: JSON.stringify(process.env.MANUL_TELEMETRY_URL || '') } },
   preload: {
     plugins: [externalizeDepsPlugin(), extensionPreloads()],
     build: {

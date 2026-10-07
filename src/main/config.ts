@@ -10,6 +10,8 @@ export type Config = {
   tabs?: { open: string[]; active: string | null }
   /** which browser the agent's bsk drives (default: Manul's own) */
   browser?: { mode: BrowserMode }
+  /** opt-in anonymous, foreground usage time; no project data */
+  telemetry?: { enabled: boolean }
 }
 
 const file = () => join(app.getPath('userData'), 'config.json')

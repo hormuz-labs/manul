@@ -17,6 +17,10 @@ const on = <T extends unknown[]>(ch: string) => (fn: (...args: T) => void) => {
 
 const api = {
   info: () => ipcRenderer.invoke('app:info') as Promise<{ version: string; platform: string; projectsRoot: string }>,
+  telemetry: {
+    state: () => ipcRenderer.invoke('telemetry:state') as Promise<{ enabled: boolean; available: boolean }>,
+    set: (enabled: boolean) => ipcRenderer.invoke('telemetry:set', enabled) as Promise<{ enabled: boolean; available: boolean }>,
+  },
   pathForFile: (f: File) => webUtils.getPathForFile(f),
   tools: {
     bundled: () => ipcRenderer.invoke('tools:status') as Promise<ToolStatus[]>,

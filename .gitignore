@@ -7,3 +7,9 @@ resources/bin/
 resources/lib/*.min.js
 resources/lib/fonts/
 resources/bsk-ext/
+__pycache__/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+/.env
+/telemetry/dashboard-id.txt

@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install build dev run start preview typecheck test test-watch test-e2e smoke package package-dir clean whisper
+.PHONY: help install build dev run start preview dashboard typecheck test test-watch test-e2e smoke package package-dir clean whisper
 
 help: ## Show this help message
 	@grep -E '^[-a-zA-Z0-9_]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -24,6 +24,11 @@ start: ## Preview the built application
 	npm run start
 
 preview: start ## Alias for start
+
+dashboard: ## Start Metabase locally; open https://analytics.manul.si/dashboard
+	docker compose --env-file .env -f telemetry/metabase.compose.yml up -d
+	python3 telemetry/metabase_setup.py
+	@printf 'Manul analytics: https://analytics.manul.si/dashboard\n'
 
 typecheck: ## Run TypeScript type checks
 	npm run typecheck

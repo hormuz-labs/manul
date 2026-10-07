@@ -1,0 +1,23 @@
+# Manul telemetry
+
+Manul's opt-in active-time reports go to a local collector on `shanur-pc`. [Metabase](https://analytics.manul.si/dashboard) is the **one reporting dashboard**. `/` and `/dashboard` redirect to Metabase's dashboard URL (which includes its ID). Sign in with the private Metabase admin account; there is no separate dashboard token.
+
+## How the pieces fit
+
+- Cloudflare routes `analytics.manul.si` to `127.0.0.1:8787` on the host. `manul-analytics-gateway.service` sends **only** `POST /v1/usage` to the collector on `127.0.0.1:8788`. Other requests go to Metabase on `127.0.0.1:3300` and use Metabase's login. The collector does not serve a dashboard or a public stats API.
+- `manul-telemetry.service` stores accepted opt-in events in `usage.sqlite` and retries PostHog Product Analytics forwarding from a SQLite queue. It sends only anonymous installation IDs and active seconds; no project names, media, prompts, keys, or browser data. The same PostHog project token sends fixed operational errors to PostHog Logs, never request bodies or IDs.
+- `manul-metabase-sync.timer` refreshes `telemetry/analytics.sqlite` hourly. This database contains daily local usage totals, GitHub snapshots (installer requests, stars, forks, rolling 14-day clone totals), and PostHog aggregates (daily ingested active time/participating installations for the rolling 30 days, rolling 30-day usage event count, and rolling 7-day operational log count). The PostHog panels are labeled separately from the local intake; counts can differ if forwarding is pending. The dashboard shows the last successful PostHog sync time so retained values are identifiable when the API is unavailable. Failed GitHub requests preserve previously sampled figures for that day. It contains no raw installation IDs, events, or log contents. Metabase's own configuration is in a persistent Docker PostgreSQL volume.
+
+## Operating it on this host
+
+`make dashboard` starts the local Metabase containers and sets up the aggregate database/dashboard. Open **https://analytics.manul.si/dashboard**; locally, use `http://127.0.0.1:8787/dashboard` through the gateway. The setup script records the actual Metabase dashboard ID in ignored `telemetry/dashboard-id.txt` for the gateway's redirect. On a new host, run `make dashboard` after the first aggregate sync. `manul-analytics-gateway.service`, `manul-telemetry.service`, and `manul-metabase-sync.timer` are enabled in this user's systemd; they survive reboot (user lingering is enabled). Docker Compose uses restart policies for Metabase and its database.
+
+All host secrets live in the ignored root `.env` (mode `0600`); use `.env.example` as a template. It holds the Metabase database and admin credentials, optional `POSTHOG_PROJECT_TOKEN=phc_...` and `POSTHOG_HOST=https://us.i.posthog.com` (or EU) for sending events/logs, `POSTHOG_PROJECT_ID` and `POSTHOG_PERSONAL_API_KEY` for read-only PostHog queries (`query:read` and `logs:read` scopes), and optional `GITHUB_TRAFFIC_TOKEN` for GitHub's private clone-traffic API and increased rate limits. After changing the collector's settings restart it with `systemctl --user restart manul-telemetry.service`; the hourly sync reads the same file on its next run. Use `python3 telemetry/rotate_metabase_admin.py` to change the Metabase admin password without losing the other settings. Both PostHog credentials are **server-only**; no browser snippet is installed. PostHog aggregates refresh on the hourly sync; failed reads keep the last successful snapshot rather than creating false zeros.
+
+For local status, run `systemctl --user status manul-analytics-gateway manul-telemetry manul-metabase-sync.timer` and `docker compose --env-file .env -f telemetry/metabase.compose.yml ps`. The collector health endpoint is `http://127.0.0.1:8788/healthz`; Metabase responds on `http://127.0.0.1:3300/api/health`. To refresh the aggregates manually, run `systemctl --user start manul-metabase-sync.service`.
+
+## Release builds and the counts
+
+The app is **off by default**. When enabled in Settings → About, it counts up to 15 seconds per tick while focused and not idle. It sends an installation UUID, an event UUID, and active seconds in batches of at least a minute. The collector deduplicates retries. GitHub's installer `download_count` is asset requests, not people or successful installs; `.zip` update assets, manifests, and blockmaps are excluded. GitHub clone totals cover only the last 14 days. No desktop usage appears until a release is built with `MANUL_TELEMETRY_URL=https://analytics.manul.si` and users opt in.
+
+Tests: `python3 -m unittest discover -s telemetry/tests` and `npm test -- test/telemetry.test.ts`.
