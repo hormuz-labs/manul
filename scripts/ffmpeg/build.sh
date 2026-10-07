@@ -59,6 +59,24 @@ swap build-x264.sh 'download https://code.videolan.org/videolan/x264/-/archive/m
 swap build-dav1d.sh 'download https://code.videolan.org/videolan/dav1d/-/archive/$VERSION/dav1d-$VERSION.tar.gz "dav1d.tar.gz"' \
   'download https://downloads.videolan.org/pub/videolan/dav1d/$VERSION/dav1d-$VERSION.tar.xz "dav1d.tar.xz" && tar -xJf dav1d.tar.xz && tar -czf dav1d.tar.gz dav1d-$VERSION && rm -rf dav1d-$VERSION'
 
+# old autotools tarballs (zvbi, libtheora…) ship a config.guess from before Linux on arm64 ("cannot guess build type"):
+# on Linux, refresh config.guess/config.sub from the installed automake before every ./configure
+if [ "$(uname -s)" = Linux ]; then
+  cat >> "$S/script/functions.sh" <<'EOF'
+
+refreshConfigGuess(){
+    for f in config.guess config.sub; do
+        [ -f "$f" ] || continue
+        new=$(ls /usr/share/automake-*/"$f" /usr/share/misc/"$f" 2>/dev/null | tail -1)
+        [ -n "$new" ] && cp "$new" "$f" && echo "refreshed $f from $new"
+    done
+}
+EOF
+  for m in "$S"/script/build-*.sh; do
+    awk '/^\.\/configure/ { print "refreshConfigGuess" } { print }' "$m" > "$m.new" && mv "$m.new" "$m" && chmod +x "$m"
+  done
+fi
+
 # say whose build it is in `ffmpeg -version`
 swap build-ffmpeg.sh 'EXTRA_VERSION="https://www.martin-riedl.de"' 'EXTRA_VERSION="manul"'
 
@@ -88,6 +106,13 @@ set(CMAKE_IGNORE_PREFIX_PATH /opt/homebrew /usr/local /opt/local)
 set(CMAKE_SYSTEM_IGNORE_PREFIX_PATH /opt/homebrew /usr/local /opt/local)
 EOF
 export CMAKE_TOOLCHAIN_FILE="$WORK/hermetic.cmake"
+if [ "$(uname -s)" = Darwin ] && [ -n "$(ls -A /usr/local/include 2>/dev/null)" ] && [ -z "$MANUL_FFMPEG_ALLOW_USR_LOCAL" ]; then
+  # Apple's clang always searches /usr/local/include and /usr/local/lib (Homebrew's home on Intel Macs): a library found
+  # there gets half-linked into the build (fontconfig picked up Homebrew's gettext and failed to link)
+  echo "/usr/local/include isn't empty: the compiler would pick up those libraries. Move /usr/local/include and"
+  echo "/usr/local/lib aside while building (Homebrew's programs keep working), or set MANUL_FFMPEG_ALLOW_USR_LOCAL=1."
+  exit 1
+fi
 if [ "$(uname -s)" = Darwin ]; then
   mkdir -p "$WORK/hostbin"
   for t in autoconf autoheader autom4te autoreconf autoscan autoupdate ifnames aclocal automake glibtoolize glibtool; do
@@ -119,7 +144,7 @@ done
 if [ "$(uname -s)" = Darwin ]; then
   otool -L "$BIN/ffmpeg" | tail -n +2 | grep -vE '^[[:space:]]*(/usr/lib/|/System/Library/)' && { echo "ffmpeg links non-system libraries (above)"; exit 1; }
 else
-  ldd "$BIN/ffmpeg" | grep -vE 'linux-vdso|ld-linux|lib(c|m|dl|pthread|rt|stdc\+\+|gcc_s)\.so' | grep '=>' && { echo "ffmpeg links non-system libraries (above)"; exit 1; }
+  ldd "$BIN/ffmpeg" | grep -vE 'linux-vdso|ld-linux|lib(c|m|mvec|dl|pthread|rt|stdc\+\+|gcc_s)\.so' | grep '=>' && { echo "ffmpeg links non-system libraries (above)"; exit 1; }
 fi
 
 rm -rf "$OUT"

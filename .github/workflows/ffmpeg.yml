@@ -40,6 +40,9 @@ jobs:
           brew install autoconf automake libtool
           # the build runs with a system-only PATH: virtualenv for the system python3, which is the one it finds
           /usr/bin/python3 -m pip install --user virtualenv
+      - name: Hide /usr/local from the compiler (Apple's clang searches it by default; Homebrew lives there on Intel)
+        if: runner.os == 'macOS'
+        run: for d in include lib; do if [ -d /usr/local/$d ]; then sudo mv /usr/local/$d /usr/local/$d.off; fi; done
       - name: Rust + cargo-c (rav1e)
         run: |
           rustup update stable
