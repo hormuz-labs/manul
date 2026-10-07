@@ -87,11 +87,22 @@ describe('bundled skills', () => {
   it('each has a name matching its folder and a description that says when to use it', () => {
     const s = new Skills({ bundled: join(import.meta.dirname, '..', 'resources', 'skills'), user: mkdtempSync(join(tmpdir(), 'u-')), profiles: mkdtempSync(join(tmpdir(), 'p-')) })
     const list = s.list()
-    expect(list.map(k => k.id)).toEqual(expect.arrayContaining(['motion-design', 'talking-head']))
+    expect(list.map(k => k.id)).toEqual(expect.arrayContaining(['motion-design', 'talking-head', 'video-editing']))
     for (const k of list) {
       expect(k.name).toBe(k.id)
       expect(k.description.length).toBeGreaterThan(40)
       expect(k.description).toMatch(/Read before/)
+      expect(k.description.length).toBeLessThanOrEqual(400) // the agent's prompt shows 400 characters of it
+    }
+  })
+
+  it('every file a skill points to (references/…) is there', () => {
+    const root = join(import.meta.dirname, '..', 'resources', 'skills')
+    const s = new Skills({ bundled: root, user: mkdtempSync(join(tmpdir(), 'u-')), profiles: mkdtempSync(join(tmpdir(), 'p-')) })
+    for (const k of s.list()) {
+      for (const [ref] of readFileSync(k.path, 'utf8').matchAll(/\breferences\/[\w.-]+\.md\b/g)) {
+        expect(existsSync(join(root, k.id, ref)), `${k.id}: ${ref}`).toBe(true)
+      }
     }
   })
 })
