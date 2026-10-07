@@ -19,7 +19,8 @@ core of this kind of film.
 
 ## 2. Know and rate the footage
 1. `analyze_video` on every source: shots with times, shake, motion, exposure, colour; one frame per shot.
-2. `look` closer where needed (what's in the shot, where the subject is, the moment an action peaks).
+2. `find_subjects` for what is in each shot and where (people, faces, cars, animals, products), and `look` closer
+   where needed (what the shot means, the moment an action peaks).
 3. **Rate every shot** A/B/C in a list before planning:
    - A: striking, steady (or deliberately moving), sharp, well lit, clearly shows the subject or a strong detail.
    - B: usable support — context, transitions, details that aren't remarkable.
@@ -98,7 +99,8 @@ minimal text — the feeling first, information last.
 
 ## 5. Several versions
 If the user wants several platforms, make the main one first, get it accepted, then re-crop per shot for 9:16 / 1:1 /
-4:5 (never just squash or letterbox), check text positions again for each shape, and keep the same cuts.
+4:5 with `find_subjects` (its crop filter per shot follows the subject; never just squash or letterbox), check text
+positions again for each shape, and keep the same cuts.
 
 ## 6. What the feels mean (so you can deliver them)
 | Feel | Cutting | Camera/picture | Grade | Music & sound | Text |

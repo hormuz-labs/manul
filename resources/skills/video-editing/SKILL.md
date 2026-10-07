@@ -22,8 +22,9 @@ Deeper material, read when the step needs it:
 ## 1. Workflow (follow in order)
 1. **Measure the material** (never guess it): `analyze_video` on every source — shots and cut times, shake and camera
    motion per shot, exposure, contrast, colour cast, black/frozen frames, loudness, silences, and one frame per shot.
-   `transcript` for speech. `analyze_music` for any music. `look` only for what numbers can't say (what a shot shows,
-   where faces/text/the product are, where an action peaks).
+   `transcript` for speech, `speakers` for who speaks when, `find_subjects` for where faces and objects are (and crops
+   that follow them), `analyze_music` for any music. `look` only for what those can't say (what a shot means, where
+   text is, where an action peaks).
 2. **Know the kind of video and read its skill** (references/briefs.md §2): talking video or conversation →
    talking-head; screen recording → tutorials; ad, promo, recap, trailer, highlights, photos → promos-and-montages;
    Reels/TikTok/Shorts or clips from a long video → short-form; "fix it / clean it up" → cleanup-and-repair; graphics →
@@ -113,8 +114,8 @@ Deeper material, read when the step needs it:
 
 ## 7. Picture
 - **Nothing over faces**: text, captions, logos and lower thirds go in the free space, not across eyes or mouths.
-- Vertical (9:16) from horizontal: crop to the subject (follow the speaker/product per shot), don't letterbox with a
-  blurred copy unless asked. Keep important things out of the platform UI zones: top ~12 % and bottom ~22 %.
+- Vertical (9:16) from horizontal: crop to the subject per shot (`find_subjects` gives each shot a crop that follows
+  it), don't letterbox with a blurred copy unless asked. Keep important things out of the platform UI zones: top ~12 % and bottom ~22 %.
 - **Shake**: a shot `analyze_video` calls shaky or very shaky gets stabilised with vid.stab (the cleanup-and-repair
   skill has the commands) — two passes, smoothing ~0.5–1.5 s, a small zoom to hide moving edges. Don't stabilise
   deliberate motion (a whip pan, a run) or steady shots. Slight shake on handheld often reads as life; leave it.

@@ -40,12 +40,14 @@ talking clips also talking-head, for music-driven reels also promos-and-montages
 ## 4. Reframing 16:9 → 9:16
 - Crop, don't shrink: a 9:16 window (ih×9/16 wide) over the subject, scaled to 1080×1920. A blurred-copy background
   with the whole 16:9 frame in the middle is a fallback only (screen recordings, wide group shots, or when asked).
-- **Per shot**: find where the subject is in each shot (`look` at its frames; the face/product centre as a fraction of
-  the width) and crop each kept range on its own (video-editing's ffmpeg.md "Vertical 9:16"). If the subject moves
-  across the frame within a shot, either cut the shot into parts with different crop positions or animate the crop's x
-  slowly (ease, ≤ ~15 % of the width per second); never let the subject leave the crop.
-- **Two people in a wide shot**: crop to whoever is speaking (switch on sentence boundaries, from the transcript), or
-  stack them (top/bottom halves, each 1080×960) when both reactions matter.
+- **Per shot, measured**: `find_subjects` (aspect 9:16) finds the faces and objects in every shot and gives each shot a
+  ready-made crop filter that follows its main subject smoothly (≤ 15 % of the width per second, never leaving the
+  frame). Put each shot's filter after that shot's trim, then `scale=1080:1920`. A face beats a body; for objects it
+  picks the biggest, most present thing (a car, a person, a dog). Check with `look`; if the main subject is wrong for
+  the story (it followed the passer-by, not the product), use the other positions it lists.
+- **Two people in a wide shot**: `speakers` gives who talks when, `find_subjects` where each face is: crop to the
+  speaker (switch on their turns, at sentence boundaries, hold ≥ ~2 s), or stack them (top/bottom halves, each
+  1080×960) when both reactions matter.
 - **Screens/slides**: crop to the part that matters (the code, the chart) and keep text readable (≥ ~40 px tall on the
   1920-high frame); if the whole screen is needed, put it in the middle third with the speaker's face above or below.
 - Check every crop with `look` (frames at each shot's start and middle): no cut-off heads, chins or products.

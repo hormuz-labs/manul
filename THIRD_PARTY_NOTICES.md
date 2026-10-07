@@ -23,6 +23,22 @@ GPL-3.0-or-later, https://aubio.org, https://github.com/aubio/aubio (master at a
 `scripts/build-beats.sh`). Its sources are compiled with Manul's small CLI (`scripts/beats/manul-beats.c`, under the same
 licence) into the separate `manul-beats` program, which Manul runs to find tempo, beats and onsets in music.
 
+## sherpa-onnx 1.13.8 and ONNX Runtime 1.28.2 (manul-speakers, manul-vision)
+
+`scripts/build-ml.sh` links Manul's two small runners (`scripts/ml/*.c`) against sherpa-onnx's static release
+libraries (pinned by SHA-256), which include: sherpa-onnx (Apache-2.0, https://github.com/k2-fsa/sherpa-onnx),
+ONNX Runtime (MIT, https://github.com/microsoft/onnxruntime), kaldi-native-fbank (Apache-2.0), kissfft (BSD-3-Clause),
+OpenFst/kaldifst (Apache-2.0), SentencePiece (Apache-2.0), piper-phonemize (MIT), espeak-ng (GPL-3.0-or-later) and
+ucd-tools (GPL-3.0-or-later).
+
+## Models (resources/models, fetched by scripts/fetch-models.mjs, pinned by SHA-256)
+
+- **pyannote segmentation 3.0** (speaker-segmentation.onnx): MIT, Copyright (c) 2022 CNRS,
+  https://huggingface.co/pyannote/segmentation-3.0, as converted to ONNX by sherpa-onnx.
+- **3D-Speaker CAM++ zh/en** (speaker-embedding.onnx): Apache-2.0, https://github.com/modelscope/3D-Speaker.
+- **YuNet 2023mar** (faces-yunet.onnx): MIT, Copyright (c) 2020 Shiqi Yu, https://github.com/opencv/opencv_zoo.
+- **YOLOX-Tiny** (objects-yolox-tiny.onnx): Apache-2.0, Megvii, https://github.com/Megvii-BaseDetection/YOLOX.
+
 ## whisper.cpp v1.9.4 (whisper-cli)
 
 MIT licence, https://github.com/ggml-org/whisper.cpp. Built statically by `scripts/build-whisper.sh` (Metal embedded on

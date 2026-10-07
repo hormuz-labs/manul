@@ -62,8 +62,12 @@ If it matters and isn't clear, ask in one card (video-editing's briefs.md): the 
   3 chapters, each ≥ 10 s) in your reply, for the user's description.
 
 ## 6. Several speakers
-- **One wide shot**: to focus on the speaker, crop to whoever is talking (switch at sentence boundaries; find each
-  face's position with `look`); keep a wide shot for overlaps, laughter and reactions.
+- **Who speaks when**: the `speakers` tool gives every turn (A, B, C… in order of first speaking) with what is said.
+  Pass `speakers` when you know how many people talk — it is much more accurate. Letters aren't names: match them to
+  faces with `find_subjects` (where each face is) and `look`, or to names from the transcript ("thanks, Sarah").
+- **One wide shot**: to focus on the speaker, crop to whoever is talking — `find_subjects` gives each face's position;
+  switch the crop on the speaker turns (at sentence boundaries, never mid-word), hold each ≥ ~2 s, and keep the wide shot
+  for overlaps, laughter and reactions.
 - **One camera per person** (several files): sync them first (by their sound — the same clap or word in each file),
   then cut to the active speaker, holding each shot at least ~2 s; cut to the listener for reactions; a wide for
   cross-talk. A rhythm of only "who speaks" is dull — add reactions.

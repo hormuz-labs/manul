@@ -2,7 +2,7 @@
 // (rendered by tool), question cards, and the input, anchored to whatever is selected on the film.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Message } from '@ag-ui/core'
-import { ArrowUp, AudioLines, Check, ChevronRight, Sparkles, Clapperboard, Crosshair, Eye, FileSearch, Images, Loader2, MessageSquareText, ScanSearch, Square, Terminal, TriangleAlert, Wrench, X } from 'lucide-react'
+import { ArrowUp, AudioLines, Check, ChevronRight, Sparkles, Clapperboard, Crosshair, Eye, FileSearch, Images, Loader2, MessageSquareText, ScanFace, ScanSearch, Users, Square, Terminal, TriangleAlert, Wrench, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { resultsOf, type AgentState } from '@/lib/agui'
@@ -54,6 +54,8 @@ const TOOL: Record<string, { icon: ReactNode; title: (a: Record<string, any>) =>
   seek: { icon: <Crosshair />, title: a => `Showed you ${timecode(a.t || 0)}` },
   bash: { icon: <Terminal />, title: a => shellTitle(String(a.command || '')), detail: a => code(`$ ${a.command || ''}`) },
   analyze_video: { icon: <ScanSearch />, title: a => `Measured ${String(a.media || 'the video').split('/').pop()}: shots, shake, exposure, colour, sound` },
+  speakers: { icon: <Users />, title: a => `Found who speaks when in ${String(a.media || 'the video').split('/').pop()}` },
+  find_subjects: { icon: <ScanFace />, title: a => `Found the faces and subjects${a.aspect ? ` for ${a.aspect}` : ''}` },
   analyze_music: { icon: <AudioLines />, title: a => `Found the beat of ${String(a.media || 'the music').split('/').pop()}` },
   look: { icon: <Images />, title: a => a.image ? `Looked at ${String(a.image).split('/').pop()}` : `Looked at ${a.times?.length || a.count || 6} frames${a.box ? ' (zoomed in)' : ''}` },
   read: { icon: <FileSearch />, title: a => `Read ${String(a.path || '').split('/').pop()}` },

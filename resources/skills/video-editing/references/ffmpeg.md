@@ -42,8 +42,9 @@ ffmpeg -y -i a.mp4 -i b.mp4 -filter_complex \
 ```
 
 ## Vertical 9:16 from 16:9, framed on the subject
-`0.4` = where the subject's centre is, as a fraction of the width (0 left … 1 right). The min/max keeps the crop inside
-the frame. Different shots usually need different centres: crop each kept range on its own.
+`find_subjects` gives each shot a crop filter that follows its subject — use it in place of the fixed crop below (after
+the shot's trim, before the scale). By hand: `0.4` = where the subject's centre is, as a fraction of the width (0 left …
+1 right); the min/max keeps the crop inside the frame. Different shots need different centres: crop each range on its own.
 ```bash
 ffmpeg -y -i in.mp4 -vf "crop=w=ih*9/16:h=ih:x='max(0,min(iw-ow,iw*0.4-ow/2))':y=0,scale=1080:1920:flags=lanczos,setsar=1" \
 -c:v libx264 -crf 18 -pix_fmt yuv420p -c:a copy renders/vertical.mp4

@@ -26,6 +26,8 @@ import type { Skills } from './skills'
 import { FFMPEG, FONTS_DIR, probe } from './media'
 import { analyze, contactSheet, report, sheetFrames } from './analysis'
 import { analyzeMusic, musicReport } from './music'
+import { analyzeSpeakers, speakersReport, withSentences } from './speakers'
+import { findSubjects, shotSubjects, subjectsReport, track } from './subjects'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { duration as timelineDuration } from '../shared/timeline'
@@ -99,7 +101,7 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       `- Start with project_state to see the versions, the current one, open notes and media details.\n` +
       `- Know the footage before deciding anything about it. Measure first: analyze_video gives the shots (cut times), camera shake and motion, ` +
       `exposure, contrast, colour cast, black/frozen frames, loudness and silence, plus one frame per shot to see what each shot shows; ` +
-      `the transcript tool gives speech. Then look (frames at chosen times, a zoomed box, or an image file) only for what numbers can't tell: ` +
+      `the transcript tool gives speech; speakers gives who speaks when; find_subjects gives where faces and objects are per shot (and crops that follow them). Then look (frames at chosen times, a zoomed box, or an image file) only for what numbers can't tell: ` +
       `what is in a shot, where faces or text are, whether a render looks right. Never write scripts (Python or other) to analyse pixels or sound, ` +
       `and never use another ffmpeg: the bundled one has what you need (vidstabdetect/vidstabtransform for shake, rubberband for speed, scdet, signalstats, ebur128…).\n` +
       `- Open-ended requests (make it cinematic, clean it up, fix it, turn it into a promo/short): analyze_video first, then say in 2–4 short lines what you found ` +
@@ -181,6 +183,47 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
           const p = proj(api)
           const { music, beatsFile } = await analyzeMusic(p.dir, inProject(p, args.media), api.signal)
           return text(musicReport(music, args.media, beatsFile.slice(p.dir.length + 1)))
+        },
+      }),
+      defineTool({
+        name: 'speakers',
+        description: 'Who speaks when: speaker turns (A, B, C… in order of first speaking) with talk time per speaker and, when there is a transcript, ' +
+          'what each turn says. For podcasts, interviews and any clip with several people: cutting or cropping to the speaker, reactions, ' +
+          'lower thirds, picking one person\'s answers. Pass speakers when you know how many people talk (much more accurate).',
+        parameters: Type.Object({
+          media: Type.Optional(Type.String({ description: 'project-relative path; default the current version' })),
+          speakers: Type.Optional(Type.Number({ description: 'how many people speak, if known' })),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const rel = args.media || p.versions.find(v => v.id === p.current)!.path
+          let { result, file } = await analyzeSpeakers(p.dir, inProject(p, rel), { speakers: args.speakers, signal: api.signal })
+          const t = await bridge.transcript(p.dir, rel).catch(() => null)
+          if (t) result = withSentences(result, t)
+          return text(speakersReport(result, rel, file.slice(p.dir.length + 1)))
+        },
+      }),
+      defineTool({
+        name: 'find_subjects',
+        description: 'Where the subject is, per shot: faces and objects (people, cars, animals, everyday things), how big, how often seen, and for a narrower ' +
+          'shape (9:16 by default) a crop that follows the main subject smoothly, with its ready-made ffmpeg crop filter. Use for vertical/square ' +
+          'versions, for keeping text off faces, and for knowing who/what is where without guessing from frames.',
+        parameters: Type.Object({
+          media: Type.Optional(Type.String({ description: 'project-relative video; default the current version' })),
+          t0: Type.Optional(Type.Number()), t1: Type.Optional(Type.Number()),
+          aspect: Type.Optional(Type.Union([Type.Literal('9:16'), Type.Literal('1:1'), Type.Literal('4:5')], { description: 'the target shape; default 9:16' })),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const rel = args.media || p.versions.find(v => v.id === p.current)!.path
+          const file = inProject(p, rel)
+          const found = await findSubjects(p.dir, file, { t0: args.t0, t1: args.t1, signal: api.signal })
+          const shots = await analyze(p.dir, file, api.signal).then(a => a.shots.map(sh => ({ s: sh.s, e: sh.e })), () => [{ s: 0, e: found.info.duration }])
+          const ranges = shots.map(sh => ({ s: Math.max(sh.s, found.t0), e: Math.min(sh.e, found.t1) })).filter(sh => sh.e - sh.s > 0.2)
+          const [aspect, ratio] = ({ '9:16': ['9/16', 9 / 16], '1:1': ['1', 1], '4:5': ['4/5', 4 / 5] } as Record<string, [string, number]>)[args.aspect || '9:16']
+          const cw = (found.info.height * ratio) / found.info.width // the crop's width as a fraction of the frame's
+          const tracks = track(found.dets)
+          return text(subjectsReport(rel, ranges.map(r => shotSubjects(tracks, r.s, r.e, found.fps, cw, found.dets)), { aspect, fps: found.fps, cw, file: found.file.slice(p.dir.length + 1) }))
         },
       }),
       defineTool({
