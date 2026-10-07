@@ -53,7 +53,8 @@ Every rule here comes from that. Numbers are defaults: when the user asks for so
   pops/pings/dings on every cut or text — audiences find them grating.
 - Loudness for delivery: **-14 LUFS integrated, true peak ≤ -1 dBTP** for YouTube/social/web (podcast audio: -16 LUFS).
   Measure with `ebur128`, normalise with two-pass `loudnorm` (references/ffmpeg.md). Never clip.
-- Use only music the user provided or owns the rights to; don't fetch random songs.
+- Use only music the user provided or owns the rights to; don't fetch random songs. Original music made for the film
+  is fine: read the music-generation skill.
 
 ## 5. Picture
 - **Nothing over faces**: text, captions, logos and lower thirds go in the free space, not across eyes or mouths.

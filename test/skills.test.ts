@@ -87,7 +87,7 @@ describe('bundled skills', () => {
   it('each has a name matching its folder and a description that says when to use it', () => {
     const s = new Skills({ bundled: join(import.meta.dirname, '..', 'resources', 'skills'), user: mkdtempSync(join(tmpdir(), 'u-')), profiles: mkdtempSync(join(tmpdir(), 'p-')) })
     const list = s.list()
-    expect(list.map(k => k.id)).toEqual(expect.arrayContaining(['motion-design', 'talking-head', 'video-editing']))
+    expect(list.map(k => k.id)).toEqual(expect.arrayContaining(['motion-design', 'music-generation', 'talking-head', 'video-editing']))
     for (const k of list) {
       expect(k.name).toBe(k.id)
       expect(k.description.length).toBeGreaterThan(40)

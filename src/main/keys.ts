@@ -8,10 +8,10 @@ import type { KeyInfo } from '../shared/types'
 import { isProviderKeyEnv } from '../shared/providers'
 
 export const KEYS: Omit<KeyInfo, 'set'>[] = [
-  { env: 'GEMINI_API_KEY', label: 'Google Gemini', unlocks: ['text', 'images', 'voice'], hint: 'aistudio.google.com → Get API key' },
+  { env: 'GEMINI_API_KEY', label: 'Google Gemini', unlocks: ['text', 'images', 'voice', 'music'], hint: 'aistudio.google.com → Get API key' },
   { env: 'ANTHROPIC_API_KEY', label: 'Anthropic', unlocks: ['text'], hint: 'console.anthropic.com → API keys' },
   { env: 'OPENAI_API_KEY', label: 'OpenAI', unlocks: ['text', 'images', 'voice'], hint: 'platform.openai.com → API keys' },
-  { env: 'ELEVENLABS_API_KEY', label: 'ElevenLabs', unlocks: ['voice'], hint: 'elevenlabs.io → Profile → API keys' },
+  { env: 'ELEVENLABS_API_KEY', label: 'ElevenLabs', unlocks: ['voice', 'music'], hint: 'elevenlabs.io → Profile → API keys' },
 ]
 
 const file = () => join(app.getPath('userData'), 'keys.json')
