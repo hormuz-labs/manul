@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later (it is compiled together with aubio; see LICENSES/GPL-3.0.txt)
 // manul-beats: the beats, onsets and energy of a piece of music, as JSON on stdout, for Manul's analyze_music tool.
 // Built on aubio (GPL-3.0-or-later, https://aubio.org) by scripts/build-beats.sh. Reads 16/24/32-bit PCM WAV:
 // Manul decodes anything else to WAV with its ffmpeg first.

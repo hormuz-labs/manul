@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0 (modelled on Martin Riedl's build modules; see LICENSES/Apache-2.0.txt)
 # vid.stab (libvidstab) for FFmpeg's vidstabdetect / vidstabtransform filters: measuring and removing camera shake.
 # A module for Martin Riedl's build script (same arguments and layout as its script/build-*.sh); build.sh copies it in.
 # GPL-2.0-or-later; FFmpeg needs --enable-gpl for it.

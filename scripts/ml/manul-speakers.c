@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later (it is linked with sherpa-onnx's libraries, which include espeak-ng; see
+// LICENSES/GPL-3.0.txt)
 // manul-speakers: who speaks when, as JSON on stdout, for Manul's speakers tool.
 // sherpa-onnx's offline speaker diarization (pyannote segmentation + a speaker-embedding model, then clustering),
 // statically linked by scripts/build-ml.sh. Reads 16 kHz mono 16-bit WAV (Manul's ffmpeg makes it).

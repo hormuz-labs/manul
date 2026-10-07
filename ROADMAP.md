@@ -238,9 +238,11 @@ Rules:
 
 ## 7. Open questions 💬
 
-- **Licence:** the editor is GPL-3.0 (LICENSE, chosen 2026-10-06). Still open: the paid cloud parts (Manul key gateway,
-  storage) can stay closed as separate services; a contributor licence agreement may be needed before outside
-  contributions land, if we ever want to relicense.
+- **Licence:** the editor is source-available under FSL-1.1-ALv2 since 2026-10-08 (was GPL-3.0; releases up to 0.1.1 and
+  the code published before stay GPL). Free to use and change for anything but a competing product; each release
+  becomes Apache-2.0 after two years. Contributors agree to the contributor agreement in CONTRIBUTING. The bundled GPL
+  programs (ffmpeg, manul-beats, manul-speakers) stay separate programs with their source. The paid cloud parts (Manul
+  key gateway, storage) stay closed as separate services.
 - **Windows:** when?
 - **Personality:** how much manul (mascot, warm colours, orbs) versus a quiet pro tool?
 - **Video models:** which to support first, and whether generation runs only through the Manul key (simpler billing) or also with users' own keys.

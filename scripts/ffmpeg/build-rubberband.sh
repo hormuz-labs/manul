@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0 (modelled on Martin Riedl's build modules; see LICENSES/Apache-2.0.txt)
 # Rubber Band (librubberband) for FFmpeg's rubberband filter: changing speed without changing pitch (speed ramps,
 # slow motion with sound, fitting music to a length) far cleaner than atempo.
 # A module for Martin Riedl's build script (same arguments and layout as its script/build-*.sh); build.sh copies it in.

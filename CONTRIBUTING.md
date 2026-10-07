@@ -92,4 +92,18 @@ Releases (signing, Homebrew, apt) are covered in [RELEASING.md](RELEASING.md).
 
 ## License
 
-By contributing you agree your work is released under the [GPL-3.0](LICENSE).
+Manul is source-available under the [Functional Source License 1.1, Apache-2.0 future license](LICENSE) (each release
+becomes Apache-2.0 two years after it ships). A few parts carry their own licence, marked at the top of the file:
+programs built together with GPL code (`scripts/beats/manul-beats.c`, `scripts/ml/manul-speakers.c`) are
+GPL-3.0-or-later, and the ffmpeg build modules are Apache-2.0 (texts in [LICENSES](LICENSES)).
+
+### Contributor agreement
+
+By sending a contribution (a pull request, a patch, a commit) you agree that:
+
+1. it is your own work, or you have the right to submit it under these terms;
+2. it is licensed under the licence of the files it changes; and
+3. you grant Hormuz Labs a perpetual, worldwide, non-exclusive, royalty-free, irrevocable licence to use, reproduce,
+   modify, distribute and sublicense it, and to release it under other licence terms, including commercial ones.
+
+You keep the copyright in your contribution.
