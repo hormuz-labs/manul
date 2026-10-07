@@ -28,6 +28,12 @@ describe('bundled ffmpeg', () => {
     for (const x of ['subtitles', 'drawtext', 'boxblur', 'loudnorm', 'afade', 'fade', 'concat', 'trim', 'atrim', 'overlay', 'scale', 'crop', 'sidechaincompress'])
       expect(f).toMatch(new RegExp(`\\s${x}\\s`))
   })
+
+  it('has what analysis and repair need (vid.stab and Rubber Band come from Manul\'s own build)', () => {
+    const f = out(FFMPEG, '-filters')
+    for (const x of ['vidstabdetect', 'vidstabtransform', 'rubberband', 'scdet', 'signalstats', 'blackdetect', 'freezedetect', 'ebur128', 'silencedetect', 'tile', 'minterpolate', 'eq', 'colorbalance', 'curves'])
+      expect(f, x).toMatch(new RegExp(`\\s${x}\\s`))
+  })
 })
 
 describe('pinned builds', async () => {
