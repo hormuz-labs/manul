@@ -2,18 +2,22 @@
 
 The Cloudflare tunnel points at this localhost-only gateway on port 8787.
 Only POST /v1/usage is passed to the collector on port 8788; all other paths
-go to Metabase. Credentials and dashboards never flow through the intake route.
+go to Metabase, except /dashboard, which frames the private dashboard at a
+stable URL. Credentials and dashboards never flow through the intake route.
 """
 import http.client
 import os
+import re
 from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from html import escape
 from pathlib import Path
 from urllib.parse import urlsplit
 
 METABASE = ("127.0.0.1", 3300)
 COLLECTOR = ("127.0.0.1", 8788)
 DASHBOARD_ID_FILE = Path(__file__).with_name("dashboard-id.txt")
+DASHBOARD_ROUTE = re.compile(r"/dashboard/\d+-manul-overview/?$")
 MAX_BODY = 2 * 1024 * 1024
 HOP_HEADERS = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te",
                "trailer", "transfer-encoding", "upgrade", "host", "content-length"}
@@ -53,16 +57,20 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith("/v1/"):
             return self.fail(404)
         else:
-            if self.command in ("GET", "HEAD") and path in ("/", "/dashboard", "/dashboard/"):
-                try:
-                    dashboard_id = DASHBOARD_ID_FILE.read_text(encoding="ascii").strip()
-                except OSError:
-                    return self.fail(503)
-                if not dashboard_id.isascii() or not dashboard_id.isdecimal():
-                    return self.fail(503)
-                location = f"/dashboard/{dashboard_id}-manul-overview" + (f"?{parsed.query}" if parsed.query else "")
+            if self.command in ("GET", "HEAD") and path == "/":
                 self.send_response(302)
-                self.send_header("Location", location)
+                self.send_header("Location", "/dashboard" + (f"?{parsed.query}" if parsed.query else ""))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if self.command in ("GET", "HEAD") and path in ("/dashboard", "/dashboard/"):
+                return self.dashboard(parsed.query)
+            # Keep the ID-based route for the frame; canonicalize direct visits and old bookmarks.
+            if (self.command in ("GET", "HEAD") and DASHBOARD_ROUTE.fullmatch(path)
+                    and self.headers.get("Sec-Fetch-Dest") != "iframe"):
+                self.send_response(302)
+                self.send_header("Location", "/dashboard" + (f"?{parsed.query}" if parsed.query else ""))
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
@@ -86,8 +94,15 @@ class Handler(BaseHTTPRequestHandler):
                 response = upstream.getresponse()
                 result = response.read()
                 self.send_response(response.status)
+                framed = (target == METABASE and self.command in ("GET", "HEAD")
+                          and self.headers.get("Sec-Fetch-Dest") == "iframe"
+                          and response.getheader("Content-Type", "").lower().startswith("text/html"))
                 for key, value in response.getheaders():
                     if key.lower() not in HOP_HEADERS:
+                        if framed and key.lower() == "x-frame-options":
+                            continue
+                        if framed and key.lower() == "content-security-policy":
+                            value = value.replace("frame-ancestors 'none'", "frame-ancestors 'self'")
                         self.send_header(key, value)
                 self.send_header("Content-Length", str(len(result)))
                 self.end_headers()
@@ -95,6 +110,31 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(result)
         except (OSError, ValueError, http.client.HTTPException):
             self.fail(502)
+
+    def dashboard(self, query):
+        try:
+            dashboard_id = DASHBOARD_ID_FILE.read_text(encoding="ascii").strip()
+        except OSError:
+            return self.fail(503)
+        if not dashboard_id.isascii() or not dashboard_id.isdecimal():
+            return self.fail(503)
+        src = f"/dashboard/{dashboard_id}-manul-overview" + (f"?{query}" if query else "")
+        body = ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+                "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+                "<title>Manul analytics</title><style>html,body{margin:0;width:100%;height:100%}"
+                "iframe{border:0;width:100%;height:100%}</style></head><body>"
+                f"<iframe title=\"Manul analytics dashboard\" src=\"{escape(src, quote=True)}\"></iframe>"
+                "</body></html>").encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Security-Policy", "default-src 'none'; frame-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def fail(self, status):
         self.send_response(status)

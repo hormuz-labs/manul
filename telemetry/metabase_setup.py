@@ -106,7 +106,7 @@ def main():
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
-    print(f"Metabase dashboard ready: https://analytics.manul.si/dashboard/{dashboard_id}-manul-overview")
+    print("Metabase dashboard ready: https://analytics.manul.si/dashboard")
 
 
 if __name__ == "__main__":
