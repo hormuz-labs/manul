@@ -82,8 +82,9 @@ describe('the skills feed', () => {
     const key = join(process.env.HOME!, '.config/manul/skills-signing.pem')
     if (!existsSync(key)) return // only on a machine that holds the signing key
     const root = join(import.meta.dirname, '..')
-    execFileSync('node', ['--experimental-strip-types', '--no-warnings', 'scripts/sign-skills.mjs'], { cwd: root })
-    const m = verifyManifest(readFileSync(join(root, 'updates', 'skills.json')), readFileSync(join(root, 'updates', 'skills.json.sig'), 'utf8'), readFileSync(join(root, 'resources', 'skills-public.pem'), 'utf8'))
+    const out = mkdtempSync(join(tmpdir(), 'manul-signed-')) // never rewrite the published feed in updates/
+    execFileSync('node', ['--experimental-strip-types', '--no-warnings', 'scripts/sign-skills.mjs'], { cwd: root, env: { ...process.env, MANUL_SKILLS_OUT: out } })
+    const m = verifyManifest(readFileSync(join(out, 'skills.json')), readFileSync(join(out, 'skills.json.sig'), 'utf8'), readFileSync(join(root, 'resources', 'skills-public.pem'), 'utf8'))
     expect(m.skills.map(k => k.id)).toEqual(expect.arrayContaining(['motion-design', 'talking-head']))
   })
 })
