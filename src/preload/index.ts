@@ -2,6 +2,8 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { BaseEvent } from '@ag-ui/core'
 import type { Anchor, BrowserMode, BrowserState, ChromeBsk, ConsentRequest, Job, KeyInfo, OnDemandTool, Project, RecentProject, ToolStatus, Transcript, WhisperConfig, WhisperStatus } from '../shared/types'
+import type { CustomProvider, CustomProviderInfo } from '../shared/providers'
+type ProvidersState = { providers: CustomProviderInfo[]; omp: boolean }
 
 type SkillState = { skills: { id: string; name: string; description: string; path: string; source: 'bundled' | 'user' }[]; enabled: string[]; profile: { id: string; name: string }; profiles: { id: string; name: string }[] }
 
@@ -73,6 +75,13 @@ const api = {
   keys: {
     list: () => ipcRenderer.invoke('keys:list') as Promise<KeyInfo[]>,
     set: (name: string, value: string) => ipcRenderer.invoke('keys:set', name, value) as Promise<KeyInfo[]>,
+  },
+  /** Custom model providers (OpenAI/Anthropic-compatible endpoints); keys go in, only "set or not" comes back. */
+  providers: {
+    list: () => ipcRenderer.invoke('providers:list') as Promise<ProvidersState>,
+    save: (p: Partial<CustomProvider>, key?: string | null, replacing?: string) => ipcRenderer.invoke('providers:save', p, key, replacing) as Promise<ProvidersState>,
+    remove: (id: string) => ipcRenderer.invoke('providers:remove', id) as Promise<ProvidersState>,
+    importOmp: () => ipcRenderer.invoke('providers:import-omp') as Promise<ProvidersState & { added: { id: string; name: string; models: number; key: boolean }[] }>,
   },
   /** Manul's own browser (the Browser panel) and which browser the agent drives. */
   browser: {

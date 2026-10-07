@@ -10,6 +10,7 @@ import { buildMenu } from './menu'
 import { startUpdates } from './updates'
 import { fetchSkillUpdates, SKILLS_FEED } from './skill-updates'
 import { keyStatus, loadKeys, setKey } from './keys'
+import { importOmp, ompAvailable, providerInfo, removeProvider, saveProvider } from './providers'
 import { asJob, listJobs, onJobs } from './jobs'
 import { toolPath, toolStatus } from './media'
 import { thumbnails } from './thumbnails'
@@ -355,6 +356,12 @@ function wire() {
   })
   ipcMain.handle('keys:list', () => keyStatus())
   ipcMain.handle('keys:set', (_e, name: string, value: string) => { setKey(name, value); agent?.keysChanged(); return keyStatus() })
+  // custom model providers (any OpenAI/Anthropic-compatible endpoint), and importing the ones omp already has
+  const providersState = () => ({ providers: providerInfo(), omp: ompAvailable() })
+  ipcMain.handle('providers:list', () => providersState())
+  ipcMain.handle('providers:save', (_e, p, key?: string | null, replacing?: string) => { saveProvider(p, key, replacing); agent?.keysChanged(); return providersState() })
+  ipcMain.handle('providers:remove', (_e, id: string) => { removeProvider(id); agent?.keysChanged(); return providersState() })
+  ipcMain.handle('providers:import-omp', () => { const added = importOmp(); agent?.keysChanged(); return { ...providersState(), added } })
   ipcMain.handle('agent:ready', async () => !!agent && (await agent.hasModel()))
 
   ipcMain.handle('project:recent', () => Projects.recent())

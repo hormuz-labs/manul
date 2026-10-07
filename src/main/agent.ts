@@ -20,6 +20,7 @@ import { isAbsolute, resolve } from 'node:path'
 import { AguiAdapter } from './agui'
 import { liveEnv } from './bsk'
 import { chooseModel, describeModels } from './models'
+import { buildProviders, listProviders } from './providers'
 import type { Memory } from './memory'
 import type { Skills } from './skills'
 import { FFMPEG, probe } from './media'
@@ -351,6 +352,15 @@ export async function startAgent(opts: {
 }) {
   const models = createModels({ authContext: { env: async (n: string) => process.env[n], fileExists: async (p: string) => existsSync(p) } })
   for (const p of [anthropicProvider, googleProvider, openaiProvider]) models.setProvider(p())
+  // custom providers (Azure AI Foundry, gateways, local servers): rebuilt when they or their keys change
+  let custom: string[] = []
+  const loadCustom = () => {
+    for (const id of custom) models.deleteProvider(id)
+    const built = buildProviders()
+    for (const p of built) models.setProvider(p as any)
+    custom = built.map(p => p.id)
+  }
+  loadCustom()
 
   const convDir = new Map<string, string>() // conversation id → project dir
   const registry = createRegistry()
@@ -398,8 +408,9 @@ export async function startAgent(opts: {
     current: (dir: string) => (live.has(dir) ? String(live.get(dir)!.conv.id) : undefined),
     hasModel: async () => !!(await pickModel()),
     model: (dir?: string) => pickModel(dir),
-    models: async () => describeModels(await available()),
-    keysChanged() { /* models are re-read on every use */ },
+    models: async () => describeModels(await available(), Object.fromEntries(listProviders().map(p => [p.id, p.name]))),
+    /** keys or custom providers changed: built-in models are re-read on every use, custom providers are rebuilt */
+    keysChanged: loadCustom,
     async send(dir: string, content: string | Any[]) {
       const l = live.get(dir)
       if (!l) throw new Error('This project is not open.')
