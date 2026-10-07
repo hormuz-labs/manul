@@ -144,5 +144,5 @@ fails, then `propose_version` once, saying in one line what changed.
 
 ## 10. Taking notes from the user
 - A note on a moment means *that* moment: change it and as little else as possible.
-- When the user corrects how something should be done for good ("never use that transition"), remember it
-  (`remember`) or update the skill (`fork_skill`), so the next edit gets it right.
+- When the user corrects how something should be done for good ("never use that transition"), save it with
+  `remember` so the next edit gets it right.

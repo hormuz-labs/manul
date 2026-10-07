@@ -14,7 +14,7 @@ asar: true
 extraResources:
   - from: resources/bin/${platform}-${arch}
     to: bin
-    filter: ["ffmpeg", "ffprobe", "whisper-cli", "manul-beats", "manul-speakers", "manul-vision", "bsk"]
+    filter: ["ffmpeg", "ffprobe", "whisper-cli", "manul-beats", "manul-speakers", "manul-vision", "manul-fence", "bsk"]
   - from: resources/lib
     to: lib
   - from: resources/models
@@ -29,8 +29,6 @@ extraResources:
     to: py
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
-  - from: resources/skills-public.pem
-    to: skills-public.pem
 mac:
   category: public.app-category.video
   target:

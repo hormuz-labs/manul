@@ -10,20 +10,21 @@ import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic'
 import { googleProvider } from '@earendil-works/pi-ai/providers/google'
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai'
 import { createRegistry, defineExtension, defineTool, Harness, section } from '@earendil-works/pi-durable'
-import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node'
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node'
 import { CodingTools } from '@earendil-works/pi-durable/tools'
 import type { BaseEvent } from '@ag-ui/core'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { isAbsolute, resolve } from 'node:path'
+import { isAbsolute, resolve, sep } from 'node:path'
 import { AguiAdapter } from './agui'
 import { liveEnv } from './bsk'
 import { chooseModel, describeModels } from './models'
 import { buildProviders, listProviders } from './providers'
 import type { Memory } from './memory'
 import type { Skills } from './skills'
-import { FFMPEG, FONTS_DIR, probe } from './media'
+import { BIN, FFMPEG, FONTS_DIR, probe } from './media'
+import { FencedEnv, fencedArgv, fenceFor, realish, type Fence } from './fence'
+import { homedir } from 'node:os'
 import { analyze, contactSheet, report, sheetFrames } from './analysis'
 import { analyzeMusic, musicReport } from './music'
 import { analyzeSpeakers, speakersReport, withSentences } from './speakers'
@@ -79,7 +80,10 @@ async function imageResult(caption: string, path: string) {
   return { content: [{ type: 'text' as const, text: caption }, { type: 'image' as const, data: data.toString('base64'), mimeType: 'image/jpeg' }] }
 }
 
-function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
+/** Where the agent may go, per project (src/main/fence.ts): Manul's resources read-only, plus extra folders. */
+export type FenceConfig = { resources: string; extraRw?: string[]; extraRo?: string[] }
+
+function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenceConfig?: FenceConfig) {
   const proj = (api: Any) => {
     const dir = dirOf(api.conversationId)
     const p = bridge.project(dir)
@@ -88,8 +92,15 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
   }
   const inProject = (p: Project, path: string) => {
     const abs = isAbsolute(path) ? path : resolve(p.dir, path)
-    if (!abs.startsWith(p.dir)) throw new Error('Paths must stay inside the project folder.')
+    const real = realish(abs), root = realish(p.dir)
+    if (real !== root && !real.startsWith(root + sep)) throw new Error('Paths must stay inside the project folder.')
     return abs
+  }
+  /** Run a bundled program inside the agent's fence (its paths come from the model). */
+  const fencedExec = (p: Project, bin: string, args: string[]): [string, string[]] => {
+    if (!fenceConfig) return [bin, args]
+    const argv = fencedArgv(fenceFor({ project: p.dir, ...fenceConfig }), [bin, ...args], { home: homedir(), fenceBin: join(BIN, 'manul-fence') })
+    return argv ? [argv[0], argv.slice(1)] : [bin, args]
   }
   return defineExtension({
     name: 'editor',
@@ -125,6 +136,8 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       `- When you need a decision from the user, call ask_user with 2–5 options and stop.\n` +
       `API keys the user saved in Manul are already in your shell's environment (e.g. $ELEVENLABS_API_KEY, $GEMINI_API_KEY): use them in commands as they are; ` +
       `never print, echo, measure or log a key or any part of it, and never look for keys elsewhere (other shells, files).\n` +
+      `Your files and shell are fenced to the project folder (plus temp folders and Manul's bundled tools, skills, models and fonts, ` +
+      `read-only); anything else is refused, so don't look elsewhere. Files the user adds are already copied into media/.\n` +
       `Stay inside the project folder. Never inspect, run or search Manul's own program files, other folders or system processes; ` +
       `if a tool fails, read its error and fix your input instead of investigating the app.\n` +
       `Write replies in short plain Markdown. Say what you did, not how.\n\n` + MOTION_POINTER, { tag: false })],
@@ -270,7 +283,8 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
         execute: async (args: Any, api: Any) => {
           const p = proj(api)
           const out = await new Promise<string>((ok, fail) => {
-            execFile(FFMPEG, ['-y', '-hide_banner', '-loglevel', 'error', ...args.args], { cwd: p.dir, maxBuffer: 1 << 24, signal: api.signal },
+            const [bin, argv] = fencedExec(p, FFMPEG, ['-y', '-hide_banner', '-loglevel', 'error', ...args.args])
+            execFile(bin, argv, { cwd: p.dir, maxBuffer: 1 << 24, signal: api.signal },
               (err, _o, stderr) => (err ? fail(new Error(`ffmpeg failed: ${stderr.slice(-3000) || err.message}`)) : ok(stderr.slice(-1500))))
           })
           return text(out || 'done')
@@ -288,6 +302,7 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
         execute: async (args: Any, api: Any) => {
           const p = proj(api)
           const media = args.media || p.versions.find(v => v.id === p.current)!.path
+          inProject(p, media)
           const t = await bridge.transcript(p.dir, media)
           if (!t) return text('No transcript: speech recognition is not installed.')
           const q = args.search?.toLowerCase()
@@ -476,14 +491,7 @@ function skillsExtension(skills: Skills) {
   return defineExtension({
     name: 'skills',
     sections: [section('skills', () => skills.prompt() || undefined)],
-    tools: [
-      defineTool({
-        name: 'fork_skill',
-        description: 'Copy a bundled skill into the user\'s skills folder so it can be changed (bundled skills are read-only). Returns the path of the editable SKILL.md.',
-        parameters: Type.Object({ id: Type.String() }),
-        execute: async (args: Any) => text(`Editable copy: ${skills.fork(args.id).path}`),
-      }),
-    ],
+    tools: [],
   })
 }
 
@@ -495,6 +503,8 @@ export async function startAgent(opts: {
   shellEnv?: () => Record<string, string>
   /** The browser section of the instructions, for the current setting. */
   browserPrompt?: () => string
+  /** Fence the agent's files and shell to the project (and these). Without it, nothing is fenced (tests). */
+  fence?: FenceConfig
 }) {
   const models = createModels({ authContext: { env: async (n: string) => process.env[n], fileExists: async (p: string) => existsSync(p) } })
   for (const p of [anthropicProvider, googleProvider, openaiProvider]) models.setProvider(p())
@@ -511,13 +521,17 @@ export async function startAgent(opts: {
   const convDir = new Map<string, string>() // conversation id → project dir
   const registry = createRegistry()
   const dirOf = (id: string) => convDir.get(String(id)) || ''
-  for (const ext of [CodingTools, editorExtension(opts.bridge, dirOf), memoryExtension(opts.memory), skillsExtension(opts.skills),
+  for (const ext of [CodingTools, editorExtension(opts.bridge, dirOf, opts.fence), memoryExtension(opts.memory), skillsExtension(opts.skills),
     ...(opts.browserPrompt ? [browserExtension(opts.bridge, dirOf, opts.browserPrompt)] : [])]) registry.install(ext)
   const shellEnv = opts.shellEnv ? liveEnv(opts.shellEnv) : undefined
 
   const harness = await Harness.open(await openNodeSqliteStorage(opts.dbPath), {
     models, registry,
-    env: ({ cwd }: Any) => new NodeExecutionEnv({ cwd: cwd ?? process.cwd(), shellEnv }),
+    env: ({ cwd }: Any) => {
+      const dir = cwd ?? process.cwd()
+      const fence: Fence = opts.fence ? fenceFor({ project: dir, ...opts.fence }) : { rw: ['/'], ro: [] }
+      return new FencedEnv({ cwd: dir, shellEnv }, fence, { home: homedir(), fenceBin: opts.fence ? join(BIN, 'manul-fence') : undefined }, !!opts.fence)
+    },
   } as any, ctx)
   harness.resume() // finish any run a crash or quit left unfinished
 

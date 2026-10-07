@@ -1,7 +1,8 @@
 #!/bin/sh
-# Build Manul's two model runners for this machine into resources/bin/<platform>-<arch>/:
+# Build Manul's model runners for this machine into resources/bin/<platform>-<arch>/:
 #   manul-speakers   who speaks when (scripts/ml/manul-speakers.c on sherpa-onnx's speaker diarization)
 #   manul-vision     faces and objects in video frames (scripts/ml/manul-vision.c on onnxruntime)
+# and on Linux the agent's fence, manul-fence (scripts/ml/manul-fence.c, Landlock; macOS uses its built-in sandbox).
 # Both link sherpa-onnx's static release libraries (onnxruntime included) — one self-contained binary each.
 # Every download is SHA-256 checked. The models they run come from scripts/fetch-models.mjs. Needs curl + a C/C++ compiler.
 set -e
@@ -18,7 +19,8 @@ case "$(uname -s)-$(uname -m)" in
 esac
 OUT=resources/bin/$TARGET
 fresh() { [ -x "$OUT/$1" ] && [ "$(cat "$OUT/.$1.version" 2>/dev/null)" = "$VERSION" ] && [ "$OUT/$1" -nt "scripts/ml/$1.c" ]; }
-if fresh manul-speakers && fresh manul-vision; then echo "manul-speakers and manul-vision $VERSION already built"; exit 0; fi
+fence_ok() { [ "$(uname -s)" != Linux ] || { [ -x "$OUT/manul-fence" ] && [ "$OUT/manul-fence" -nt scripts/ml/manul-fence.c ]; }; }
+if fresh manul-speakers && fresh manul-vision && fence_ok; then echo "manul-speakers and manul-vision $VERSION already built"; exit 0; fi
 
 WORK=${TMPDIR:-/tmp}/manul-ml-$SHERPA-$TARGET
 mkdir -p "$WORK/inc/sherpa-onnx/c-api"
@@ -57,4 +59,8 @@ for b in manul-speakers manul-vision; do
   strip "$OUT/$b" 2>/dev/null || true
   echo "$VERSION" > "$OUT/.$b.version"
 done
+if [ "$(uname -s)" = Linux ]; then
+  cc -O2 -Wall -o "$OUT/manul-fence" scripts/ml/manul-fence.c
+  strip "$OUT/manul-fence" 2>/dev/null || true
+fi
 echo "built $OUT/manul-speakers and $OUT/manul-vision ($VERSION)"

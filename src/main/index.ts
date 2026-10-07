@@ -1,6 +1,6 @@
 // Manul's main process: the window, the media protocol, projects, keys, and the agent (pi-durable → AG-UI → renderer).
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron'
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
@@ -8,7 +8,6 @@ import { startAgent, type AgentHandle } from './agent'
 import { renderClip, setClipProtocol } from './clips'
 import { buildMenu } from './menu'
 import { startUpdates } from './updates'
-import { fetchSkillUpdates, SKILLS_FEED } from './skill-updates'
 import { keyStatus, loadKeys, setKey } from './keys'
 import { importOmp, ompAvailable, providerInfo, removeProvider, saveProvider } from './providers'
 import { asJob, listJobs, onJobs } from './jobs'
@@ -327,8 +326,6 @@ function wire() {
   ipcMain.handle('skills:enable', (_e, id: string, on: boolean) => { skills.setEnabled(id, on); return skillState() })
   ipcMain.handle('skills:profile', (_e, id: string) => { skills.useProfile(id); return skillState() })
   ipcMain.handle('skills:newProfile', (_e, name: string) => { const p = skills.createProfile(name); skills.useProfile(p.id); return skillState() })
-  ipcMain.handle('skills:edit', async (_e, id: string) => { const k = skills.fork(id); await shell.openPath(k.path); return skillState() })
-  ipcMain.handle('skills:folder', () => shell.openPath(join(app.getPath('userData'), 'skills')))
   ipcMain.handle('memory:list', () => memory.list())
   ipcMain.handle('memory:save', (_e, name: string, description: string, body: string) => { memory.remember(name, description, body); return memory.list() })
   ipcMain.handle('memory:forget', (_e, name: string) => { memory.forget(name); return memory.list() })
@@ -520,20 +517,12 @@ app.whenReady().then(async () => {
   loadKeys()
   memory = new Memory(join(app.getPath('userData'), 'memory'))
   const resources = app.isPackaged ? process.resourcesPath : join(import.meta.dirname, '../../resources')
-  skills = new Skills({
-    bundled: join(resources, 'skills'),
-    updates: join(app.getPath('userData'), 'skill-updates'),
-    user: join(app.getPath('userData'), 'skills'),
-    profiles: join(app.getPath('userData'), 'profiles'),
-  })
+  skills = new Skills({ bundled: join(resources, 'skills'), profiles: join(app.getPath('userData'), 'profiles') })
+  // skills come only from the bundle now: drop what the old over-the-air feed downloaded (a cache, never the user's)
+  rmSync(join(app.getPath('userData'), 'skill-updates'), { recursive: true, force: true })
   wire()
   buildMenu(() => win)
   updates = startUpdates(st => send('update', st))
-  // skills over the air (signed), at start and every 6 hours; packaged apps, or a feed given for testing
-  const feed = process.env.MANUL_SKILLS_FEED || (app.isPackaged ? SKILLS_FEED : '')
-  const pullSkills = () => fetchSkillUpdates({ feed, publicKeyPem: readFileSync(join(resources, 'skills-public.pem'), 'utf8'), dir: join(app.getPath('userData'), 'skill-updates') })
-    .then(r => { if (r.applied.length) console.log('skills updated:', r.applied.join(', ')) }).catch(e => console.warn('skills feed', e.message))
-  if (feed) { setTimeout(pullSkills, 15_000); setInterval(pullSkills, 6 * 3600_000).unref?.() }
   onJobs(jobs => send('jobs', jobs))
   createWindow()
   startBrowser(resources)
@@ -542,6 +531,11 @@ app.whenReady().then(async () => {
       // which browser the agent's bsk reaches: Manul's own (private daemon) unless the user chose their Chrome
       shellEnv: () => agentEnv(browserMode(), { bundledDir: dirname(BSK_BIN), privateHome: bskd!.home, userHome: homedir(), userBsk: findUserBsk({ home: homedir(), bundled: BSK_BIN }), path: process.env.PATH || '' }),
       browserPrompt: () => browserPrompt(browserMode()),
+      // the agent's files and shell stay in the project: Manul's resources read-only, and the browser CLI's own state
+      fence: (() => {
+        const userBsk = findUserBsk({ home: homedir(), bundled: BSK_BIN })
+        return { resources, extraRw: [privateHome(app.getPath('userData'), homedir()), join(homedir(), '.bsk')], extraRo: userBsk ? [dirname(userBsk)] : [] }
+      })(),
       dbPath: join(app.getPath('userData'), 'agent.sqlite'),
       memory,
       skills,

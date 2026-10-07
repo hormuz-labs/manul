@@ -5,7 +5,7 @@ import type { Anchor, BrowserMode, BrowserState, ChromeBsk, ConsentRequest, Job,
 import type { CustomProvider, CustomProviderInfo } from '../shared/providers'
 type ProvidersState = { providers: CustomProviderInfo[]; omp: boolean }
 
-type SkillState = { skills: { id: string; name: string; description: string; path: string; source: 'bundled' | 'user' }[]; enabled: string[]; profile: { id: string; name: string }; profiles: { id: string; name: string }[] }
+type SkillState = { skills: { id: string; name: string; description: string; path: string }[]; enabled: string[]; profile: { id: string; name: string }; profiles: { id: string; name: string }[] }
 
 type ModelInfo = { provider: string; providerLabel: string; modelId: string; name: string; context?: number; price?: { input: number; output: number }; images: boolean; reasoning: boolean }
 
@@ -31,8 +31,6 @@ const api = {
     enable: (id: string, on: boolean) => ipcRenderer.invoke('skills:enable', id, on) as Promise<SkillState>,
     useProfile: (id: string) => ipcRenderer.invoke('skills:profile', id) as Promise<SkillState>,
     newProfile: (name: string) => ipcRenderer.invoke('skills:newProfile', name) as Promise<SkillState>,
-    edit: (id: string) => ipcRenderer.invoke('skills:edit', id) as Promise<SkillState>,
-    openFolder: () => ipcRenderer.invoke('skills:folder'),
   },
   memory: {
     list: () => ipcRenderer.invoke('memory:list') as Promise<{ name: string; description: string; body: string }[]>,
