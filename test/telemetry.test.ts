@@ -23,6 +23,14 @@ function setup() {
 }
 
 describe('anonymous usage telemetry', () => {
+  it('starts with the default monotonic clock without a provided clock', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'manul-clock-'))
+    dirs.push(dir)
+    const usage = new UsageTelemetry({ file: join(dir, 'usage.json'),
+      endpoint: '', enabled: () => false, focused: () => false, idleSeconds: () => 0 })
+    expect(() => { usage.start(); usage.tick() }).not.toThrow()
+  })
+
   it('counts foreground non-idle time, and persists it across restarts', async () => {
     const t = setup()
     const usage = t.create()

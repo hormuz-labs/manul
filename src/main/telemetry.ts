@@ -30,7 +30,7 @@ export class UsageTelemetry {
   }
 
   private empty(): State { return { installationId: randomUUID(), pending: [], activeSeconds: 0 } }
-  private now() { return (this.opts.now || performance.now)() }
+  private now() { return this.opts.now ? this.opts.now() : performance.now() }
   private save() { writeFileSync(this.opts.file, JSON.stringify(this.state)) }
 
   start() {
