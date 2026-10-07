@@ -2,7 +2,8 @@
 //
 // whisper.cpp's word times (-ml 1 -sow) spread words over pauses and music: on narration over music they were a median
 // 1-2 s off, up to 16 s, so a cut "on the word" landed seconds away. Two steps fix it:
-//  1. DTW token timestamps (-dtw <preset>) give each word's start to ~40 ms, ~95 ms late on average (DTW_LAG).
+//  1. DTW token timestamps (-dtw <preset>) give each word's start to ~40 ms on base.en, which trails the real start by
+//     ~95 ms; the multilingual base (the bundled model) trails by ~130 ms and spreads twice as wide (dtwLag).
 //  2. snapWords moves every boundary onto the audio: words in running speech meet at the quietest point between them;
 //     around a pause, a word ends just after its sound stops and the next starts just before its sound starts again.
 // Every word's s/e is then a cut point in the quiet: cutting there never takes off a piece of a word.
@@ -15,7 +16,6 @@ import type { Segment, Word } from '../shared/types'
 
 const run = promisify(execFile)
 
-export const DTW_LAG = 0.095   // DTW times trail the real word start by this much (measured on base.en)
 export const HOP = 0.005       // envelope step (s)
 const WIN = 0.02               // envelope window (s): short enough to see a consonant
 const PRE = 0.95               // pre-emphasis: lifts s/f/t (quiet but bright) over a music bed (loud but low)
@@ -27,6 +27,12 @@ const PRESETS = ['tiny', 'tiny.en', 'base', 'base.en', 'small', 'small.en', 'med
 export function dtwPreset(model: string): string | null {
   const name = basename(model).replace(/^ggml-/, '').replace(/\.bin$/, '').replace(/-q\d.*$/, '').replace(/-/g, '.')
   return PRESETS.includes(name) ? name : null
+}
+
+/** How far a model's DTW times trail the real word start (s). Measured against a forced alignment of narration over music
+ *  (2026-10-08): base.en 95 ms, multilingual base 130-175 ms (0.13 fitted best). Models not measured use the base.en value. */
+export function dtwLag(model: string): number {
+  return dtwPreset(model) === 'base' ? 0.13 : 0.095
 }
 
 const helpText = new Map<string, Promise<string>>()
@@ -46,14 +52,14 @@ export async function dtwFlags(binary: string, model: string): Promise<string[]>
 type CppToken = { text: string; t_dtw?: number }
 type CppWord = { text: string; offsets: { from: number; to: number }; tokens?: CppToken[] }
 
-/** whisper.cpp JSON (-ojf, one word per entry) → words. With DTW the start is the word's first token's DTW time. */
-export function whisperCppWords(raw: { transcription: CppWord[] }, dtw: boolean): Word[] {
+/** whisper.cpp JSON (-ojf, one word per entry) → words. With DTW (lag given) the start is the word's first token's DTW time minus the lag; null = DTW off. */
+export function whisperCppWords(raw: { transcription: CppWord[] }, lag: number | null): Word[] {
   const out: Word[] = []
   for (const t of raw.transcription) {
     const word = t.text.trim()
     if (!word || /^\[.*\]$/.test(word)) continue
-    const d = dtw ? t.tokens?.find(k => k.text.trim() && (k.t_dtw ?? -1) >= 0)?.t_dtw : undefined
-    let s = d != null ? Math.max(0, d / 100 - DTW_LAG) : t.offsets.from / 1000
+    const d = lag != null ? t.tokens?.find(k => k.text.trim() && (k.t_dtw ?? -1) >= 0)?.t_dtw : undefined
+    let s = d != null ? Math.max(0, d / 100 - lag!) : t.offsets.from / 1000
     if (out.length) s = Math.max(s, out[out.length - 1].s)
     out.push({ w: word, s, e: Math.max(s, t.offsets.to / 1000) })
   }

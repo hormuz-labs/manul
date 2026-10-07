@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DTW_LAG, dtwFlags, dtwPreset, envelope, HOP, readWav, snapSegments, snapWords, whisperCppWords } from '../src/main/wordtimes'
+import { dtwFlags, dtwLag, dtwPreset, envelope, HOP, readWav, snapSegments, snapWords, whisperCppWords } from '../src/main/wordtimes'
 
 const SR = 16000
 
@@ -19,6 +19,18 @@ describe('dtwPreset', () => {
   it('gives none for models it does not know (DTW then stays off)', () => {
     expect(dtwPreset('/m/ggml-distil-large-v3.bin')).toBeNull()
     expect(dtwPreset('/m/my-finetune.bin')).toBeNull()
+  })
+})
+
+describe('dtwLag', () => {
+  it('is measured per model: base.en trails by ~95 ms, the multilingual base (the bundled one) by ~130 ms', () => {
+    expect(dtwLag('/m/ggml-base.en.bin')).toBe(0.095)
+    expect(dtwLag('/m/ggml-base.bin')).toBe(0.13)
+    expect(dtwLag('/m/ggml-base-q5_1.bin')).toBe(0.13)
+  })
+  it('falls back to the base.en value for models not measured yet', () => {
+    expect(dtwLag('/m/ggml-small.en.bin')).toBe(0.095)
+    expect(dtwLag('/m/ggml-large-v3-turbo.bin')).toBe(0.095)
   })
 })
 
@@ -46,18 +58,18 @@ describe('dtwFlags', () => {
 
 describe('whisperCppWords', () => {
   const tok = (text: string, from: number, to: number, dtw = -1) => ({ text, offsets: { from, to }, tokens: [{ text, t_dtw: dtw }] })
-  it('uses the DTW time (minus its lag) as the word start, the segment offsets otherwise', () => {
+  it('uses the DTW time (minus the model\'s lag) as the word start, the segment offsets otherwise', () => {
     const raw = { transcription: [tok(' A', 70, 4360, 509), tok(' cat.', 4360, 9360, 580), tok(' He', 9360, 9540)] }
-    const w = whisperCppWords(raw, true)
+    const w = whisperCppWords(raw, 0.13)
     expect(w.map(x => x.w)).toEqual(['A', 'cat.', 'He'])
-    expect(w[0].s).toBeCloseTo(5.09 - DTW_LAG, 3)
-    expect(w[1].s).toBeCloseTo(5.80 - DTW_LAG, 3)
+    expect(w[0].s).toBeCloseTo(5.09 - 0.13, 3)
+    expect(w[1].s).toBeCloseTo(5.80 - 0.13, 3)
     expect(w[2].s).toBeCloseTo(9.36, 3) // no DTW time: falls back to the offset
-    expect(whisperCppWords(raw, false)[0].s).toBeCloseTo(0.07, 3)
+    expect(whisperCppWords(raw, null)[0].s).toBeCloseTo(0.07, 3) // DTW off
   })
   it('drops non-speech markers and keeps starts in time order', () => {
     const raw = { transcription: [tok(' one', 0, 500, 120), tok(' [BLANK_AUDIO]', 500, 900), tok(' two', 900, 1200, 110), tok(' ', 1200, 1300)] }
-    const w = whisperCppWords(raw, true)
+    const w = whisperCppWords(raw, 0.095)
     expect(w.map(x => x.w)).toEqual(['one', 'two'])
     expect(w[1].s).toBeGreaterThanOrEqual(w[0].s)
   })

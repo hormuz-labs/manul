@@ -11,7 +11,7 @@ import { asJob, type JobHandle } from './jobs'
 import { FFMPEG, probe, WHISPER_CLI } from './media'
 import { isInstalled, scriptPath, venvPython, WHISPER_MODEL, whisperEnv, whisperModelPath } from './tools'
 import type { Segment, Transcript, WhisperConfig, WhisperStatus, Word } from '../shared/types'
-import { dtwFlags, envelope, readWav, snapSegments, whisperCppWords } from './wordtimes'
+import { dtwFlags, dtwLag, envelope, readWav, snapSegments, whisperCppWords } from './wordtimes'
 
 const run = promisify(execFile)
 
@@ -131,7 +131,7 @@ async function runTranscribe(file: string, outJson: string, j: JobHandle): Promi
       })
       const raw = JSON.parse(await readFile(`${tmp}.json`, 'utf8'))
       await rm(`${tmp}.json`, { force: true })
-      segments = groupWords(whisperCppWords(raw, dtw.length > 0))
+      segments = groupWords(whisperCppWords(raw, dtw.length ? dtwLag(engine.model!) : null))
       language = raw.result?.language || (english ? 'en' : 'auto')
     } else {
       const tmp = `${outJson}.tmp`
