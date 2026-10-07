@@ -14,7 +14,7 @@ asar: true
 extraResources:
   - from: resources/bin/${platform}-${arch}
     to: bin
-    filter: ["ffmpeg", "ffprobe", "whisper-cli", "bsk"]
+    filter: ["ffmpeg", "ffprobe", "whisper-cli", "manul-beats", "bsk"]
   - from: resources/lib
     to: lib
   - from: resources/skills

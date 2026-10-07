@@ -2,7 +2,7 @@
 // (rendered by tool), question cards, and the input, anchored to whatever is selected on the film.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Message } from '@ag-ui/core'
-import { ArrowUp, AudioLines, Check, Sparkles, Clapperboard, Crosshair, Eye, FileSearch, Loader2, MessageSquareText, Square, Terminal, TriangleAlert, Wrench, X } from 'lucide-react'
+import { ArrowUp, AudioLines, Check, ChevronRight, Sparkles, Clapperboard, Crosshair, Eye, FileSearch, Images, Loader2, MessageSquareText, ScanSearch, Square, Terminal, TriangleAlert, Wrench, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { resultsOf, type AgentState } from '@/lib/agui'
@@ -17,8 +17,26 @@ type Call = { id: string; name: string; args: Record<string, any> }
 
 const parse = (s: string) => { try { return JSON.parse(s) } catch { return {} } }
 
+/** A shell command as a sentence: a script's first comment, the tool and its output, or the command's first line. */
+export function shellTitle(command: string) {
+  const c = command.trim()
+  const lines = c.split('\n')
+  const word = (lines[0].split(/\s+/)[0] || '').split('/').pop() || ''
+  const script = /^(python3?|node|ruby|perl|bash|sh|zsh)$/.test(word) && lines.length > 1
+  if (script) {
+    const comment = lines.slice(1).map(l => /^\s*(?:#|\/\/)\s*(.{4,})$/.exec(l)?.[1]).find(Boolean)
+    return comment ? comment.replace(/^let'?s\s+/i, '').replace(/^./, x => x.toUpperCase()) : `Ran a ${word.replace(/\d+$/, '')} script`
+  }
+  if (word === 'ffmpeg') { const out = lines[0].trim().split(/\s+/).at(-1) || ''; return /\.\w{2,4}$/.test(out) ? `Rendering ${out.split('/').pop()}` : 'Ran ffmpeg' }
+  if (word === 'ffprobe') return 'Read file details'
+  if (word === 'curl') { const host = /https?:\/\/([^/\s"']+)/.exec(c)?.[1]; return host ? `Called ${host}` : 'Made a web request' }
+  if (word === 'bsk') return 'Used the browser'
+  return lines[0].length > 64 ? `${lines[0].slice(0, 63)}…` : lines[0]
+}
+
 // ---------------------------------------------------------------- tool cards: one renderer per tool, a generic fallback
-const TOOL: Record<string, { icon: ReactNode; title: (a: Record<string, any>) => string; body?: (a: Record<string, any>) => ReactNode }> = {
+const code = (s: string) => <code className="block max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[10.5px] text-faint" data-selectable>{s}</code>
+const TOOL: Record<string, { icon: ReactNode; title: (a: Record<string, any>) => string; body?: (a: Record<string, any>) => ReactNode; detail?: (a: Record<string, any>) => ReactNode }> = {
   project_state: { icon: <Eye />, title: () => 'Looked at the project' },
   probe: { icon: <FileSearch />, title: a => `Read ${String(a.path || '').split('/').pop() || 'a file'}` },
   ffmpeg: {
@@ -34,7 +52,10 @@ const TOOL: Record<string, { icon: ReactNode; title: (a: Record<string, any>) =>
   rerender_timeline: { icon: <Clapperboard />, title: () => 'Rendered the film' },
   transcript: { icon: <AudioLines />, title: a => a.search ? `Searched the transcript for “${a.search}”` : 'Read the transcript' },
   seek: { icon: <Crosshair />, title: a => `Showed you ${timecode(a.t || 0)}` },
-  bash: { icon: <Terminal />, title: a => `$ ${String(a.command || '').split('\n')[0].slice(0, 60)}` },
+  bash: { icon: <Terminal />, title: a => shellTitle(String(a.command || '')), detail: a => code(`$ ${a.command || ''}`) },
+  analyze_video: { icon: <ScanSearch />, title: a => `Measured ${String(a.media || 'the video').split('/').pop()}: shots, shake, exposure, colour, sound` },
+  analyze_music: { icon: <AudioLines />, title: a => `Found the beat of ${String(a.media || 'the music').split('/').pop()}` },
+  look: { icon: <Images />, title: a => a.image ? `Looked at ${String(a.image).split('/').pop()}` : `Looked at ${a.times?.length || a.count || 6} frames${a.box ? ' (zoomed in)' : ''}` },
   read: { icon: <FileSearch />, title: a => `Read ${String(a.path || '').split('/').pop()}` },
   write: { icon: <Wrench />, title: a => `Wrote ${String(a.path || '').split('/').pop()}` },
   edit: { icon: <Wrench />, title: a => `Edited ${String(a.path || '').split('/').pop()}` },
@@ -50,9 +71,10 @@ function ToolCard({ call, state, result }: { call: Call; state: 'streaming' | 'r
         <span className="flex-1 truncate text-fg/90">{t.title(call.args)}</span>
         {state === 'error' && <TriangleAlert className="size-3.5 text-bad" />}
       </button>
-      {(t.body || (open && result)) && (
+      {(t.body || (open && (result || t.detail))) && (
         <div className="space-y-1.5 px-2.5 pb-2">
           {t.body?.(call.args)}
+          {open && t.detail?.(call.args)}
           {open && result && <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[10.5px] text-faint" data-selectable>{result}</pre>}
         </div>
       )}
@@ -60,15 +82,115 @@ function ToolCard({ call, state, result }: { call: Call; state: 'streaming' | 'r
   )
 }
 
+type Opt = { label: string; description?: string }
+type Question = { question: string; options: Opt[]; multiple?: boolean }
+
+export const YOU_DECIDE = 'You decide: use your recommendations.'
+
+/** The message a filled-in question card sends. */
+export function askAnswer(qs: Question[], picks: string[][]) {
+  if (qs.length === 1 && !qs[0].multiple) return picks[0][0] ?? YOU_DECIDE
+  if (qs.length === 1) return picks[0].length ? `Apply: ${picks[0].join('; ')}` : 'None of these.'
+  return qs.map((q, i) => `${q.question} → ${picks[i].length ? picks[i].join(', ') : 'none'}`).join('\n')
+}
+
 function AskCard({ call, answered, onAnswer }: { call: Call; answered: boolean; onAnswer: (s: string) => void }) {
+  const qs: Question[] = call.args.questions?.length ? call.args.questions
+    : [{ question: call.args.question, options: call.args.options || [], multiple: call.args.multiple }]
+  const quick = qs.length === 1 && !qs[0].multiple // one plain question: a click answers it
+  // single choice starts on the first (recommended) option; the fixes checklist starts all ticked
+  const [picks, setPicks] = useState<string[][]>(() => qs.map(q => (q.multiple ? (qs.length === 1 ? q.options.map(o => o.label) : []) : q.options.slice(0, 1).map(o => o.label))))
+  const pick = (qi: number, label: string) => setPicks(all => all.map((p, i) => {
+    if (i !== qi) return p
+    if (!qs[qi].multiple) return [label]
+    return p.includes(label) ? p.filter(l => l !== label) : [...p, label]
+  }))
   return (
-    <div className="rounded-lg border border-amber/30 bg-amber-soft p-3">
-      <div className="mb-2 font-medium">{call.args.question}</div>
-      <div className="flex flex-wrap gap-1.5">
-        {(call.args.options || []).map((o: { label: string; description?: string }) => (
-          <Button key={o.label} size="sm" variant={answered ? 'ghost' : 'secondary'} disabled={answered} title={o.description} onClick={() => onAnswer(o.label)}>{o.label}</Button>
-        ))}
-      </div>
+    <div className="space-y-3 rounded-lg border border-amber/30 bg-amber-soft p-3">
+      {qs.map((q, qi) => (
+        <div key={qi}>
+          <div className="mb-1.5 font-medium">{q.question}</div>
+          {quick ? (
+            <div className="flex flex-wrap gap-1.5">
+              {q.options.map(o => (
+                <Button key={o.label} size="sm" variant={answered ? 'ghost' : 'secondary'} disabled={answered} title={o.description} onClick={() => onAnswer(o.label)}>{o.label}</Button>
+              ))}
+            </div>
+          ) : q.multiple ? (
+            <div className="space-y-0.5">
+              {q.options.map(o => (
+                <label key={o.label} className={cn('flex gap-2 rounded-md px-1.5 py-1', !answered && 'cursor-pointer hover:bg-raised/60')}>
+                  <input type="checkbox" className="mt-0.5 accent-[var(--color-amber)]" checked={picks[qi].includes(o.label)} disabled={answered} onChange={() => pick(qi, o.label)} />
+                  <span className="min-w-0">
+                    <span className="block text-fg/95">{o.label}</span>
+                    {o.description && <span className="block text-xs text-dim">{o.description}</span>}
+                  </span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-1.5">
+                {q.options.map(o => (
+                  <Button key={o.label} size="sm" variant={picks[qi].includes(o.label) ? 'primary' : 'secondary'} disabled={answered} onClick={() => pick(qi, o.label)}>{o.label}</Button>
+                ))}
+              </div>
+              {(() => { const d = q.options.find(o => picks[qi].includes(o.label))?.description; return d ? <div className="mt-1 text-xs text-dim">{d}</div> : null })()}
+            </>
+          )}
+        </div>
+      ))}
+      {!answered && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {!quick && (
+            <Button size="sm" variant="primary" disabled={qs.length === 1 && !picks[0].length} onClick={() => onAnswer(askAnswer(qs, picks))}>
+              {qs.length === 1 ? `Apply ${picks[0].length === qs[0].options.length ? 'all' : picks[0].length}` : 'Go'}
+            </Button>
+          )}
+          {!quick && qs.length === 1 && <Button size="sm" variant="ghost" onClick={() => onAnswer('None of these.')}>None</Button>}
+          <Button size="sm" variant="ghost" onClick={() => onAnswer(YOU_DECIDE)}>You decide</Button>
+          <span className="text-[11px] text-faint">or type your own answer below</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- runs of small steps, folded
+/** Steps that only matter as progress: three or more in a row show as one row with the current step on it. */
+const STEP = new Set(['bash', 'read', 'write', 'edit', 'probe'])
+const isStep = (m: Message) => m.role === 'assistant' && !String(m.content ?? '').trim() && !!m.toolCalls?.length && m.toolCalls.every(c => STEP.has(c.function.name))
+
+export function foldSteps(shown: Message[]) {
+  const out: ({ kind: 'one'; m: Message; i: number } | { kind: 'steps'; ms: Message[]; i: number })[] = []
+  for (let i = 0; i < shown.length; i++) {
+    let j = i
+    while (j < shown.length && isStep(shown[j])) j++
+    const calls = shown.slice(i, j).reduce((n, m) => n + (m.role === 'assistant' ? m.toolCalls?.length || 0 : 0), 0)
+    if (calls >= 3) { out.push({ kind: 'steps', ms: shown.slice(i, j), i }); i = j - 1 }
+    else out.push({ kind: 'one', m: shown[i], i })
+  }
+  return out
+}
+
+function StepGroup({ ms, results, busy }: { ms: Message[]; results: ReturnType<typeof resultsOf>; busy: boolean }) {
+  const [open, setOpen] = useState(false)
+  const calls = ms.flatMap(m => (m.role === 'assistant' && m.toolCalls) || []).map(c => ({ id: c.id, name: c.function.name, args: parse(c.function.arguments) }))
+  const state = (c: Call): 'running' | 'done' | 'error' => { const r = results[c.id]; return r ? (r.error ? 'error' : 'done') : busy ? 'running' : 'error' }
+  const last = calls[calls.length - 1]
+  const running = state(last) === 'running'
+  const errors = calls.filter(c => state(c) === 'error').length
+  const title = (c: Call) => (TOOL[c.name] || { title: () => c.name }).title(c.args)
+  return (
+    <div className={cn('rounded-lg bg-raised/70 text-xs', running && 'beam')}>
+      <button className="flex w-full items-center gap-2 px-2.5 py-2 text-left" onClick={() => setOpen(!open)}>
+        <span className="text-dim [&_svg]:size-3.5">{running ? <Loader2 className="animate-spin text-amber" /> : <Terminal />}</span>
+        <span className="flex-1 truncate text-fg/90">{running ? title(last) : `${calls.length} steps · last: ${title(last)}`}</span>
+        {errors > 0 && <span className="text-[10.5px] text-bad">{errors} failed</span>}
+        <span className="text-[10.5px] text-faint tabular">{running ? `step ${calls.length}` : ''}</span>
+        <ChevronRight className={cn('size-3.5 text-faint transition-transform', open && 'rotate-90')} />
+      </button>
+      {open && <div className="space-y-1 px-1.5 pb-1.5">{calls.map(c => <ToolCard key={c.id} call={c} result={results[c.id]?.content} state={state(c)} />)}</div>}
     </div>
   )
 }
@@ -151,7 +273,9 @@ export function AgentPanel({ project, projectInfo, model, agent, anchor, onClear
             </div>
           </div>
         )}
-        {shown.map((m, i) => <Item key={m.id} m={m} results={results} busy={agent.busy} onAnswer={onSend} laterUser={shown.slice(i + 1).some(x => x.role === 'user')} />)}
+        {foldSteps(shown).map(b => b.kind === 'steps'
+          ? <StepGroup key={b.ms[0].id} ms={b.ms} results={results} busy={agent.busy} />
+          : <Item key={b.m.id} m={b.m} results={results} busy={agent.busy} onAnswer={onSend} laterUser={shown.slice(b.i + 1).some(x => x.role === 'user')} />)}
         {Object.entries(agent.pending).map(([id, p]) => <ToolCard key={id} call={{ id, name: p.name, args: parse(p.args) }} state="streaming" />)}
         {agent.streaming?.text && <div className="whitespace-pre-wrap leading-relaxed text-fg/95">{agent.streaming.text}</div>}
         {consents.map(c => <ConsentCard key={c.id} c={c} />)}

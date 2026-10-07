@@ -23,8 +23,10 @@ import { chooseModel, describeModels } from './models'
 import { buildProviders, listProviders } from './providers'
 import type { Memory } from './memory'
 import type { Skills } from './skills'
-import { FFMPEG, probe } from './media'
-import { readFile } from 'node:fs/promises'
+import { FFMPEG, FONTS_DIR, probe } from './media'
+import { analyze, contactSheet, report, sheetFrames } from './analysis'
+import { analyzeMusic, musicReport } from './music'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { duration as timelineDuration } from '../shared/timeline'
 import type { ClipInfo, Project, Transcript } from '../shared/types'
@@ -67,6 +69,14 @@ async function clipResult(p: Project, c: ClipInfo & { frames: number }) {
   }
 }
 
+const Option = Type.Object({ label: Type.String(), description: Type.Optional(Type.String()) })
+
+/** Text plus a JPEG the model can see. */
+async function imageResult(caption: string, path: string) {
+  const data = await readFile(path)
+  return { content: [{ type: 'text' as const, text: caption }, { type: 'image' as const, data: data.toString('base64'), mimeType: 'image/jpeg' }] }
+}
+
 function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
   const proj = (api: Any) => {
     const dir = dirOf(api.conversationId)
@@ -87,6 +97,14 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       `renders/ (your outputs), notes/ (frame stills).\n` +
       `How to work:\n` +
       `- Start with project_state to see the versions, the current one, open notes and media details.\n` +
+      `- Know the footage before deciding anything about it. Measure first: analyze_video gives the shots (cut times), camera shake and motion, ` +
+      `exposure, contrast, colour cast, black/frozen frames, loudness and silence, plus one frame per shot to see what each shot shows; ` +
+      `the transcript tool gives speech. Then look (frames at chosen times, a zoomed box, or an image file) only for what numbers can't tell: ` +
+      `what is in a shot, where faces or text are, whether a render looks right. Never write scripts (Python or other) to analyse pixels or sound, ` +
+      `and never use another ffmpeg: the bundled one has what you need (vidstabdetect/vidstabtransform for shake, rubberband for speed, scdet, signalstats, ebur128…).\n` +
+      `- Open-ended requests (make it cinematic, clean it up, fix it, turn it into a promo/short): analyze_video first, then say in 2–4 short lines what you found ` +
+      `and offer the fixes you'd make as ask_user with multiple: true — one option per fix, its description saying what changes and where ` +
+      `(e.g. "Stabilise shots 2 and 4 — strong handheld shake"). Apply the chosen ones together in one render. Precise requests ("cut the first 5 s") need no questions.\n` +
       `- Edit with the ffmpeg tool (bundled; also on PATH for bash). Read the current version, write new files to renders/. Never overwrite media/.\n` +
       `- For anything about speech (cut ums or pauses, remove a sentence, find a moment, captions) read the transcript tool first and cut on word times. ` +
       `Each word's start and end are cut points already placed in the quiet around it: cut exactly on them (to drop words a–b, cut from a's start to b's end). ` +
@@ -98,8 +116,13 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       `(x,y = top-left). Act on exactly that moment and region; when done, call resolve_note with a one-line reply. ` +
       `A note on "clip <id> element <name>" is about that element (data-manul-id) of clips/<id>/clip.html: edit only it (read + edit tools), ` +
       `then render_clip and rerender_timeline.\n` +
+      `- Skills: read video-editing before any edit, and the skill for the kind of video (talking-head, short-form, promos-and-montages, ` +
+      `tutorials, cleanup-and-repair, motion-design, music-generation) — see the skills list.\n` +
+      `- Fonts for text you draw with ffmpeg: ${FONTS_DIR} (Inter-Regular.ttf, Inter-Bold.ttf; drawtext fontfile=…, subtitles fontsdir=…).\n` +
       `- Prefer one well-built ffmpeg command over many small ones. Keep codecs sensible: libx264 -crf 18 -preset veryfast, aac 192k, -movflags +faststart.\n` +
       `- When you need a decision from the user, call ask_user with 2–5 options and stop.\n` +
+      `API keys the user saved in Manul are already in your shell's environment (e.g. $ELEVENLABS_API_KEY, $GEMINI_API_KEY): use them in commands as they are; ` +
+      `never print, echo, measure or log a key or any part of it, and never look for keys elsewhere (other shells, files).\n` +
       `Stay inside the project folder. Never inspect, run or search Manul's own program files, other folders or system processes; ` +
       `if a tool fails, read its error and fix your input instead of investigating the app.\n` +
       `Write replies in short plain Markdown. Say what you did, not how.\n\n` + MOTION_POINTER, { tag: false })],
@@ -130,6 +153,72 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
         description: 'Read a media file\'s details (duration, size, fps, codec, audio) with ffprobe. Path relative to the project folder.',
         parameters: Type.Object({ path: Type.String() }),
         execute: async (args: Any, api: Any) => text(await probe(inProject(proj(api), args.path))),
+      }),
+      defineTool({
+        name: 'analyze_video',
+        description: 'Measure a video before editing it: every shot (cut times), camera shake and motion per shot, exposure, contrast, saturation and colour cast, ' +
+          'black and frozen frames, loudness (LUFS, peak) and silences — then a contact sheet with one frame per shot (labelled #shot and time). ' +
+          'Deterministic and cached; call it first for any request that depends on what the footage is like.',
+        parameters: Type.Object({ media: Type.Optional(Type.String({ description: 'project-relative path; default the current version' })) }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const rel = args.media || p.versions.find(v => v.id === p.current)!.path
+          const file = inProject(p, rel)
+          const a = await analyze(p.dir, file, api.signal)
+          if (!a.shots.length) return text(report(a, rel))
+          const sheet = join(p.dir, '.cache', 'analysis', `sheet-${Date.now()}.jpg`)
+          await contactSheet(file, sheetFrames(a), sheet, { signal: api.signal })
+          return imageResult(report(a, rel) + '\nContact sheet attached (one frame per shot).', sheet)
+        },
+      }),
+      defineTool({
+        name: 'analyze_music',
+        description: 'The rhythm of music (a music file, or any video\'s soundtrack): tempo, how steady it is, every bar\'s downbeat with its loudness, ' +
+          'where the energy lifts, drops or breaks, and the strongest hits. Every beat time is saved to a JSON file you can read. ' +
+          'Call it before cutting picture to music, placing music under picture, or timing titles, speed ramps or transitions to the music.',
+        parameters: Type.Object({ media: Type.String({ description: 'project-relative audio or video file, e.g. media/song.mp3' }) }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const { music, beatsFile } = await analyzeMusic(p.dir, inProject(p, args.media), api.signal)
+          return text(musicReport(music, args.media, beatsFile.slice(p.dir.length + 1)))
+        },
+      }),
+      defineTool({
+        name: 'look',
+        description: 'See frames of a video, labelled with their times: at given times, or `count` frames spread over t0–t1; `box` (0–1 fractions, x,y = top-left) zooms every frame ' +
+          'into that region to read text or check a detail. Or see an image file in the project (`image`). Use after analyze_video, for what measurements can\'t tell.',
+        parameters: Type.Object({
+          media: Type.Optional(Type.String({ description: 'project-relative video; default the current version' })),
+          times: Type.Optional(Type.Array(Type.Number(), { maxItems: 16, description: 'seconds' })),
+          t0: Type.Optional(Type.Number()), t1: Type.Optional(Type.Number()),
+          count: Type.Optional(Type.Number({ description: 'frames between t0 and t1 (default 6, max 16)' })),
+          box: Type.Optional(Type.Object({ x: Type.Number(), y: Type.Number(), w: Type.Number(), h: Type.Number() })),
+          image: Type.Optional(Type.String({ description: 'project-relative image to look at instead of a video' })),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const out = join(p.dir, '.cache', 'look', `${Date.now()}.jpg`)
+          await mkdir(join(p.dir, '.cache', 'look'), { recursive: true })
+          if (args.image) {
+            const src = inProject(p, args.image)
+            if (!existsSync(src)) throw new Error(`No file at ${args.image}.`)
+            await new Promise<void>((ok, fail) => execFile(FFMPEG, ['-y', '-loglevel', 'error', '-i', src, '-frames:v', '1',
+              '-vf', 'scale=min(1568\\,iw):-2', '-q:v', '3', out], { signal: api.signal }, err => (err ? fail(new Error(`Can't read ${args.image} as an image.`)) : ok())))
+            return imageResult(args.image, out)
+          }
+          const rel = args.media || p.versions.find(v => v.id === p.current)!.path
+          const file = inProject(p, rel)
+          const dur = (await probe(file)).duration
+          let times: number[] = args.times?.length ? args.times : []
+          if (!times.length) {
+            const t0 = Math.max(0, args.t0 ?? 0), t1 = Math.min(dur, args.t1 ?? dur)
+            const n = Math.max(1, Math.min(16, Math.round(args.count ?? 6)))
+            times = Array.from({ length: n }, (_, k) => t0 + ((t1 - t0) * (k + 0.5)) / n)
+          }
+          times = times.slice(0, 16).map(t => Math.max(0, Math.min(t, dur - 0.04)))
+          await contactSheet(file, times.map(t => ({ t, label: fmt(t) })), out, { box: args.box, signal: api.signal })
+          return imageResult(`${rel}: frames at ${times.map(fmt).join(', ')}${args.box ? ' (zoomed into the box)' : ''}.`, out)
+        },
       }),
       defineTool({
         name: 'ffmpeg',
@@ -268,12 +357,25 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       }),
       defineTool({
         name: 'ask_user',
-        description: 'Ask the user to choose between options (shown as buttons). Ends your turn; the answer arrives as the next message.',
+        description: 'Ask the user to decide, with options shown as buttons. One question: question + options (multiple: true for checkboxes, e.g. which fixes ' +
+          'to apply). Several things at once (type of video, platform, length, style…): questions, up to 4, answered together in one card. ' +
+          'Put the option you recommend first, with "(recommended)" in its label, and say in each description what the user gets. ' +
+          'The card always offers "You decide" (then use your recommendations) and the user can type their own answer instead. ' +
+          'Ends your turn; the answer arrives as the next message.',
         parameters: Type.Object({
-          question: Type.String(),
-          options: Type.Array(Type.Object({ label: Type.String(), description: Type.Optional(Type.String()) }), { minItems: 1, maxItems: 5 }),
+          question: Type.Optional(Type.String()),
+          options: Type.Optional(Type.Array(Option, { minItems: 1, maxItems: 8 })),
+          multiple: Type.Optional(Type.Boolean({ description: 'let the user pick several (checkboxes); all start ticked' })),
+          questions: Type.Optional(Type.Array(Type.Object({
+            question: Type.String(),
+            options: Type.Array(Option, { minItems: 2, maxItems: 6 }),
+            multiple: Type.Optional(Type.Boolean({ description: 'checkboxes; none start ticked' })),
+          }), { minItems: 1, maxItems: 4 })),
         }),
-        execute: async () => ({ content: [{ type: 'text' as const, text: 'The question is on screen; wait for the answer.' }], control: { terminate: true } }),
+        execute: async (args: Any) => {
+          if (!args.questions?.length && !(args.question && args.options?.length)) throw new Error('Give question + options, or questions.')
+          return { content: [{ type: 'text' as const, text: 'The question is on screen; wait for the answer.' }], control: { terminate: true } }
+        },
       }),
     ],
   })

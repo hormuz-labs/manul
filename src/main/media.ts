@@ -17,6 +17,11 @@ export const FFMPEG = join(BIN, 'ffmpeg')
 export const FFPROBE = join(BIN, 'ffprobe')
 /** Manul's own whisper.cpp (scripts/build-whisper.sh); its model is downloaded on demand. */
 export const WHISPER_CLI = join(BIN, 'whisper-cli')
+/** Manul's beat tracker on aubio (scripts/build-beats.sh): tempo, beats, onsets and energy of music, as JSON. */
+export const BEATS = join(BIN, 'manul-beats')
+
+/** Inter (Regular, Bold) as TTF, for text ffmpeg draws: drawtext fontfile=…, subtitles fontsdir=… (scripts/copy-libs.mjs). */
+export const FONTS_DIR = join(app.isPackaged ? join(process.resourcesPath, 'lib') : join(import.meta.dirname, '../../resources/lib'), 'fonts')
 
 /** PATH with the bundled tools first, for every process the agent starts. */
 export const toolPath = () => [dirname(FFMPEG), dirname(FFPROBE), process.env.PATH].join(':')

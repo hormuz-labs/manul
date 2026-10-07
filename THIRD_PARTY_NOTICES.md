@@ -5,10 +5,23 @@
 Manul runs FFmpeg as separate programs; it does not link against it.
 
 - **Licence:** GNU General Public License v3 (this build is configured with `--enable-gpl --enable-version3` and
-  includes libx264, libx265, libass and others).
-- **Builds:** static binaries from https://ffmpeg.martin-riedl.de (pinned by SHA-256 in `scripts/fetch-ffmpeg.mjs`).
-- **Source:** https://ffmpeg.org/download.html (release 9.0.2). Each library's source and the build scripts are
-  listed at https://ffmpeg.martin-riedl.de. On request we will also provide the exact sources for the binaries we ship.
+  includes libx264, libx265, libass, vid.stab, Rubber Band and others).
+- **Builds:** static binaries built by `scripts/ffmpeg/build.sh` (Martin Riedl's build script,
+  https://git.martin-riedl.de/ffmpeg/build-script, Apache-2.0, at a pinned commit, plus Manul's modules for the two
+  libraries below), published as the repository's `ffmpeg-*` prereleases and pinned by SHA-256 in
+  `scripts/fetch-ffmpeg.mjs`.
+- **Source:** https://ffmpeg.org/download.html (release 9.0.2). Each library's version is pinned in the build script's
+  `version/` folder and downloaded from its project. On request we will also provide the exact sources for the binaries we ship.
+- **vid.stab 1.1.2** (libvidstab, camera shake detection and stabilisation): GPL-2.0-or-later,
+  https://github.com/georgmartius/vid.stab.
+- **Rubber Band 4.0.0** (librubberband, time-stretching and pitch-shifting): GPL-2.0-or-later,
+  https://breakfastquay.com/rubberband/.
+
+## aubio (manul-beats)
+
+GPL-3.0-or-later, https://aubio.org, https://github.com/aubio/aubio (master at a pinned commit, see
+`scripts/build-beats.sh`). Its sources are compiled with Manul's small CLI (`scripts/beats/manul-beats.c`, under the same
+licence) into the separate `manul-beats` program, which Manul runs to find tempo, beats and onsets in music.
 
 ## whisper.cpp v1.9.4 (whisper-cli)
 

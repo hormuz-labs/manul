@@ -26,6 +26,8 @@ jobs:
       - run: npm ci
       - name: Build bundled whisper.cpp
         run: ./scripts/build-whisper.sh
+      - name: Build the bundled beat tracker
+        run: ./scripts/build-beats.sh
       - run: npm run typecheck
       - run: npm test
       - name: End-to-end (macOS)
