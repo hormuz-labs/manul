@@ -34,6 +34,8 @@ a `<script>`; Manul adds the document, GSAP, its runtime, the Inter font and a f
   than entrances. Motion settles before the end so the last frame is clean and can hold.
 - Lengths: titles and cards 2–5 s, lower thirds 3–6 s, data and explainers as long as reading needs (about 3 words a
   second plus 1 s).
+- With music: start the clip (and its main entrance) on a beat, a title card on a downbeat, the end card on the
+  final hit — times from `analyze_music`'s beats file; motion inside the clip can hit beats too (a stagger per beat).
 - Lower thirds sit in the bottom third, left-aligned, out of the way of faces. End cards leave space for the platform's
   overlays.
 
