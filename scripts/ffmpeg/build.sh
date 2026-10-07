@@ -96,7 +96,7 @@ if [ "$(uname -s)" = Darwin ]; then
   done
   ln -sf "$(command -v glibtoolize)" "$WORK/hostbin/libtoolize"
   CARGO_BIN=$(dirname "$(command -v cargo)")
-  PY_USER_BIN=$(python3 -c 'import site; print(site.USER_BASE)')/bin
+  PY_USER_BIN=$(/usr/bin/python3 -c 'import site; print(site.USER_BASE)')/bin # the python3 this PATH finds
   export PATH="$WORK/hostbin:$CARGO_BIN:$PY_USER_BIN:/usr/bin:/bin:/usr/sbin:/sbin"
 fi
 
