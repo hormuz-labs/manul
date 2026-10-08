@@ -5,9 +5,12 @@ import type { Anchor, BrowserMode, BrowserState, ChromeBsk, ConsentRequest, Job,
 import type { CustomProvider, CustomProviderInfo } from '../shared/providers'
 import type { Speakers } from '../shared/speakers'
 import type { Cue } from '../shared/subtitles'
+import type { Edit } from '../shared/timeline'
 import type { SubtitleLink } from '../shared/types'
 
 export type SubtitlesState = { link?: SubtitleLink; cues: Cue[]; candidates: string[] }
+/** How many edits can be undone (back) and redone (forward). */
+export type UndoState = { back: number; forward: number }
 type ProvidersState = { providers: CustomProviderInfo[]; omp: boolean }
 
 type SkillState = { skills: { id: string; name: string; description: string; path: string }[]; enabled: string[]; profile: { id: string; name: string }; profiles: { id: string; name: string }[] }
@@ -56,9 +59,16 @@ const api = {
   },
   transcript: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('transcript:get', dir, mediaRel, make) as Promise<Transcript | null>,
   thumbnails: (dir: string, src: string, count: number, start?: number, end?: number) => ipcRenderer.invoke('media:thumbnails', dir, src, count, start, end) as Promise<string[]>,
+  /** The edit by hand: changes at once (no render) and can be undone; it renders on export or when saved as a version. */
   timeline: {
-    /** Put footage into the film at t (seconds, on the version shown): rendered and proposed as a new version. */
-    insertMedia: (dir: string, versionId: string, rel: string, at: number) => ipcRenderer.invoke('timeline:insertMedia', dir, versionId, rel, at) as Promise<string>,
+    edit: (dir: string, edits: Edit[]) => ipcRenderer.invoke('timeline:edit', dir, edits) as Promise<Project>,
+    undo: (dir: string, redo = false) => ipcRenderer.invoke('timeline:undo', dir, redo) as Promise<Project>,
+    undoState: (dir: string) => ipcRenderer.invoke('timeline:undoState', dir) as Promise<UndoState>,
+    onUndo: on<[string, UndoState]>('timeline-undo'),
+    /** Render the edit into a version and put it on screen; resolves to its id. */
+    render: (dir: string) => ipcRenderer.invoke('timeline:render', dir) as Promise<string>,
+    /** Put footage into the edit at t (seconds of the film). */
+    insertMedia: (dir: string, rel: string, at: number) => ipcRenderer.invoke('timeline:insertMedia', dir, rel, at) as Promise<Project>,
   },
   /** Who speaks when in a media file (make: work it out as a background job if not done yet). */
   speakers: {
@@ -77,6 +87,7 @@ const api = {
     reveal: (file: string) => ipcRenderer.invoke('export:reveal', file),
   },
   mix: {
+    /** Where speech is on a version's timeline ('edit': the edit by hand). */
     speech: (dir: string, versionId?: string) => ipcRenderer.invoke('mix:speech', dir, versionId) as Promise<[number, number][]>,
     apply: (dir: string, mix: { filmDb: number; music?: { src: string; db: number; duckDb: number } }) => ipcRenderer.invoke('mix:apply', dir, mix) as Promise<Project>,
   },

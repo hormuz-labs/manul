@@ -6,13 +6,13 @@
 //   fonts/         fonts the user added (copies, with Manul's Inter), the folder subtitles take fonts from
 import { app } from 'electron'
 import { execFile } from 'node:child_process'
-import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 import { FFMPEG, FONTS_DIR, probe } from './media'
 import * as Files from './files'
-import { fromMedia } from '../shared/timeline'
+import { sameCut, timelineOfFile } from '../shared/timeline'
 import type { MediaInfo, Note, Project, RecentProject, Version } from '../shared/types'
 
 const run = promisify(execFile)
@@ -35,11 +35,14 @@ function touchRecent(p: Project) {
 }
 
 /** A timeline that is just this media file, in its own size and frame rate (even sizes, sane rate). */
-export const timelineOf = (src: string, info: MediaInfo) => fromMedia(src, info.duration, {
-  width: Math.max(2, Math.round((info.width || 1920) / 2) * 2),
-  height: Math.max(2, Math.round((info.height || 1080) / 2) * 2),
-  fps: info.fps > 0 && info.fps <= 120 ? Math.round(info.fps * 100) / 100 : 30,
-})
+export const timelineOf = (src: string, info: MediaInfo) => timelineOfFile(src, info)
+
+/** The edit was changed by hand (or by the agent's edit_timeline) since the version on screen was rendered. */
+export function edited(p: Project) {
+  const v = p.versions.find(x => x.id === p.current)
+  if (!v || !p.timeline) return false
+  return !sameCut(p.timeline, v.timeline ?? timelineOf(v.path, p.media[v.path]))
+}
 
 /** Make a version the one on screen; the timeline restarts from it. */
 export function accept(p: Project, versionId: string) {
@@ -58,8 +61,12 @@ export async function load(dir: string): Promise<Project> {
   return p
 }
 
+let saves = 0
+/** Write project.json whole or not at all (edits by hand save often; a crash mid-write must not leave half a file). */
 export async function save(p: Project) {
-  await writeFile(join(p.dir, 'project.json'), JSON.stringify(p, null, 1))
+  const tmp = join(p.dir, `.project.json.${process.pid}.${++saves}.tmp`)
+  await writeFile(tmp, JSON.stringify(p, null, 1))
+  await rename(tmp, join(p.dir, 'project.json'))
 }
 
 /** A new project from a dropped or picked file: copy it in, probe it, grab a thumbnail. */

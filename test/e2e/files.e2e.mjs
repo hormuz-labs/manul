@@ -1,7 +1,7 @@
 // Files besides the film: the side panel's Files tab → Add brings in subtitles, a note and a folder; the list says what
 // each is; they ride on the next message as chips, and the sent message shows them. Dragged from the list, footage goes
-// into the film where it's dropped on the timeline (a proposal), music under it, subtitles with the video. Deleting
-// sends files to the Trash, never the ones the film uses. Run after npm run build. The agent gets a fake key, so
+// into the edit where it's dropped on the timeline (at once, no render), music under it, subtitles with the video.
+// Deleting sends files to the Trash, never the ones the film uses. Run after npm run build. The agent gets a fake key, so
 // the message fails at the model (no real call is ever paid for); what's checked is what the user sees.
 // MANUL_E2E_SHOTS=<folder> saves screenshots there.
 import { _electron as electron } from 'playwright-core'
@@ -86,15 +86,15 @@ try {
     const o = { dataTransfer: dt, bubbles: true, cancelable: true, clientX: r.left + r.width * x, clientY: r.top + r.height / 2 }
     el.dispatchEvent(new DragEvent('dragover', o)); el.dispatchEvent(new DragEvent('drop', o))
   }, [rel, kind, selector, x])
-  // footage at the middle of the timeline: a proposal with it inserted at 0:02
+  // footage at the middle of the timeline: in the edit at once (no render), playing from its pieces
   await drop('media/b.mp4', 'video', '[data-testid="timeline-scrubber"]')
-  await win.waitForSelector('text=Inserted b.mp4 at 0:02', { timeout: 60_000 })
+  await win.waitForSelector('[data-edited]')
   let now = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'))
-  const proposed = now.versions.find(v => v.id === now.proposal)
-  assert.deepEqual(proposed.timeline.items.map(i => [i.src, i.in, i.out]), [['media/film.mp4', 0, 2], ['media/b.mp4', 0, 2], ['media/film.mp4', 2, 4]])
-  assert.ok(Math.abs(now.media[proposed.path].duration - 6) < 0.1, `the proposal is 6 s (${now.media[proposed.path].duration})`)
+  assert.deepEqual(now.timeline.items.map(i => [i.src, i.in, i.out]), [['media/film.mp4', 0, 2], ['media/b.mp4', 0, 2], ['media/film.mp4', 2, 4]])
+  assert.equal(now.versions.length, 1, 'nothing rendered')
+  assert.equal(await win.locator('[data-testid="timeline-scrubber"] [data-piece]').count(), 3)
+  await win.waitForFunction(() => document.querySelectorAll('video[data-edit-player]').length === 2)
   if (shots) await win.screenshot({ path: join(shots, 'files-inserted.png') })
-  await win.click('button:has-text("Accept")')
   // music onto the video: it plays under the film (Mix shows a change to apply)
   await drop('media/song.mp3', 'audio', 'video')
   await win.locator('button:has-text("Mix") span.rounded-full').waitFor()

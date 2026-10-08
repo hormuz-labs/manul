@@ -2,7 +2,8 @@
 // motion clips (agent-made HTML, rendered frame-exact). Pure functions, shared by the main process and the UI;
 // a render turns a timeline into one MP4 (composeArgs).
 
-export type MediaItem = { id: string; kind: 'media'; src: string; in: number; out: number }
+/** A range of a file. db: its sound louder or quieter (0 = as it is); muted: silent. */
+export type MediaItem = { id: string; kind: 'media'; src: string; in: number; out: number; db?: number; muted?: boolean }
 export type ClipItem = { id: string; kind: 'clip'; clip: string; dur: number }
 export type Item = MediaItem | ClipItem
 export type Format = { width: number; height: number; fps: number }
@@ -19,6 +20,19 @@ export const duration = (tl: Timeline) => round(tl.items.reduce((s, i) => s + le
 
 /** A timeline that is just one file, start to end. */
 export const fromMedia = (src: string, dur: number, format: Format): Timeline => ({ ...format, items: [{ id: newId(), kind: 'media', src, in: 0, out: round(dur) }] })
+
+/** A timeline that is just this file, in its own size and frame rate (even sizes, sane rate). */
+export const timelineOfFile = (src: string, info: { duration: number; width: number; height: number; fps: number }) => fromMedia(src, info.duration, {
+  width: Math.max(2, Math.round((info.width || 1920) / 2) * 2),
+  height: Math.max(2, Math.round((info.height || 1080) / 2) * 2),
+  fps: info.fps > 0 && info.fps <= 120 ? Math.round(info.fps * 100) / 100 : 30,
+})
+
+/** Where each item starts on the timeline. */
+export function starts(tl: Timeline) {
+  let at = 0
+  return tl.items.map(i => { const s = at; at += length(i); return round(s) })
+}
 
 /** The item playing at time t (the last one past the end), with its start time on the timeline. */
 export function itemAt(tl: Timeline, t: number) {
@@ -59,6 +73,217 @@ export function insertAt(tl: Timeline, t: number, add: Omit<MediaItem, 'id'> | O
 
 export const removeItem = (tl: Timeline, id: string): Timeline => ({ ...tl, items: tl.items.filter(i => i.id !== id) })
 
+// ---------------------------------------------------------------- editing by hand (and by the agent's edit_timeline)
+// Every edit ripples: there are no gaps, so what follows a cut or a trim moves up. Overlays stay on the footage they
+// were laid over (see keepOverlays).
+
+export type Edit =
+  | { op: 'split'; at: number }
+  /** take out from–to; clips are only taken out when entirely inside */
+  | { op: 'cut'; from: number; to: number }
+  | { op: 'delete'; ids: string[] }
+  /** put an item before another (by id), or at the end */
+  | { op: 'move'; id: string; before?: string }
+  /** new source in/out for a media item; out is the length of a clip */
+  | { op: 'trim'; id: string; in?: number; out?: number }
+  | { op: 'level'; ids: string[]; db?: number; muted?: boolean }
+  | { op: 'insert'; at: number; src: string; in: number; out: number }
+  | { op: 'mix'; mix: NonNullable<Timeline['mix']> }
+
+const MIN_DB = -40, MAX_DB = 12
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+
+/** What plays at t: the item, where it starts, and the moment of its source (media: in + offset; clip: offset). */
+export function sourceAt(tl: Timeline, t: number) {
+  const { index, item, start } = itemAt(tl, t)
+  if (!item) return null
+  const off = clamp(t - start, 0, length(item))
+  return { index, item, start, at: round((item.kind === 'media' ? item.in : 0) + off) }
+}
+
+/** Where a moment of a file plays in the film (its first use), or null when the edit leaves it out. */
+export function timeOf(tl: Timeline, src: string, s: number): number | null {
+  let at = 0
+  for (const it of tl.items) {
+    if (it.kind === 'media' && it.src === src && s >= it.in - 1e-3 && s < it.out) return round(at + Math.max(0, s - it.in))
+    at += length(it)
+  }
+  return null
+}
+
+/** The next moment of a file the edit keeps at or after s (for a click on a word that was cut). */
+export function nextKept(tl: Timeline, src: string, s: number): number | null {
+  const exact = timeOf(tl, src, s)
+  if (exact != null) return exact
+  let best: { in: number; at: number } | null = null, at = 0
+  for (const it of tl.items) {
+    if (it.kind === 'media' && it.src === src && it.in >= s && (!best || it.in < best.in)) best = { in: it.in, at }
+    at += length(it)
+  }
+  return best ? round(best.at) : null
+}
+
+/** Where the moments from–to of a file play in the film (one range per piece that uses some of them). */
+export function rangesOf(tl: Timeline, src: string, from: number, to: number): [number, number][] {
+  const out: [number, number][] = []
+  let at = 0
+  for (const it of tl.items) {
+    if (it.kind === 'media' && it.src === src) {
+      const a = Math.max(from, it.in), b = Math.min(to, it.out)
+      if (b - a > 1e-3) out.push([round(at + a - it.in), round(at + b - it.in)])
+    }
+    at += length(it)
+  }
+  return out
+}
+
+/**
+ * Many edits given against the same film (the agent's edit_timeline): the ones at a time (cut, split, insert) go from
+ * the last to the first so each time still means what it meant, overlapping cuts joined; then the ones by id, in order.
+ */
+export function batch(tl: Timeline, edits: (Edit | { op: 'cut'; from: number; to: number; src: string })[]): Edit[] {
+  const cuts: [number, number][] = []
+  const timed: { t: number; e: Edit }[] = []
+  const byId: Edit[] = []
+  for (const e of edits) {
+    if (e.op === 'cut') {
+      if ('src' in e && e.src) cuts.push(...rangesOf(tl, e.src, Math.min(e.from, e.to), Math.max(e.from, e.to)))
+      else cuts.push([Math.min(e.from, e.to), Math.max(e.from, e.to)])
+    } else if (e.op === 'split' || e.op === 'insert') timed.push({ t: e.at, e })
+    else byId.push(e)
+  }
+  cuts.sort((a, b) => a[0] - b[0])
+  const joined: [number, number][] = []
+  for (const [a, b] of cuts) { const last = joined.at(-1); if (last && a <= last[1] + 1e-3) last[1] = Math.max(last[1], b); else joined.push([a, b]) }
+  for (const [a, b] of joined) timed.push({ t: a, e: { op: 'cut', from: a, to: b } })
+  return [...timed.sort((x, y) => y.t - x.t).map(x => x.e), ...byId]
+}
+
+/** The parts of a file the edit uses, in file order, joined where they touch. */
+export function keptOf(tl: Timeline, src: string): [number, number][] {
+  const parts = tl.items.flatMap(i => (i.kind === 'media' && i.src === src ? [[i.in, i.out] as [number, number]] : [])).sort((a, b) => a[0] - b[0])
+  const out: [number, number][] = []
+  for (const [a, b] of parts) {
+    const last = out.at(-1)
+    if (last && a <= last[1] + 1e-3) last[1] = Math.max(last[1], b)
+    else out.push([a, b])
+  }
+  return out
+}
+
+/** Take out from–to: split at both ends, drop what lies between. */
+export function cutRange(tl: Timeline, from: number, to: number): Timeline {
+  const a = Math.max(0, Math.min(from, to)), b = Math.min(duration(tl), Math.max(from, to))
+  if (b - a < 1e-3) return tl
+  const split = splitAt(splitAt(tl, b), a)
+  const at = starts(split)
+  return { ...split, items: split.items.filter((it, i) => !(at[i] >= a - 1e-3 && at[i] + length(it) <= b + 1e-3)) }
+}
+
+/**
+ * Overlays after an edit: each stays on the footage it was laid over. It starts where its first moment that is still
+ * in the film now plays, and lasts as long as the footage under it that was kept; one whose footage is all gone goes.
+ */
+export function keepOverlays(before: Timeline, after: Timeline): Overlay[] | undefined {
+  if (!before.overlays?.length) return after.overlays
+  const bs = starts(before), as = starts(after), total = duration(after)
+  const out: Overlay[] = []
+  for (const o of before.overlays) {
+    let first: { b: number; a: number } | null = null, kept = 0
+    before.items.forEach((bi, i) => {
+      const t0 = Math.max(o.start, bs[i]), t1 = Math.min(o.start + o.dur, bs[i] + length(bi))
+      if (t1 - t0 <= 1e-3) return
+      const s0 = (bi.kind === 'media' ? bi.in : 0) + (t0 - bs[i]), s1 = s0 + (t1 - t0)
+      after.items.forEach((ai, k) => {
+        const same = bi.kind === 'media' ? ai.kind === 'media' && ai.src === bi.src : ai.id === bi.id
+        if (!same) return
+        const lo = ai.kind === 'media' ? ai.in : 0, hi = ai.kind === 'media' ? ai.out : ai.dur
+        const x0 = Math.max(s0, lo), x1 = Math.min(s1, hi)
+        if (x1 - x0 <= 1e-3) return
+        kept += x1 - x0
+        const b = t0 + (x0 - s0)
+        if (!first || b < first.b) first = { b, a: as[k] + (x0 - lo) }
+      })
+    })
+    if (!first) continue
+    const start = round(Math.min((first as { a: number }).a, total))
+    const dur = round(Math.min(o.dur, kept, total - start))
+    if (dur > 1e-3) out.push({ ...o, start, dur })
+  }
+  return out
+}
+
+/**
+ * One edit. maxOf gives an item's longest possible length (its file's or clip's duration) for trims; an edit that
+ * would leave the film empty throws.
+ */
+export function applyEdit(tl: Timeline, e: Edit, maxOf: (it: Item) => number | undefined = () => undefined): Timeline {
+  const minLen = Math.max(1 / (tl.fps || 30), 0.04)
+  let after: Timeline
+  switch (e.op) {
+    case 'split': after = splitAt(tl, e.at); break
+    case 'cut': after = cutRange(tl, e.from, e.to); break
+    case 'delete': after = { ...tl, items: tl.items.filter(i => !e.ids.includes(i.id)) }; break
+    case 'move': {
+      const it = tl.items.find(i => i.id === e.id)
+      if (!it || e.before === e.id) return tl
+      const items = tl.items.filter(i => i.id !== e.id)
+      const k = e.before ? items.findIndex(i => i.id === e.before) : -1
+      items.splice(k < 0 ? items.length : k, 0, it)
+      after = { ...tl, items }
+      break
+    }
+    case 'trim': after = {
+      ...tl, items: tl.items.map(it => {
+        if (it.id !== e.id) return it
+        const max = maxOf(it) ?? Infinity
+        if (it.kind === 'clip') return { ...it, dur: round(clamp(e.out ?? it.dur, minLen, max)) }
+        const a = round(clamp(e.in ?? it.in, 0, (e.out ?? it.out) - minLen))
+        return { ...it, in: a, out: round(clamp(e.out ?? it.out, a + minLen, max)) }
+      }),
+    }; break
+    case 'level': after = {
+      ...tl, items: tl.items.map(it => {
+        if (it.kind !== 'media' || !e.ids.includes(it.id)) return it
+        const next: MediaItem = { ...it }
+        if (e.db != null) { const db = Math.round(clamp(e.db, MIN_DB, MAX_DB) * 10) / 10; if (db) next.db = db; else delete next.db }
+        if (e.muted != null) { if (e.muted) next.muted = true; else delete next.muted }
+        return next
+      }),
+    }; break
+    case 'insert': after = insertAt(tl, e.at, { kind: 'media', src: e.src, in: round(e.in), out: round(e.out) }).timeline; break
+    case 'mix': return { ...tl, mix: e.mix }
+  }
+  if (!after.items.length) throw new Error('The film needs at least one piece: that would take out all of it.')
+  return { ...after, overlays: keepOverlays(tl, after) }
+}
+
+const clock = (t: number) => { const s = Math.round(t); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` }
+/** A few words for the history and the version's title. */
+export function describeEdit(e: Edit): string {
+  switch (e.op) {
+    case 'split': return `Split at ${clock(e.at)}`
+    case 'cut': return `Cut ${clock(Math.min(e.from, e.to))}–${clock(Math.max(e.from, e.to))}`
+    case 'delete': return e.ids.length === 1 ? 'Deleted a piece' : `Deleted ${e.ids.length} pieces`
+    case 'move': return 'Moved a piece'
+    case 'trim': return 'Trimmed a piece'
+    case 'level': return e.muted ? 'Muted a piece' : e.db != null ? `Volume ${e.db > 0 ? '+' : ''}${Math.round(e.db)} dB` : 'Unmuted a piece'
+    case 'insert': return `Inserted ${e.src.split('/').pop()} at ${clock(e.at)}`
+    case 'mix': return 'Mix'
+  }
+}
+
+/** Whether two timelines make the same film (ids aside): what it is made of, the overlays, the mix. */
+export function sameCut(a?: Timeline, b?: Timeline) {
+  const key = (tl?: Timeline) => tl && JSON.stringify([
+    tl.width, tl.height, tl.fps,
+    tl.items.map(i => (i.kind === 'media' ? ['m', i.src, round(i.in), round(i.out), i.db || 0, !!i.muted] : ['c', i.clip, round(i.dur)])),
+    (tl.overlays || []).map(o => [o.clip, round(o.start), round(o.dur)]),
+    tl.mix && (tl.mix.filmDb || tl.mix.music) ? tl.mix : null,
+  ])
+  return key(a) === key(b)
+}
+
 /** Lay a clip over the film from start for dur seconds (kept inside the film). */
 export function addOverlay(tl: Timeline, o: Omit<Overlay, 'id'>): Timeline {
   const total = duration(tl)
@@ -86,8 +311,11 @@ export function composeArgs(tl: Timeline, o: { inputOf(i: Item): string; hasAudi
     const len = round(length(it))
     const [a, b] = it.kind === 'media' ? [it.in, it.out] : [0, it.dur]
     parts.push(`[${k}:v]trim=start=${round(a)}:end=${round(b)},setpts=PTS-STARTPTS,${norm}[v${n}]`)
+    const level = it.kind === 'media' && it.muted ? ',volume=0' : it.kind === 'media' && it.db ? `,volume=${it.db}dB` : ''
+    // 10 ms fades where pieces meet, so a cut never clicks
+    const fades = tl.items.length > 1 ? `,afade=t=in:d=0.01,afade=t=out:st=${round(Math.max(0, len - 0.01))}:d=0.01` : ''
     parts.push(o.hasAudio(it)
-      ? `[${k}:a]atrim=start=${round(a)}:end=${round(b)},asetpts=PTS-STARTPTS,${aNorm}[a${n}]`
+      ? `[${k}:a]atrim=start=${round(a)}:end=${round(b)},asetpts=PTS-STARTPTS,${aNorm}${fades}${level}[a${n}]`
       : `anullsrc=r=48000:cl=stereo,atrim=0:${len},${aNorm}[a${n}]`)
   })
   parts.push(`${tl.items.map((_, n) => `[v${n}][a${n}]`).join('')}concat=n=${tl.items.length}:v=1:a=1[v][a]`)

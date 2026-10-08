@@ -12,10 +12,14 @@ import type { Project, Transcript } from '../../../shared/types'
 
 const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '').slice(0, 300)
 
-type Props = { project: Project; media: string; time: number; onSeek(t: number): void; onRange(r: { t0: number; t1: number }): void }
+type Props = {
+  project: Project; media: string; time: number; onSeek(t: number): void; onRange(r: { t0: number; t1: number }): void
+  /** while the edit plays from its pieces: the parts of this file it keeps (the other words are struck through) */
+  kept?: [number, number][]
+}
 
 /** The side panel's Transcript tab. */
-export function TranscriptPanel({ project, media, time, onSeek, onRange }: Props) {
+export function TranscriptPanel({ project, media, time, onSeek, onRange, kept }: Props) {
   const [t, setT] = useState<Transcript | null>(null)
   const [state, setState] = useState<'loading' | 'none' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -55,7 +59,13 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange }: Props
   const turnStarts = useMemo(() => { let last: string | undefined; return who.map(w => { const start = !!w && w !== last; if (w) last = w; return start }) }, [who])
 
   const words = useMemo(() => (t ? flatWords(t) : []), [t])
-  const current = wordIndexAt(words, time)
+  const current = time < 0 ? -1 : wordIndexAt(words, time)
+  const cut = useMemo(() => {
+    if (!kept) return null
+    const out = new Set<number>()
+    for (const w of words) { const m = (w.s + w.e) / 2; if (!kept.some(([a, b]) => m >= a && m < b)) out.add(w.i) }
+    return out
+  }, [words, kept])
   const q = query.trim().toLowerCase()
 
   // keep the spoken word in view while playing
@@ -125,7 +135,10 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange }: Props
                         w.i >= lo && w.i <= hi && 'bg-amber/30 text-fg',
                         isFiller(w) && w.i !== current && 'text-amber/80 underline decoration-amber/40 decoration-dotted underline-offset-4',
                         q && w.w.toLowerCase().includes(q) && 'outline outline-1 outline-note',
+                        cut?.has(w.i) && 'text-faint line-through decoration-faint/70',
                       )}
+                      title={cut?.has(w.i) ? 'Cut from the edit' : undefined}
+                      data-cut={cut?.has(w.i) || undefined}
                     >{w.w}{' '}</span>
                   ))}
                 </p>

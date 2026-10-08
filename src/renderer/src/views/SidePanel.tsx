@@ -18,12 +18,14 @@ const TABS: { id: SideTab; label: string; Icon: typeof AudioLines }[] = [
 
 type Props = {
   project: Project; media: string; time: number
+  /** while the edit plays from its pieces: the parts of the media it keeps */
+  kept?: [number, number][]
   open: boolean; tab: SideTab; onTab(t: SideTab): void; onOpen(open: boolean): void
   onSeek(t: number): void; onRange(r: { t0: number; t1: number }): void
   attached: string[]; onAttach(rels: string[]): void; onAdd(): void; onRemoved(rels: string[]): void
 }
 
-export function SidePanel({ project, media, time, open, tab, onTab, onOpen, onSeek, onRange, attached, onAttach, onAdd, onRemoved }: Props) {
+export function SidePanel({ project, media, time, kept, open, tab, onTab, onOpen, onSeek, onRange, attached, onAttach, onAdd, onRemoved }: Props) {
   const [query, setQuery] = useState('')
   const count = { files: Object.keys(project.files || {}).length, subtitles: Object.values(project.files || {}).filter(f => f.kind === 'subtitles').length }
   if (!open) {
@@ -54,7 +56,7 @@ export function SidePanel({ project, media, time, open, tab, onTab, onOpen, onSe
         <Button size="iconSm" variant="ghost" onClick={() => onOpen(false)} title="Collapse the side panel (T)" aria-label="Collapse the side panel"><PanelLeftClose /></Button>
       </div>
 
-      {tab === 'transcript' && <TranscriptPanel project={project} media={media} time={time} onSeek={onSeek} onRange={onRange} />}
+      {tab === 'transcript' && <TranscriptPanel project={project} media={media} time={time} onSeek={onSeek} onRange={onRange} kept={kept} />}
 
       {tab === 'subtitles' && (count.subtitles ? (
         <>

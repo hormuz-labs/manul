@@ -9,7 +9,7 @@
 <p align="center">
   Drop in your footage, say what you want, and point at the frame when something's off.<br>
   Manul makes the cut on your own computer and shows you a before / after of every change.<br>
-  You never touch a timeline.
+  You never have to touch a timeline, though you can.
 </p>
 
 <p align="center">
@@ -110,6 +110,10 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 <tr>
 <td width="56" align="center"><img src="docs/icons/scissors.svg" width="36" alt=""></td>
 <td><b>Word-accurate cuts</b><br>Every spoken word is transcribed with its timing, so "cut the ums" or "drop the second take" lands on the exact word</td>
+</tr>
+<tr>
+<td width="56" align="center"><img src="docs/icons/square-split-horizontal.svg" width="36" alt=""></td>
+<td><b>Your hands on the timeline too</b><br>Split, cut a range, trim, reorder and set a piece's volume yourself when that's quicker than asking. Your edit plays at once, straight from the footage, and Manul works from it</td>
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/type.svg" width="36" alt=""></td>

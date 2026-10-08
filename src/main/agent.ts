@@ -34,7 +34,7 @@ import { fileLine } from './files'
 import { ATTACHED } from '../shared/attached'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { duration as timelineDuration } from '../shared/timeline'
+import { batch, duration as timelineDuration, sameCut, starts, timelineOfFile, type Edit, type Timeline } from '../shared/timeline'
 import type { ClipInfo, Project, Transcript } from '../shared/types'
 
 type Any = Record<string, any>
@@ -58,6 +58,9 @@ export type Bridge = {
   bakeClip(dir: string, id: string): Promise<ClipInfo & { frames: number }>
   insertClip(dir: string, id: string, at: number, title: string): Promise<string>
   rerenderTimeline(dir: string, title: string): Promise<string>
+  /** Change the edit at once (no render); the user can undo it. */
+  editTimeline(dir: string, edits: Edit[]): Promise<Project>
+  /** A sentence on what happened (a new version, or the mix kept with an edit not rendered yet). */
   setMix(dir: string, mix: { filmDb: number; music?: { src: string; db: number; duckDb: number } }): Promise<string>
   /** Copy a file, folder or .zip (e.g. a download) into media/ and add it to the project; a line per new file. */
   importFiles(dir: string, absPath: string): Promise<string[]>
@@ -80,6 +83,24 @@ async function clipResult(p: Project, c: ClipInfo & { frames: number }) {
 }
 
 const Option = Type.Object({ label: Type.String(), description: Type.Optional(Type.String()) })
+
+/** The edit's pieces, one line each: id, where it sits in the film, what it is. */
+export function piecesOf(tl: Timeline) {
+  const at = starts(tl)
+  const r = (n: number) => Math.round(n * 100) / 100
+  return tl.items.map((i, k) => {
+    const where = `${r(at[k])}–${r(at[k] + (i.kind === 'media' ? i.out - i.in : i.dur))} s`
+    if (i.kind === 'clip') return `${i.id} ${where}: clip ${i.clip}`
+    const level = i.muted ? ' (muted)' : i.db ? ` (${i.db > 0 ? '+' : ''}${i.db} dB)` : ''
+    return `${i.id} ${where}: ${i.src} ${r(i.in)}–${r(i.out)}${level}`
+  })
+}
+
+/** The edit was changed (by hand or with edit_timeline) since the version on screen was rendered. */
+export function editedOf(p: Project) {
+  const v = p.versions.find(x => x.id === p.current)
+  return !!v && !!p.timeline && !!p.media[v.path] && !sameCut(p.timeline, v.timeline ?? timelineOfFile(v.path, p.media[v.path]))
+}
 
 /** Text plus a JPEG the model can see. */
 async function imageResult(caption: string, path: string) {
@@ -136,6 +157,11 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenc
       `- Get it right in one render: plan every cut from the transcript first. Check a render at most once (e.g. the transcript of the output) ` +
       `and only when unsure; never re-render just to polish. The user will ask if they want more.\n` +
       `- When a cut is ready, call propose_version: the user sees it as a before/after and accepts or rejects it. One proposal per request.\n` +
+      `- The film is also an edit: pieces of files in order (project_state → timeline.pieces). The user can split, cut, trim, move and ` +
+      `set the volume of pieces by hand; so can you, with edit_timeline: it changes the edit at once, without rendering, and the user ` +
+      `can undo it. Prefer it to ffmpeg for plain cuts, trims, reordering and volume (cut ums or pauses with word times and src). ` +
+      `When timeline.edited is set, the current version's file doesn't have those changes yet: work on the edit (edit_timeline, ` +
+      `insert_clip, overlay_clip), or call rerender_timeline first before using ffmpeg on the film.\n` +
       `- Notes arrive as "[note <id> @ start–end, box x,y,w,h]" plus a still of the frame with the box drawn on it. The box is in 0–1 fractions of the picture ` +
       `(x,y = top-left). Act on exactly that moment and region; when done, call resolve_note with a one-line reply. ` +
       `A note on "clip <id> element <name>" is about that element (data-manul-id) of clips/<id>/clip.html: edit only it (read + edit tools), ` +
@@ -166,7 +192,8 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenc
             current: cur && { ...cur, ...p.media[cur.path] },
             proposal: p.proposal,
             timeline: p.timeline && { size: `${p.timeline.width}x${p.timeline.height}`, fps: p.timeline.fps, duration: timelineDuration(p.timeline),
-              items: p.timeline.items.map(i => (i.kind === 'media' ? `media ${i.src} ${i.in}–${i.out}` : `clip ${i.clip} ${i.dur}s`)),
+              ...(editedOf(p) ? { edited: 'changed since the current version was rendered (by the user by hand, or edit_timeline): the version\'s file does not have these changes yet' } : {}),
+              pieces: piecesOf(p.timeline),
               overlays: (p.timeline.overlays || []).map(o => `overlay ${o.clip} at ${o.start}s for ${o.dur}s`) },
             clips: Object.values(p.clips || {}).map(c => ({ id: c.id, title: c.title, duration: c.duration })),
             versions: p.versions.map(v => ({ id: v.id, title: v.title, path: v.path, by: v.by })),
@@ -387,8 +414,52 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenc
         execute: async (args: Any, api: Any) => text(`Proposed as version ${await bridge.overlayClip(proj(api).dir, args.id, args.at, args.duration, args.title)}.`),
       }),
       defineTool({
+        name: 'edit_timeline',
+        description: 'Change the edit at once, without rendering: the user sees and plays it straight away and can undo it (⌘Z). ' +
+          'Pieces are timeline.pieces in project_state (id, where it sits in the film, which part of which file). Times are seconds of the film ' +
+          'as it is before this call, so give all of a request\'s edits in one call. ' +
+          'cut {from, to} takes that span out and closes the gap; with src, from/to are times in that file (e.g. word times from its transcript) and every part of the film showing them goes. ' +
+          'split {at} cuts a piece in two. delete {ids}. move {id, before} puts a piece before another (no before: at the end). ' +
+          'trim {id, in, out}: the part of its file a piece shows (a clip: out = its length). level {ids, db, muted}: louder or quieter (-40…+12 dB), or silent. ' +
+          'insert {at, src, in, out}: a file (or part of it) put into the film at that time. The edit renders when the user exports it or saves it as a version.',
+        parameters: Type.Object({
+          edits: Type.Array(Type.Object({
+            op: Type.Union(['cut', 'split', 'delete', 'move', 'trim', 'level', 'insert'].map(o => Type.Literal(o))),
+            from: Type.Optional(Type.Number()), to: Type.Optional(Type.Number()), at: Type.Optional(Type.Number()),
+            src: Type.Optional(Type.String({ description: 'cut: a file whose times from/to are; insert: the file to put in' })),
+            id: Type.Optional(Type.String()), ids: Type.Optional(Type.Array(Type.String())), before: Type.Optional(Type.String()),
+            in: Type.Optional(Type.Number()), out: Type.Optional(Type.Number()),
+            db: Type.Optional(Type.Number()), muted: Type.Optional(Type.Boolean()),
+          })),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const need = (e: Any, ...keys: string[]) => { for (const k of keys) if (e[k] == null) throw new Error(`${e.op} needs ${keys.join(', ')}.`) }
+          const edits = (args.edits as Any[]).map((e): Parameters<typeof batch>[1][number] => {
+            switch (e.op) {
+              case 'cut': need(e, 'from', 'to'); return { op: 'cut', from: e.from, to: e.to, ...(e.src ? { src: e.src } : {}) }
+              case 'split': need(e, 'at'); return { op: 'split', at: e.at }
+              case 'delete': return { op: 'delete', ids: e.ids || (e.id ? [e.id] : []) }
+              case 'move': need(e, 'id'); return { op: 'move', id: e.id, before: e.before }
+              case 'trim': need(e, 'id'); return { op: 'trim', id: e.id, in: e.in, out: e.out }
+              case 'level': return { op: 'level', ids: e.ids || (e.id ? [e.id] : []), db: e.db, muted: e.muted }
+              case 'insert': {
+                need(e, 'at', 'src')
+                const info = p.media[e.src]
+                if (!info) throw new Error(`${e.src} is not in the project.`)
+                return { op: 'insert', at: e.at, src: e.src, in: e.in ?? 0, out: e.out ?? info.duration }
+              }
+              default: throw new Error(`Unknown op ${e.op}.`)
+            }
+          })
+          const after = await bridge.editTimeline(p.dir, batch(p.timeline!, edits))
+          const tl = after.timeline!
+          return text(`The edit is now ${timelineDuration(tl).toFixed(2)} s (not rendered; the user can undo):\n${piecesOf(tl).join('\n')}`)
+        },
+      }),
+      defineTool({
         name: 'rerender_timeline',
-        description: 'Render the current timeline again (after a clip in it changed) and propose it.',
+        description: 'Render the current timeline (the edit) and propose it: after a clip in it changed, or to turn an edit not rendered yet (timeline.edited) into a version.',
         parameters: Type.Object({ title: Type.String() }),
         execute: async (args: Any, api: Any) => text(`Proposed as version ${await bridge.rerenderTimeline(proj(api).dir, args.title)}.`),
       }),
@@ -407,7 +478,7 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenc
           const p = proj(api)
           const mix = { filmDb: args.film_db, ...(args.music ? { music: { src: args.music.src, db: args.music.db, duckDb: args.music.duck_db } } : {}) }
           if (mix.music && !p.media[mix.music.src]) throw new Error(`${mix.music.src} is not in the project; the user can add music with Add media.`)
-          return text(`Mixed as version ${await bridge.setMix(p.dir, mix)}.`)
+          return text(await bridge.setMix(p.dir, mix))
         },
       }),
       defineTool({

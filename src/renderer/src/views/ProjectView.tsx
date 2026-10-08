@@ -1,5 +1,5 @@
 // The Screen view: the film, the scrubber with notes, and the agent beside it.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Globe, Loader2, Upload, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, SquareDashed, X } from 'lucide-react'
 import { JobsTray } from '@/components/JobsTray'
 import { HistoryButton } from '@/components/HistoryButton'
@@ -8,21 +8,24 @@ import { Button } from '@/components/ui/button'
 import { Tip } from '@/components/ui/tooltip'
 import { Kbd } from '@/components/ui/kbd'
 import { useAgent } from '@/lib/agui'
-import { cn, mediaUrl, timecode } from '@/lib/utils'
+import { cn, mediaUrl, timecode, typing } from '@/lib/utils'
 import { AgentPanel } from './AgentPanel'
 import { BrowserPanel } from './BrowserPanel'
 import { SidePanel, type SideTab } from './SidePanel'
-import { TimelineStrip } from './TimelineStrip'
+import { EditStatus, EditTools } from './EditTools'
 import { ClipEditor } from './ClipEditor'
 import { ExportDialog } from './ExportDialog'
 import { MixPanel } from './MixPanel'
 import { DRAG_FILE, dragKind } from './FilesPanel'
-import { useLiveMix } from '@/lib/liveMix'
-import type { Mix } from '../../../shared/mix'
+import { useLiveMix, type MixSource } from '@/lib/liveMix'
+import { dbToGain, type Mix } from '../../../shared/mix'
 import { needsProxy } from '../../../shared/proxy'
+import { keptOf, length, nextKept, rangesOf, sameCut, sourceAt, starts, timelineOfFile, type Edit, type Item } from '../../../shared/timeline'
 import { Scrubber } from './Scrubber'
-import { Stage, type StageHandle } from './Stage'
+import { Stage, type LiveEdit, type StageHandle } from './Stage'
 import type { Anchor, Box, Project } from '../../../shared/types'
+
+const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, onTools, ready, active = true, tabbed = false }: { initial: Project; firstPrompt?: string; firstFiles?: string[]; onHome(): void; onKeys(): void; onTools(): void; ready: boolean; active?: boolean; tabbed?: boolean }) {
   const [p, setP] = useState(initial)
@@ -41,7 +44,13 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
   const [over, setOver] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
+  const [source, setSource] = useState<MixSource | null>(null)
+  // editing by hand: the selected piece, what can be undone, a version being saved
+  const [selected, setSelected] = useState<string | null>(null)
+  const [undo, setUndo] = useState({ back: 0, forward: 0 })
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { window.manul.timeline.undoState(p.dir).then(setUndo).catch(() => {}) }, [p.dir, p.current])
+  useEffect(() => window.manul.timeline.onUndo((dir, u) => { if (dir === p.dir) setUndo(u) }), [p.dir])
   const [regions, setRegions] = useState<[number, number][]>([])
   const [editing, setEditing] = useState<{ itemId: string; clip: string; start: number } | null>(null)
   // the side panel (Transcript · Subtitles · Files): open or a rail, and which tab
@@ -85,11 +94,12 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
       const v = stage.current?.video
       if (e.key === ' ') { e.preventDefault(); if (v) v.paused ? v.play() : v.pause() }
       else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); noteHere() }
-      else if (e.key === 'b' || e.key === 'B') { e.preventDefault(); v?.pause(); setDrawing(d => !d) }
+      else if ((e.key === 'b' || e.key === 'B') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); v?.pause(); setDrawing(d => !d) }
+      else if ((e.key === 'Backspace' || e.key === 'Delete') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); deleteSelection() }
       else if (e.key === 't' || e.key === 'T') { e.preventDefault(); setShowTranscript(x => !x) }
       else if (e.key === 'ArrowLeft' && v) seek(Math.max(0, v.currentTime - (e.shiftKey ? 5 : 1)))
       else if (e.key === 'ArrowRight' && v) seek(Math.min(duration, v.currentTime + (e.shiftKey ? 5 : 1)))
-      else if (e.key === 'Escape') { setAnchor(undefined); setDrawing(false); setEditing(null) }
+      else if (e.key === 'Escape') { setAnchor(undefined); setDrawing(false); setEditing(null); setSelected(null) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -126,23 +136,93 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
   const current = p.versions.find(v => v.id === p.current)!
   const proposal = p.proposal ? p.versions.find(v => v.id === p.proposal) : undefined
   const onScreen = proposal && compare === 'after' ? proposal : current
-  // the live mix starts from the mix the version on screen was rendered with; the player plays its dry film
-  const applied: Mix = onScreen.timeline?.mix || { filmDb: 0 }
+  // The edit (p.timeline) changed by hand since the version on screen was rendered: it plays from its pieces.
+  const tl = p.timeline!
+  const edited = useMemo(() => !sameCut(tl, current.timeline ?? (p.media[current.path] ? timelineOfFile(current.path, p.media[current.path]) : tl)), [tl, current, p.media])
+  const live = edited && onScreen === current
+  const editable = !proposal
+  // what the timeline shows: the edit, or the proposal's pieces while it is on screen
+  const track = onScreen === current ? tl : onScreen.timeline ?? timelineOfFile(onScreen.path, p.media[onScreen.path])
+  const liveEdit = useMemo<LiveEdit | null>(() => !live ? null : {
+    pieces: tl.items.map(it => it.kind === 'media'
+      ? { id: it.id, url: mediaUrl(`${p.dir}/${p.proxies?.[it.src] || it.src}`), in: it.in, out: it.out, gain: it.muted ? 0 : dbToGain(it.db || 0) }
+      : { id: it.id, url: `${mediaUrl(`${p.dir}/${p.clips?.[it.clip]?.video}`)}?v=${p.clips?.[it.clip]?.updatedAt}`, in: 0, out: it.dur, gain: 0 }),
+    fps: tl.fps, width: tl.width, height: tl.height,
+    overlays: (tl.overlays || []).filter(o => p.clips?.[o.clip]).map(o => ({ id: o.id, url: `${mediaUrl(`${p.dir}/clips/${o.clip}/clip.html`)}?v=${p.clips![o.clip].updatedAt}`, start: o.start, dur: o.dur })),
+  }, [live, tl, p.dir, p.proxies, p.clips])
+  // The transcript and subtitles of a film made of pieces (the edit, or a version rendered from one): those of the file
+  // most of it comes from, at the moment of it on screen. A click on a word goes to where the film shows it; words cut
+  // out are struck through. (A render is never transcribed again: its words are its pieces'.)
+  const view = live ? tl : onScreen.timeline
+  const mapped = !!view && !(view.items.length === 1 && view.items[0].kind === 'media' && view.items[0].src === onScreen.path)
+  const mainSrc = useMemo(() => {
+    const by = new Map<string, number>()
+    for (const it of view?.items || []) if (it.kind === 'media') by.set(it.src, (by.get(it.src) || 0) + length(it))
+    return [...by].sort((a, b) => b[1] - a[1])[0]?.[0] ?? onScreen.path
+  }, [view, onScreen.path])
+  const sideMedia = mapped ? mainSrc : onScreen.path
+  const under = mapped ? sourceAt(view!, time) : null
+  const sideTime = !mapped ? time : under?.item.kind === 'media' && under.item.src === mainSrc ? under.at : -1
+  const kept = useMemo(() => (mapped ? keptOf(view!, mainSrc) : undefined), [mapped, view, mainSrc])
+  const sideSeek = (s: number) => { if (!mapped) return seek(s); const t = nextKept(view!, mainSrc, s); if (t != null) seek(t) }
+  const sideRange = (r: { t0: number; t1: number }) => {
+    if (!mapped) return r
+    const parts = rangesOf(view!, mainSrc, r.t0, r.t1)
+    return parts.length ? { t0: Math.min(...parts.map(x => x[0])), t1: Math.max(...parts.map(x => x[1])) } : null
+  }
+  // the live mix starts from the mix the version on screen was rendered with (or the edit's); the player plays its dry film
+  const applied: Mix = (live ? tl.mix : onScreen.timeline?.mix) || { filmDb: 0 }
   const [mix, setMix] = useState<Mix>(applied)
-  useEffect(() => { setMix(applied) }, [onScreen.id]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { window.manul.mix.speech(p.dir, onScreen.id).then(setRegions).catch(() => setRegions([])) }, [p.dir, onScreen.id, p.transcripts])
-  useLiveMix(videoEl, p.dir, mix, regions)
+  useEffect(() => { setMix(applied) }, [onScreen.id, live]) // eslint-disable-line react-hooks/exhaustive-deps
+  const speechKey = live ? JSON.stringify(tl.items) : onScreen.id
+  useEffect(() => { window.manul.mix.speech(p.dir, live ? 'edit' : onScreen.id).then(setRegions).catch(() => setRegions([])) }, [p.dir, speechKey, p.transcripts]) // eslint-disable-line react-hooks/exhaustive-deps
+  useLiveMix(source, p.dir, mix, regions)
+
+  // ---- editing by hand
+  const selectedItem = track.items.find(i => i.id === selected)
+  useEffect(() => { if (selected && !track.items.some(i => i.id === selected) && !track.overlays?.some(o => o.id === selected)) setSelected(null) }, [track, selected])
+  const maxOf = (it: Item) => (it.kind === 'media' ? p.media[it.src]?.duration : p.clips?.[it.clip]?.duration)
+  /** Change the edit, then put the playhead at `then` (where a cut closed, a piece now starts…). */
+  const doEdit = async (edits: Edit[], then?: number) => {
+    try {
+      const np = await window.manul.timeline.edit(p.dir, edits)
+      setP(np)
+      if (then != null) seek(then)
+    } catch (e) { alert(clean(e)) }
+  }
+  const range = anchor?.t1 != null ? { t0: anchor.t0, t1: anchor.t1 } : null
+  const deletes = !editable ? null : range ? 'range' as const : selectedItem && track.items.length > 1 ? 'piece' as const : null
+  const deleteSelection = () => {
+    if (deletes === 'range') { setAnchor(undefined); doEdit([{ op: 'cut', from: range!.t0, to: range!.t1 }], range!.t0) }
+    else if (deletes === 'piece') { const k = track.items.indexOf(selectedItem!); setSelected(null); doEdit([{ op: 'delete', ids: [selectedItem!.id] }], starts(track)[k]) }
+  }
+  const split = () => { if (editable) doEdit([{ op: 'split', at: time }]) }
+  const undoEdit = async (redo: boolean) => { try { setP(await window.manul.timeline.undo(p.dir, redo)) } catch (e) { alert(clean(e)) } }
+  const saveVersion = async () => {
+    setSaving(true)
+    try { await window.manul.timeline.render(p.dir) } catch (e) { alert(clean(e)) } finally { setSaving(false) }
+  }
+  // the menu and palette run these (Edit → Undo, Split at Playhead…) with what is on screen now
+  const act = useRef({ split, deleteSelection, undoEdit, saveVersion, edited })
+  act.current = { split, deleteSelection, undoEdit, saveVersion, edited }
+  useCommands(!active ? [] : [
+    { id: 'timeline.split', title: 'Split at the playhead', keywords: 'cut blade razor timeline', shortcut: `${mod}B`, run: () => { if (!typing()) act.current.split() } },
+    { id: 'timeline.delete', title: 'Delete the selection', keywords: 'cut remove range piece timeline', shortcut: '⌫', run: () => act.current.deleteSelection() },
+    { id: 'timeline.undo', title: 'Undo an edit', keywords: 'timeline back', shortcut: `${mod}Z`, run: () => act.current.undoEdit(false) },
+    { id: 'timeline.redo', title: 'Redo an edit', keywords: 'timeline', shortcut: `⇧${mod}Z`, run: () => act.current.undoEdit(true) },
+    { id: 'timeline.render', title: 'Save the edit as a version', keywords: 'render timeline', run: () => { if (act.current.edited) act.current.saveVersion() } },
+  ], [p.dir, active])
   const playable = onScreen.dry || onScreen.path
   const decide = async (accept: boolean) => setP(await window.manul.project.decide(p.dir, accept))
-  /** A file dragged from the Files tab: footage goes into the film at t (as a proposal), music under it (heard live,
+  /** A file dragged from the Files tab: footage goes into the edit at t (at once), music under it (heard live,
    *  Apply in Mix keeps it), subtitles with the video on screen. */
   const dropFile = async (rel: string, t?: number) => {
     const kind = p.files?.[rel]?.kind
     try {
-      if (kind === 'video' && t != null) await window.manul.timeline.insertMedia(p.dir, onScreen.id, rel, t)
+      if (kind === 'video' && t != null) setP(await window.manul.timeline.insertMedia(p.dir, rel, t))
       else if (kind === 'audio') setMix(m => ({ ...m, music: { src: rel, db: m.music?.db ?? -14, duckDb: m.music?.duckDb ?? 10 } }))
-      else if (kind === 'subtitles') { await window.manul.subtitles.link(p.dir, onScreen.path, rel); showSide('subtitles') }
-    } catch (err) { alert((err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')) }
+      else if (kind === 'subtitles') { await window.manul.subtitles.link(p.dir, sideMedia, rel); showSide('subtitles') }
+    } catch (err) { alert(clean(err)) }
   }
 
   return (
@@ -163,7 +243,10 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
         <select
           className="no-drag h-7 rounded-md border border-line bg-raised px-1.5 text-xs text-dim outline-none"
           value={p.current}
-          onChange={async e => setP(await window.manul.project.setCurrent(p.dir, e.target.value))}
+          onChange={async e => {
+            if (edited && !confirm('Your edit isn\'t saved as a version. Switch anyway? (History keeps it.)')) return
+            setP(await window.manul.project.setCurrent(p.dir, e.target.value))
+          }}
           title="Versions"
         >
           {p.versions.filter(v => v.id !== p.proposal).map((v, i) => <option key={v.id} value={v.id}>v{i + 1} · {v.title}</option>)}
@@ -181,14 +264,15 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
       <div className="flex min-h-0 flex-1">
         <SidePanel
           project={p}
-          media={onScreen.path}
-          time={time}
+          media={sideMedia}
+          time={sideTime}
+          kept={kept}
           open={showTranscript}
           onOpen={setShowTranscript}
           tab={side}
           onTab={setSide}
-          onSeek={seek}
-          onRange={r => { stage.current?.video?.pause(); setAnchor({ ...r, box: anchor?.box }); input.current?.focus() }}
+          onSeek={sideSeek}
+          onRange={r => { const fr = sideRange(r); if (!fr) return; stage.current?.video?.pause(); setAnchor({ ...fr, box: anchor?.box }); input.current?.focus() }}
           attached={attached}
           onAttach={attach}
           onAdd={pickFiles}
@@ -246,7 +330,8 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
             <Stage
               ref={stage}
               src={mediaUrl(`${p.dir}/${p.proxies?.[playable] || playable}`)}
-              onVideo={setVideoEl}
+              edit={liveEdit}
+              onSource={setSource}
               notes={p.notes}
               time={time}
               drawing={drawing}
@@ -259,35 +344,35 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
             />
           </div>
 
-          {(onScreen.timeline || p.timeline) && ((onScreen.timeline || p.timeline)!.items.some(i => i.kind === 'clip') || !!(onScreen.timeline || p.timeline)!.overlays?.length) && (
-            <TimelineStrip
-              dir={p.dir}
-              timeline={(onScreen.timeline || p.timeline)!}
-              clips={p.clips || {}}
-              selected={editing?.itemId}
-              onSelect={(it, start) => {
-                if (it.kind !== 'clip') return
-                stage.current?.video?.pause()
-                seek(start + Math.min(it.dur / 2, 1))
-                setEditing({ itemId: it.id, clip: it.clip, start })
-              }}
-              onSelectOverlay={o => {
-                stage.current?.video?.pause()
-                seek(o.start + Math.min(o.dur / 2, 1))
-                setEditing({ itemId: o.id, clip: o.clip, start: o.start })
-              }}
-            />
-          )}
           <Scrubber
             onDropFile={(rel, t) => dropFile(rel, t)}
-            media={{ dir: p.dir, src: onScreen.path, revision: onScreen.createdAt, fps: p.media[onScreen.path]?.fps || 30 }}
+            dir={p.dir}
+            revision={onScreen.createdAt}
+            fps={live ? tl.fps : p.media[onScreen.path]?.fps || 30}
             duration={duration}
             time={time}
             notes={p.notes}
             range={anchor}
+            track={track}
+            clips={p.clips || {}}
+            editable={editable}
+            selected={selected ?? editing?.itemId ?? null}
+            maxOf={maxOf}
+            tools={<EditTools editable={editable} deletes={deletes} undo={undo} piece={selectedItem?.kind === 'media' ? selectedItem : undefined}
+              onSplit={split} onDelete={deleteSelection} onUndo={() => undoEdit(false)} onRedo={() => undoEdit(true)}
+              onLevel={l => selectedItem && doEdit([{ op: 'level', ids: [selectedItem.id], ...l }])} />}
+            status={edited && editable ? <EditStatus saving={saving} onSave={saveVersion} /> : null}
             onSeek={seek}
             onRange={r => setAnchor(r ? { ...r, box: anchor?.box } : undefined)}
             onNote={n => seek(n.anchor.t0)}
+            onSelect={id => { setSelected(id); if (editing && id !== editing.itemId) setEditing(null) }}
+            onEdit={edits => doEdit(edits)}
+            onOpenClip={(id, clip, start) => {
+              stage.current?.video?.pause()
+              setSelected(id)
+              seek(start + Math.min((p.clips?.[clip]?.duration ?? 2) / 2, 1))
+              setEditing({ itemId: id, clip, start })
+            }}
           />
 
           <div className="flex items-center gap-1">

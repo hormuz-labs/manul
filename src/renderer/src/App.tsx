@@ -6,7 +6,7 @@ import { CommandPalette } from '@/components/CommandPalette'
 import { TabBar } from '@/components/TabBar'
 import { runCommand, useCommands } from '@/lib/commands'
 import { closeTab, cycleTab, moveTab, openTab, type Tabs } from '@/lib/tabs'
-import { cn } from '@/lib/utils'
+import { cn, typing } from '@/lib/utils'
 import { SettingsDialog, type Section } from './views/SettingsDialog'
 import { ProjectView } from './views/ProjectView'
 import { Start } from './views/Start'
@@ -25,7 +25,12 @@ export function App() {
   const [ready2update, setReady2update] = useState<string | null>(null)
   useEffect(() => window.manul.updates.onChange(st => setReady2update(st.status === 'ready' ? st.version || 'A new version' : null)), [])
   const check = () => window.manul.agent.ready().then(setReady)
-  useEffect(() => window.manul.onMenu(id => (id === 'palette' ? setPalette(true) : runCommand(id))), [])
+  useEffect(() => window.manul.onMenu(id => {
+    if (id === 'palette') setPalette(true)
+    // Edit → Undo / Redo: the field being typed in undoes its text; elsewhere the timeline undoes an edit
+    else if (id === 'undo' || id === 'redo') { if (typing()) document.execCommand(id); else runCommand(`timeline.${id}`) }
+    else runCommand(id)
+  }), [])
   useEffect(() => { check(); const a = window.manul.agent.onReady(check); const b = window.manul.onNotice(setNotice); return () => { a(); b() } }, [])
 
   // open tabs come back after a relaunch

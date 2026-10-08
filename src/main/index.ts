@@ -24,7 +24,7 @@ import { agentEnv, browserPrompt, BskDaemon, BSK_BIN, chromeBsk, extensionStorag
 import { homedir } from 'node:os'
 import * as Projects from './projects'
 import * as Files from './files'
-import { addOverlay, composeArgs, duration as timelineDuration, insertAt } from '../shared/timeline'
+import { addOverlay, applyEdit, composeArgs, describeEdit, duration as timelineDuration, insertAt, sameCut, type Edit, type Item } from '../shared/timeline'
 import { moveElement, prepareClipHtml } from '../shared/clip-html'
 import { captionCues, exportArgs, toSrt, type ExportOptions } from '../shared/export'
 import { needsProxy, proxyArgs } from '../shared/proxy'
@@ -353,6 +353,79 @@ async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'age
   return v.id
 }
 
+// ---------------------------------------------------------------- the edit, by hand
+// Splits, cuts, trims, moves and volume change the project's timeline at once: the film plays from its pieces and is
+// rendered only when it is exported or saved as a version. Every change can be undone (per project, until a version
+// is put on screen); the project's history gets one point a little after a run of edits.
+/** back/forward: the edits to undo and redo; since: what was done since the version (undone ones taken off), for its title */
+/** head: the edit as the last change left it (replaced since by a version, History…: the stack no longer applies) */
+type Undo = { base: string; head?: Timeline; back: { tl: Timeline; what: string }[]; forward: { tl: Timeline; what: string }[]; since: string[] }
+const undos = new Map<string, Undo>()
+function undoOf(p: Project) {
+  let u = undos.get(p.dir)
+  if (!u || u.base !== p.current || (u.head && u.head !== p.timeline)) { u = { base: p.current, back: [], forward: [], since: [] }; undos.set(p.dir, u) }
+  return u
+}
+const undoState = (p: Project) => { const u = undoOf(p); return { back: u.back.length, forward: u.forward.length } }
+const sendUndo = (p: Project) => send('timeline-undo', p.dir, undoState(p))
+const summary = (what: string[]) => (what.length <= 3 ? what.join(', ') : `${what.slice(0, 2).join(', ')} and ${what.length - 2} more edits`)
+
+const pendingNotes = new Map<string, { timer?: NodeJS.Timeout; what: string[] }>()
+function noteLater(p: Project, what: string) {
+  const n = pendingNotes.get(p.dir) || { what: [] }
+  clearTimeout(n.timer)
+  n.what.push(what)
+  n.timer = setTimeout(() => { pendingNotes.delete(p.dir); new History(p.dir).record(summary(n.what)).catch(e => console.warn('history', e)) }, 2000)
+  pendingNotes.set(p.dir, n)
+}
+
+async function editTimeline(p: Project, edits: Edit[]) {
+  if (p.proposal) throw new Error('Accept or reject the proposed version first, then edit.')
+  const maxOf = (it: Item) => (it.kind === 'media' ? p.media[it.src]?.duration : p.clips?.[it.clip]?.duration)
+  const before = p.timeline!
+  let tl = before
+  for (const e of edits) {
+    if (e.op === 'insert' && !(p.media[e.src]?.width && p.media[e.src].duration > 0)) throw new Error(`${e.src.split('/').pop()} isn't footage that can go in the film.`)
+    tl = applyEdit(tl, e, maxOf)
+  }
+  if (sameCut(before, tl)) return p
+  const u = undoOf(p)
+  const what = summary(edits.map(describeEdit))
+  u.back.push({ tl: before, what })
+  if (u.back.length > 200) u.back.shift()
+  u.forward = []
+  u.since.push(what)
+  p.timeline = u.head = tl
+  await publish(p)
+  noteLater(p, what)
+  sendUndo(p)
+  return p
+}
+
+async function undoEdit(p: Project, redo: boolean) {
+  if (p.proposal) throw new Error('Accept or reject the proposed version first.')
+  const u = undoOf(p)
+  const step = (redo ? u.forward : u.back).pop()
+  if (!step) return p
+  ;(redo ? u.back : u.forward).push({ tl: p.timeline!, what: step.what })
+  if (redo) u.since.push(step.what)
+  else u.since.splice(u.since.lastIndexOf(step.what), 1)
+  p.timeline = u.head = step.tl
+  await publish(p)
+  noteLater(p, `${redo ? 'Redo' : 'Undo'} ${step.what.charAt(0).toLowerCase()}${step.what.slice(1)}`)
+  sendUndo(p)
+  return p
+}
+
+/** Render the edit into a version and put it on screen (the user's own work: no before/after). */
+async function renderEdit(p: Project) {
+  if (!Projects.edited(p)) return p.current
+  const u = undoOf(p)
+  const id = await proposeTimeline(p, p.timeline!, u.since.length ? summary(u.since) : 'Edited by hand', 'user', false)
+  sendUndo(p)
+  return id
+}
+
 // ---------------------------------------------------------------- export
 export type ExportRequest = { preset: ExportOptions['preset']; fit?: 'pad' | 'crop'; captions: 'none' | 'burn' | 'srt'; captionColor?: string }
 
@@ -544,15 +617,23 @@ function wire() {
     const suffix = { original: '', landscape: '-16x9', vertical: '-9x16', square: '-1x1' }[req.preset]
     const r = await dialog.showSaveDialog(win!, { title: 'Export', defaultPath: join(app.getPath('videos'), `${p.title}${suffix}.mp4`), filters: [{ name: 'MP4 video', extensions: ['mp4'] }] })
     if (r.canceled || !r.filePath) return null
+    await renderEdit(p) // hand edits first become a version
     return exportFilm(p, req, r.filePath)
   })
   ipcMain.handle('export:reveal', (_e, file: string) => shell.showItemInFolder(file))
   ipcMain.handle('mix:speech', async (_e, dir: string, versionId?: string) => {
     const p = projectOf(dir)
-    const tl = p.versions.find(v => v.id === (versionId || p.current))?.timeline || p.timeline!
+    // 'edit': the edit by hand, playing from its pieces
+    const tl = versionId === 'edit' ? p.timeline! : p.versions.find(v => v.id === (versionId || p.current))?.timeline || p.timeline!
     return regionsOnTimeline(tl, await transcriptsFor(p, tl))
   })
-  ipcMain.handle('mix:apply', async (_e, dir: string, mix: Mix) => { const p = projectOf(dir); await applyMix(p, mix); return p })
+  ipcMain.handle('mix:apply', async (_e, dir: string, mix: Mix) => {
+    const p = projectOf(dir)
+    // while the edit isn't rendered the mix is part of it (rendered with it); otherwise mixing the version is quick
+    if (Projects.edited(p)) return editTimeline(p, [{ op: 'mix', mix }])
+    await applyMix(p, mix)
+    return p
+  })
   ipcMain.handle('history:log', (_e, dir: string) => new History(projectOf(dir).dir).log())
   ipcMain.handle('history:restore', async (_e, dir: string, id: string) => {
     const { clips } = await new History(dir).restore(id)
@@ -586,17 +667,16 @@ function wire() {
     const p = projectOf(dir)
     return proposeTimeline(p, addOverlay(p.timeline!, { clip: id, start: at, dur: p.clips![id].duration }), title)
   })
-  // footage dragged from the Files tab onto the timeline: in at that point of the version on screen, as a proposal
-  ipcMain.handle('timeline:insertMedia', async (_e, dir: string, versionId: string, rel: string, at: number) => {
+  // the edit by hand (and footage dragged from the Files tab onto the timeline)
+  ipcMain.handle('timeline:edit', (_e, dir: string, edits: Edit[]) => editTimeline(projectOf(dir), edits))
+  ipcMain.handle('timeline:undo', (_e, dir: string, redo: boolean) => undoEdit(projectOf(dir), redo))
+  ipcMain.handle('timeline:undoState', (_e, dir: string) => undoState(projectOf(dir)))
+  ipcMain.handle('timeline:render', (_e, dir: string) => renderEdit(projectOf(dir)))
+  ipcMain.handle('timeline:insertMedia', async (_e, dir: string, rel: string, at: number) => {
     const p = projectOf(dir)
-    const v = p.versions.find(x => x.id === versionId)
     const info = p.media[rel]
-    if (!v) throw new Error('That version is gone.')
     if (!info?.width || !(info.duration > 0)) throw new Error(`${rel.split('/').pop()} isn't footage that can go in the film.`)
-    const base = v.timeline ?? (v.id === p.current ? p.timeline : undefined) ?? Projects.timelineOf(v.path, p.media[v.path])
-    const tl = insertAt(structuredClone(base), at, { kind: 'media', src: rel, in: 0, out: Math.round(info.duration * 1000) / 1000 }).timeline
-    const clock = `${Math.floor(at / 60)}:${String(Math.floor(at % 60)).padStart(2, '0')}`
-    return proposeTimeline(p, tl, `Inserted ${rel.split('/').pop()} at ${clock}`, 'user', true)
+    return editTimeline(p, [{ op: 'insert', at, src: rel, in: 0, out: Math.round(info.duration * 1000) / 1000 }])
   })
   ipcMain.handle('clip:insert', async (_e, dir: string, id: string, at: number, title: string) => {
     const p = projectOf(dir)
@@ -728,9 +808,15 @@ app.whenReady().then(async () => {
           const p = projectOf(dir)
           await mkdir(join(p.dir, 'exports'), { recursive: true })
           const suffix = { original: '', landscape: '-16x9', vertical: '-9x16', square: '-1x1' }[req.preset]
+          await renderEdit(p) // an edit not rendered yet becomes a version first
           return exportFilm(p, req, join(p.dir, 'exports', `${p.title}${suffix}.mp4`))
         },
-        setMix: (dir, mix) => applyMix(projectOf(dir), mix),
+        async setMix(dir, mix) {
+          const p = projectOf(dir)
+          if (Projects.edited(p)) { await editTimeline(p, [{ op: 'mix', mix }]); return 'Set the mix on the edit: the user hears it now; it renders with the edit.' }
+          return `Mixed as version ${await applyMix(p, mix)}.`
+        },
+        editTimeline: (dir, edits) => editTimeline(projectOf(dir), edits),
         async importFiles(dir, abs) {
           const p = projectOf(dir)
           const rels = await Projects.addFiles(p, abs)

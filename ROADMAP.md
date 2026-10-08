@@ -174,9 +174,12 @@ pro editors can take a Manul rough cut into their own editor.
 - ✅ Slide editing by hand: drag, resize and edit text/images/shapes on the picture, written back to the HTML
 - ✅ Slide editing by the agent: pick an element, then a note scoped to that element; the agent changes only it
 - ✅ Transcript panel with text-based editing (click to seek, drag to select a range, fillers marked, find)
-- ⬜ Tracks drawer (timeline, mix, inspector)
+- 🚧 Tracks drawer (timeline, mix, inspector) (editing by hand done: split, cut a range, delete, trim, reorder and
+      per-piece volume on the timeline, played straight from the pieces with undo; the agent edits the same way with
+      edit_timeline; renders only when saved as a version or exported. Still to come: more tracks, transitions, speed)
 - ✅ Agent browser with take-over (Manul's own browser via private bsk; Settings → Browser switches to the user's Chrome)
-- ⬜ Bring in your own footage, images and extra videos anywhere
+- 🚧 Bring in your own footage, images and extra videos anywhere (files, folders and zips: subtitles, music, fonts,
+      LUTs, logos; footage dragged onto the timeline goes into the edit at once)
 - ✅ Carry over the existing editor features: several projects and conversations, model picker, skills and profiles, memory,
       history (git underneath), move elements, live mix, proxies, native menu, ⌘K
       (all done: conversations, model picker, skills + profiles, memory, history, move elements in clips, project tabs,

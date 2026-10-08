@@ -29,12 +29,15 @@ If it matters and isn't clear, ask in one card (video-editing's briefs.md): the 
   line in an `ask_user` `multiple` question ("Cut 2:10–2:45: repeats the pricing point"). The user's content is theirs.
 
 ## 3. How to cut
-- Plan every cut from word times first, then render once with one ffmpeg command (trim/atrim + concat, or
-  select/aselect with `between(t,a,b)`).
+- Plan every cut from word times first, then make them all in one `edit_timeline` call: `cut` with `src` and the word
+  times (from–to in that file). The user sees and plays the cuts at once and can undo any of them; they render (with
+  10 ms audio fades at every cut) when the edit is saved or exported. Use one ffmpeg command (trim/atrim + concat, or
+  select/aselect with `between(t,a,b)`) only when the same render also needs effects edit_timeline can't do.
 - Cut on word boundaries: to drop words a–b, cut from a's start to b's end (the transcript tool's notes say how much
   room its times already leave). Never cut inside a word.
 - Many cuts close together read as jumpy: if two cuts are under 0.4 s apart, merge them into one.
-- Keep audio and video in sync: cut both with the same ranges. 10–30 ms audio fades at every cut.
+- Keep audio and video in sync: cut both with the same ranges. 10–30 ms audio fades at every cut (edit_timeline's
+  render adds them).
 - Check the result's transcript at the cut points: every word whole, nothing doubled, nothing that changes the meaning.
 
 ## 4. Hiding the cuts and keeping it visual
