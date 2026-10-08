@@ -3,9 +3,17 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { BaseEvent } from '@ag-ui/core'
 import type { Anchor, BrowserMode, BrowserState, ChromeBsk, ConsentRequest, Job, KeyInfo, OnDemandTool, Project, RecentProject, ToolStatus, Transcript, WhisperConfig, WhisperStatus } from '../shared/types'
 import type { CustomProvider, CustomProviderInfo } from '../shared/providers'
+import type { Speakers } from '../shared/speakers'
+import type { Cue } from '../shared/subtitles'
+import type { Edit } from '../shared/timeline'
+import type { SubtitleLink } from '../shared/types'
+
+export type SubtitlesState = { link?: SubtitleLink; cues: Cue[]; candidates: string[] }
+/** How many edits can be undone (back) and redone (forward). */
+export type UndoState = { back: number; forward: number }
 type ProvidersState = { providers: CustomProviderInfo[]; omp: boolean }
 
-type SkillState = { skills: { id: string; name: string; description: string; path: string; source: 'bundled' | 'user' }[]; enabled: string[]; profile: { id: string; name: string }; profiles: { id: string; name: string }[] }
+type SkillState = { skills: { id: string; name: string; description: string; path: string }[]; enabled: string[]; profile: { id: string; name: string }; profiles: { id: string; name: string }[] }
 
 type ModelInfo = { provider: string; providerLabel: string; modelId: string; name: string; context?: number; price?: { input: number; output: number }; images: boolean; reasoning: boolean }
 
@@ -31,8 +39,6 @@ const api = {
     enable: (id: string, on: boolean) => ipcRenderer.invoke('skills:enable', id, on) as Promise<SkillState>,
     useProfile: (id: string) => ipcRenderer.invoke('skills:profile', id) as Promise<SkillState>,
     newProfile: (name: string) => ipcRenderer.invoke('skills:newProfile', name) as Promise<SkillState>,
-    edit: (id: string) => ipcRenderer.invoke('skills:edit', id) as Promise<SkillState>,
-    openFolder: () => ipcRenderer.invoke('skills:folder'),
   },
   memory: {
     list: () => ipcRenderer.invoke('memory:list') as Promise<{ name: string; description: string; body: string }[]>,
@@ -53,12 +59,35 @@ const api = {
   },
   transcript: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('transcript:get', dir, mediaRel, make) as Promise<Transcript | null>,
   thumbnails: (dir: string, src: string, count: number, start?: number, end?: number) => ipcRenderer.invoke('media:thumbnails', dir, src, count, start, end) as Promise<string[]>,
+  /** The edit by hand: changes at once (no render) and can be undone; it renders on export or when saved as a version. */
+  timeline: {
+    edit: (dir: string, edits: Edit[]) => ipcRenderer.invoke('timeline:edit', dir, edits) as Promise<Project>,
+    undo: (dir: string, redo = false) => ipcRenderer.invoke('timeline:undo', dir, redo) as Promise<Project>,
+    undoState: (dir: string) => ipcRenderer.invoke('timeline:undoState', dir) as Promise<UndoState>,
+    onUndo: on<[string, UndoState]>('timeline-undo'),
+    /** Render the edit into a version and put it on screen; resolves to its id. */
+    render: (dir: string) => ipcRenderer.invoke('timeline:render', dir) as Promise<string>,
+    /** Put footage into the edit at t (seconds of the film). */
+    insertMedia: (dir: string, rel: string, at: number) => ipcRenderer.invoke('timeline:insertMedia', dir, rel, at) as Promise<Project>,
+  },
+  /** Who speaks when in a media file (make: work it out as a background job if not done yet). */
+  speakers: {
+    get: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('speakers:get', dir, mediaRel, make) as Promise<Speakers | null>,
+    name: (dir: string, mediaRel: string, names: Record<string, string>) => ipcRenderer.invoke('speakers:name', dir, mediaRel, names) as Promise<Record<string, string>>,
+  },
+  /** The subtitles that go with a media file, their lines, and the subtitle files there are to choose from. */
+  subtitles: {
+    get: (dir: string, mediaRel: string) => ipcRenderer.invoke('subtitles:get', dir, mediaRel) as Promise<SubtitlesState>,
+    link: (dir: string, mediaRel: string, file: string | null) => ipcRenderer.invoke('subtitles:link', dir, mediaRel, file) as Promise<SubtitlesState>,
+    shift: (dir: string, mediaRel: string) => ipcRenderer.invoke('subtitles:shift', dir, mediaRel) as Promise<SubtitlesState>,
+  },
   export: {
     run: (dir: string, req: { preset: 'original' | 'landscape' | 'vertical' | 'square'; fit?: 'pad' | 'crop'; captions: 'none' | 'burn' | 'srt'; captionColor?: string }) =>
       ipcRenderer.invoke('export:run', dir, req) as Promise<{ file: string; srt?: string } | null>,
     reveal: (file: string) => ipcRenderer.invoke('export:reveal', file),
   },
   mix: {
+    /** Where speech is on a version's timeline ('edit': the edit by hand). */
     speech: (dir: string, versionId?: string) => ipcRenderer.invoke('mix:speech', dir, versionId) as Promise<[number, number][]>,
     apply: (dir: string, mix: { filmDb: number; music?: { src: string; db: number; duckDb: number } }) => ipcRenderer.invoke('mix:apply', dir, mix) as Promise<Project>,
   },
@@ -113,7 +142,11 @@ const api = {
     open: (dir: string) => ipcRenderer.invoke('project:open', dir) as Promise<Project>,
     close: (dir: string) => ipcRenderer.invoke('project:close', dir),
     reveal: (dir: string) => ipcRenderer.invoke('project:reveal', dir),
-    import: (dir: string, file: string) => ipcRenderer.invoke('project:import', dir, file) as Promise<string>,
+    /** Any file, a folder or a .zip into the project; the new paths in media/. */
+    import: (dir: string, file: string) => ipcRenderer.invoke('project:import', dir, file) as Promise<string[]>,
+    pickFiles: () => ipcRenderer.invoke('project:pickFiles') as Promise<string[]>,
+    /** Files out of the project, into the Trash; the ones the film uses are kept, with why. */
+    removeFiles: (dir: string, rels: string[]) => ipcRenderer.invoke('project:removeFiles', dir, rels) as Promise<{ removed: string[]; blocked: { file: string; why: string }[] }>,
     decide: (dir: string, accept: boolean) => ipcRenderer.invoke('project:decide', dir, accept) as Promise<Project>,
     setCurrent: (dir: string, id: string) => ipcRenderer.invoke('project:current', dir, id) as Promise<Project>,
     onChange: on<[Project]>('project'),
@@ -121,7 +154,7 @@ const api = {
   agent: {
     ready: () => ipcRenderer.invoke('agent:ready') as Promise<boolean>,
     attach: (dir: string) => ipcRenderer.invoke('agent:attach', dir),
-    send: (dir: string, msg: { text: string; anchor?: Anchor; still?: string }) => ipcRenderer.invoke('agent:send', dir, msg),
+    send: (dir: string, msg: { text: string; anchor?: Anchor; still?: string; files?: string[] }) => ipcRenderer.invoke('agent:send', dir, msg),
     stop: (dir: string) => ipcRenderer.invoke('agent:stop', dir),
     newConversation: (dir: string) => ipcRenderer.invoke('agent:newConversation', dir) as Promise<Project>,
     switchConversation: (dir: string, id: string) => ipcRenderer.invoke('agent:switch', dir, id) as Promise<Project>,

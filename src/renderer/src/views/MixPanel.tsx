@@ -18,12 +18,15 @@ function Slider({ label, value, min, max, step = 1, unit = 'dB', onChange, disab
 
 export function MixPanel({ project, mix, applied, onChange }: { project: Project; mix: Mix; applied: Mix; onChange(m: Mix): void }) {
   const [busy, setBusy] = useState(false)
-  const audioFiles = Object.entries(project.media).filter(([, i]) => i.hasAudio && !i.width).map(([k]) => k)
+  // music the user added (an MP3's cover art doesn't make it a video), or any sound-only file the project knows
+  const audioFiles = [...new Set([...Object.entries(project.files || {}).filter(([, f]) => f.kind === 'audio').map(([k]) => k),
+    ...Object.entries(project.media).filter(([, i]) => i.hasAudio && !i.width).map(([k]) => k)])]
   const changed = JSON.stringify(mix) !== JSON.stringify(applied)
   const addMusic = async () => {
-    const f = await window.manul.project.pick()
+    const [f] = await window.manul.project.pickFiles()
     if (!f) return
-    const rel = await window.manul.project.import(project.dir, f)
+    const [rel] = await window.manul.project.import(project.dir, f)
+    if (!rel) return
     onChange({ ...mix, music: { src: rel, db: mix.music?.db ?? -14, duckDb: mix.music?.duckDb ?? 10 } })
   }
   return (

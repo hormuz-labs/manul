@@ -9,13 +9,13 @@
 <p align="center">
   Drop in your footage, say what you want, and point at the frame when something's off.<br>
   Manul makes the cut on your own computer and shows you a before / after of every change.<br>
-  You never touch a timeline.
+  You never have to touch a timeline, though you can.
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS%20·%20Linux-1d1a17?style=for-the-badge&labelColor=0e0d0c" alt="macOS · Linux">
   <img src="https://img.shields.io/badge/early%20days-f2a541?style=for-the-badge&labelColor=0e0d0c" alt="Early days">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/GPL--3.0-1d1a17?style=for-the-badge&labelColor=0e0d0c" alt="GPL-3.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/FSL--1.1-1d1a17?style=for-the-badge&labelColor=0e0d0c" alt="FSL-1.1"></a>
 </p>
 
 <p align="center">
@@ -112,6 +112,10 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 <td><b>Word-accurate cuts</b><br>Every spoken word is transcribed with its timing, so "cut the ums" or "drop the second take" lands on the exact word</td>
 </tr>
 <tr>
+<td width="56" align="center"><img src="docs/icons/square-split-horizontal.svg" width="36" alt=""></td>
+<td><b>Your hands on the timeline too</b><br>Split, cut a range, trim, reorder and set a piece's volume yourself when that's quicker than asking. Your edit plays at once, straight from the footage, and Manul works from it. Saving a cut copies the footage between the cuts as it is instead of encoding the whole film again, so it's quick even for a long film</td>
+</tr>
+<tr>
 <td width="56" align="center"><img src="docs/icons/type.svg" width="36" alt=""></td>
 <td><b>Titles it designs</b><br>Title cards, lower thirds, callouts and animated text, timed to your film and editable by hand</td>
 </tr>
@@ -122,6 +126,10 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 <tr>
 <td width="56" align="center"><img src="docs/icons/ratio.svg" width="36" alt=""></td>
 <td><b>One film, every shape</b><br>16:9 for YouTube, 9:16 for Shorts, Reels and TikTok, 1:1 for feeds, with captions burned in or as a file</td>
+</tr>
+<tr>
+<td width="56" align="center"><img src="docs/icons/paperclip.svg" width="36" alt=""></td>
+<td><b>Your files, put to use</b><br>Drop in subtitles, music, your logo, fonts and LUTs, or a whole folder or zip of them. Manul says what each one is, and the edit uses them</td>
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/globe.svg" width="36" alt=""></td>
@@ -178,7 +186,9 @@ sudo apt update && sudo apt install manul
 
 Other Linux: grab the AppImage from the [latest release](https://github.com/hormuz-labs/manul/releases/latest). More at **[manul.si](https://manul.si)**.
 
-It's free and open source. Bring a Claude, Gemini or OpenAI key (it's kept in your system's keychain), or wait for the single **Manul key**, coming soon.
+It's free to use, and the source is open to read under the [Functional Source License](LICENSE): use it, change it, edit
+paid work with it — just don't build a competing product from it. Every release becomes Apache-2.0 two years after it
+ships. Bring a Claude, Gemini or OpenAI key (it's kept in your system's keychain), or wait for the single **Manul key**, coming soon.
 
 Want to hack on it? Run it from source with **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
@@ -214,5 +224,5 @@ Want to hack on it? Run it from source with **[CONTRIBUTING.md](CONTRIBUTING.md)
 <p align="center">
   <img src="build/icons/64x64.png" width="28" alt=""><br>
   <sub>Named after the <b>manul</b>, the Pallas cat: small, patient, and unbothered by anything.</sub><br>
-  <sub><a href="LICENSE">GPL-3.0</a> &nbsp;·&nbsp; <a href="THIRD_PARTY_NOTICES.md">Third-party notices</a> &nbsp;·&nbsp; <a href="CONTRIBUTING.md">Contribute</a> &nbsp;·&nbsp; Made by <a href="https://github.com/hormuz-labs">Hormuz Labs</a></sub>
+  <sub><a href="LICENSE">FSL-1.1-ALv2</a> &nbsp;·&nbsp; <a href="THIRD_PARTY_NOTICES.md">Third-party notices</a> &nbsp;·&nbsp; <a href="CONTRIBUTING.md">Contribute</a> &nbsp;·&nbsp; Made by <a href="https://github.com/hormuz-labs">Hormuz Labs</a></sub>
 </p>

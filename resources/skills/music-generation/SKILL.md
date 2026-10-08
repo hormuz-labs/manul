@@ -26,14 +26,18 @@ Check the keys with `[ -n "$ELEVENLABS_API_KEY" ]` and `[ -n "$GEMINI_API_KEY" ]
   browse for random music instead. OpenAI has no music API.
 
 ## 3. The brief comes from the film
-- Read the film first: `project_state` (duration), the `transcript` (where speech is and where it stops), and the shot
-  changes (video-editing). Write down the moments the music should answer: the opening, the reveal, the last line.
+- Read the film first: `analyze_video` (duration, every shot's cut time, silences, loudness) and the `transcript`
+  (where speech is and where it stops). Write down the moments the music should answer: the opening, the reveal, the last line.
 - **Role:**
   - Bed under speech: instrumental, sparse, no lead melody or vocals fighting the voice, steady energy.
   - Moment with no speech (montage, reveal, product shot): the music can carry the melody and come up.
   - Sting or transition: 2–5 s with a clear hit. Intro/outro: short, ends on a resolved chord.
-- **Length = film + 2 s**, so set_mix never loops it (a loop seam is audible). Longer than 10 min: generate in parts
-  that hand over on a section change.
+- **Who leads?** (video-editing's music-sync.md) For a montage/promo the music comes FIRST and the picture is cut to it:
+  generate the length the film should be, with sections where the story turns, then cut to the beats you measure. For
+  a speech-led film the picture is fixed: generate to its length with sections at its moments.
+- **Length**: the film's length + 2 s (trim the extra on a bar at the end), so set_mix never loops it (a loop seam is
+  audible). Ask for a real ending ("ends on a final hit and a ringing chord"), not a fade. Longer than 10 min: generate
+  in parts that hand over on a section change.
 - **Fix a BPM in the brief.** In 4/4 a bar lasts 240/BPM s (120 BPM → 2 s), so you can place section changes on the
   film's moments and cut or end the music on a bar instead of mid-note.
 - **Score to picture:** sections that follow the film (quiet intro under the opening lines, lift at the reveal, resolve
@@ -49,6 +53,10 @@ Check the keys with `[ -n "$ELEVENLABS_API_KEY" ]` and `[ -n "$GEMINI_API_KEY" ]
   limit (wait, then try once), a safety block = reword the prompt (usually a name). No retry loops.
 
 ## 5. Check before using it
+- `analyze_music` it: the real BPM, the bars, where the lifts and drops actually fell, the hits, and the beats file.
+  Generated music is never exactly the BPM or section times you asked for — **cut to what you measured**, not to the
+  brief. If a planned big moment (the reveal) misses the music's lift by more than a beat, move the cut to the lift, or
+  slide the music, or regenerate with adjusted section lengths.
 - `probe` it: the duration is what you asked for (Lyria's isn't exact: trim on a bar with a fade, or regenerate).
 - Leading silence (`silencedetect`): trim it so the music starts on time.
 - Loudness: normalise the track to -14 LUFS (references/apis.md) so set_mix levels mean the same for every track.
@@ -61,6 +69,8 @@ Check the keys with `[ -n "$ELEVENLABS_API_KEY" ]` and `[ -n "$GEMINI_API_KEY" ]
 - set_mix plays the music from 0 to the end (looped if short, 1 s fade in, 2 s fade out). For music that starts
   later, stops early or changes at a moment, prepare the file with ffmpeg first (silence before it, a cut on a bar, a
   fade) and set_mix that file.
+- Cutting picture to it: follow video-editing's music-sync.md — cuts on measured beats, big moments on lifts and hits,
+  the end card on the final hit, the music ending with the picture.
 
 ## 7. Say what it is
 - One line: it's generated, by which provider and model, and how long. ElevenLabs tracks are signed with C2PA

@@ -1,7 +1,9 @@
 // What is said, word by word, in sync with the film. Click a word to jump there; drag across words to select a range
 // (it becomes the anchor of the next request, e.g. "cut this"). Fillers are marked so "cut the ums" is visible.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AudioLines, Loader2, PanelLeftClose, Search } from 'lucide-react'
+import { AudioLines, Loader2, Search } from 'lucide-react'
+import { speakerOfSegments, type Speakers } from '../../../shared/speakers'
+import { SpeakerChip, SpeakersPanel } from './SpeakersPanel'
 import { Button } from '@/components/ui/button'
 import { useJobs } from '@/components/JobsTray'
 import { flatWords, isFiller, rangeOfSelection, wordIndexAt } from '@/lib/transcript'
@@ -10,9 +12,14 @@ import type { Project, Transcript } from '../../../shared/types'
 
 const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '').slice(0, 300)
 
-type Props = { project: Project; media: string; time: number; onSeek(t: number): void; onRange(r: { t0: number; t1: number }): void; onCollapse?(): void }
+type Props = {
+  project: Project; media: string; time: number; onSeek(t: number): void; onRange(r: { t0: number; t1: number }): void
+  /** while the edit plays from its pieces: the parts of this file it keeps (the other words are struck through) */
+  kept?: [number, number][]
+}
 
-export function TranscriptPanel({ project, media, time, onSeek, onRange, onCollapse }: Props) {
+/** The side panel's Transcript tab. */
+export function TranscriptPanel({ project, media, time, onSeek, onRange, kept }: Props) {
   const [t, setT] = useState<Transcript | null>(null)
   const [state, setState] = useState<'loading' | 'none' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -20,8 +27,14 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
   const [query, setQuery] = useState('')
   const dragging = useRef<number | null>(null)
   const list = useRef<HTMLDivElement>(null)
-  const jobs = useJobs().filter(j => j.kind === 'transcribe' && j.project === project.dir && j.status === 'running')
+  const allJobs = useJobs()
+  const jobs = allJobs.filter(j => j.kind === 'transcribe' && j.project === project.dir && j.status === 'running')
+  const finding = allJobs.find(j => j.kind === 'speakers' && j.project === project.dir && j.status === 'running' && j.title.endsWith(media.split('/').pop()!))
   const known = project.transcripts?.[media]
+  // who speaks when (worked out in the background once there is a transcript) and the names given
+  const [sp, setSp] = useState<Speakers | null>(null)
+  const [naming, setNaming] = useState(false)
+  const names = project.speakerNames?.[media] || {}
 
   // load (and make, when an engine is ready) the transcript of the media on screen
   useEffect(() => {
@@ -33,8 +46,26 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
     return () => { live = false }
   }, [project.dir, media, known])
 
+  useEffect(() => {
+    let live = true
+    setSp(null)
+    if (!t?.segments.length) return
+    // make it now if it was never made (projects transcribed before speakers existed); it runs as a job
+    window.manul.speakers.get(project.dir, media, true).then(r => { if (live) setSp(r) }).catch(() => {})
+    return () => { live = false }
+  }, [project.dir, media, t, project.speakers?.[media]])
+  const who = useMemo(() => (t && sp ? speakerOfSegments(t.segments, sp.turns) : []), [t, sp])
+  // a speaker chip above each sentence where the speaker changes
+  const turnStarts = useMemo(() => { let last: string | undefined; return who.map(w => { const start = !!w && w !== last; if (w) last = w; return start }) }, [who])
+
   const words = useMemo(() => (t ? flatWords(t) : []), [t])
-  const current = wordIndexAt(words, time)
+  const current = time < 0 ? -1 : wordIndexAt(words, time)
+  const cut = useMemo(() => {
+    if (!kept) return null
+    const out = new Set<number>()
+    for (const w of words) { const m = (w.s + w.e) / 2; if (!kept.some(([a, b]) => m >= a && m < b)) out.add(w.i) }
+    return out
+  }, [words, kept])
   const q = query.trim().toLowerCase()
 
   // keep the spoken word in view while playing
@@ -56,14 +87,12 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
   const lo = sel ? Math.min(sel.a, sel.b) : -1, hi = sel ? Math.max(sel.a, sel.b) : -1
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-2 px-3" data-panel-header>
-        <AudioLines className="size-4 text-dim" />
-        <span className="font-medium">Transcript</span>
-        <span className="flex-1" />
-        {state === 'ready' && fillers > 0 && <span className="rounded bg-amber-soft px-1.5 py-0.5 text-[10.5px] text-amber" title="Filler words (um, uh…)">{fillers} fillers</span>}
-        {onCollapse && <Button size="iconSm" variant="ghost" onClick={onCollapse} title="Collapse the transcript (T)" aria-label="Collapse the transcript"><PanelLeftClose /></Button>}
-      </div>
+    <div className="flex min-h-0 flex-1 flex-col">
+      {finding && (
+        <div className="mx-3 mb-1 flex items-center gap-2 text-[11px] text-faint">
+          <Loader2 className="size-3 animate-spin" />Finding who speaks{finding.progress != null ? `… ${Math.round(finding.progress * 100)}%` : '…'}
+        </div>
+      )}
 
       {state === 'ready' && t && t.segments.length === 0 && (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-dim">{t.language === 'none' ? 'This video has no sound.' : 'No speech found.'}</div>
@@ -71,9 +100,13 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
 
       {state === 'ready' && t && t.segments.length > 0 && (
         <>
-          <div className="mx-3 mb-1 flex items-center gap-2 rounded-md bg-raised px-2.5 py-1">
-            <Search className="size-3.5 text-faint" />
-            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find in transcript" className="h-6 flex-1 bg-transparent text-xs outline-none placeholder:text-faint" />
+          <div className="mx-3 mb-1 flex items-center gap-1.5">
+            <div className="flex flex-1 items-center gap-2 rounded-md bg-raised px-2.5 py-1">
+              <Search className="size-3.5 text-faint" />
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find in transcript" className="h-6 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-faint" />
+            </div>
+            {sp && <SpeakersPanel dir={project.dir} media={media} sp={sp} names={names} transcript={t} open={naming} onOpenChange={setNaming} onSeek={onSeek} />}
+            {fillers > 0 && <span className="shrink-0 whitespace-nowrap rounded bg-amber-soft px-1.5 py-0.5 text-[10.5px] text-amber" title="Filler words (um, uh…)">{fillers} filler{fillers === 1 ? '' : 's'}</span>}
           </div>
           <div
             ref={list}
@@ -84,7 +117,9 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
             }}
           >
             {t.segments.map((s, si) => (
-              <div key={si} className="group flex gap-2">
+              <div key={si}>
+              {turnStarts[si] && <SpeakerChip id={who[si]!} names={names} onClick={() => setNaming(true)} />}
+              <div className="group flex gap-2">
                 <button className="mt-[3px] w-9 shrink-0 text-right text-[10.5px] text-faint tabular hover:text-fg" onClick={() => onSeek(s.s)}>{timecode(s.s, false)}</button>
                 <p className="flex-1 text-[13px]">
                   {words.filter(w => w.seg === si).map(w => (
@@ -100,10 +135,14 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
                         w.i >= lo && w.i <= hi && 'bg-amber/30 text-fg',
                         isFiller(w) && w.i !== current && 'text-amber/80 underline decoration-amber/40 decoration-dotted underline-offset-4',
                         q && w.w.toLowerCase().includes(q) && 'outline outline-1 outline-note',
+                        cut?.has(w.i) && 'text-faint line-through decoration-faint/70',
                       )}
+                      title={cut?.has(w.i) ? 'Cut from the edit' : undefined}
+                      data-cut={cut?.has(w.i) || undefined}
                     >{w.w}{' '}</span>
                   ))}
                 </p>
+              </div>
               </div>
             ))}
             <div className="pt-2 text-[10.5px] text-faint">{t.model} · {t.language}</div>
