@@ -5,10 +5,11 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { bundledBinary } from './helpers.mjs'
 
 const root = join(import.meta.dirname, '..', '..')
 const tmp = mkdtempSync(join(tmpdir(), 'manul-proxy-'))
-execFileSync(join(root, 'resources', 'bin', `${process.platform}-${process.arch}`, 'ffmpeg'), ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1920x1080:rate=25:duration=3',
+execFileSync(bundledBinary('ffmpeg'), ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1920x1080:rate=25:duration=3',
   '-c:v', 'prores_ks', '-profile:v', '1', join(tmp, 'master.mov')])
 const app = await electron.launch({ cwd: root, args: ['.', `--user-data-dir=${join(tmp, 'ud')}`], env: { ...process.env, MANUL_PROJECTS: join(tmp, 'p') } })
 try {

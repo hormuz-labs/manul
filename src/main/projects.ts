@@ -7,15 +7,17 @@ import { app } from 'electron'
 import { execFile } from 'node:child_process'
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename, extname, join, relative } from 'node:path'
+import { basename, extname, join, posix } from 'node:path'
 import { promisify } from 'node:util'
 import { FFMPEG, probe } from './media'
 import { fromMedia } from '../shared/timeline'
+import { filesystemSlug, toPortablePath } from '../shared/paths'
+import { relativeProjectPath } from './paths'
+import type { Timeline } from '../shared/timeline'
 import type { MediaInfo, Note, Project, RecentProject, Version } from '../shared/types'
 
 const run = promisify(execFile)
 const id = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'project'
 
 export const projectsRoot = () => process.env.MANUL_PROJECTS || join(app.getPath('videos'), 'Manul')
 const recentFile = () => join(app.getPath('userData'), 'recent.json')
@@ -50,6 +52,27 @@ export function accept(p: Project, versionId: string) {
 
 export async function load(dir: string): Promise<Project> {
   const p = JSON.parse(await readFile(join(dir, 'project.json'), 'utf8')) as Project
+  // Older Windows projects stored native separators in every path, including lookup keys and saved timelines.
+  if (process.platform === 'win32' || /^(?:[a-z]:[\\/]|\\\\)/i.test(p.dir)) {
+    const timeline = (tl?: Timeline) => {
+      if (!tl) return
+      for (const item of tl.items) if (item.kind === 'media') item.src = toPortablePath(item.src)
+      if (tl.mix?.music) tl.mix.music.src = toPortablePath(tl.mix.music.src)
+    }
+    p.media = Object.fromEntries(Object.entries(p.media).map(([key, value]) => [toPortablePath(key), value]))
+    for (const version of p.versions) {
+      version.path = toPortablePath(version.path)
+      if (version.dry) version.dry = toPortablePath(version.dry)
+      timeline(version.timeline)
+    }
+    for (const note of p.notes) if (note.still) note.still = toPortablePath(note.still)
+    for (const clip of Object.values(p.clips || {})) {
+      clip.video = toPortablePath(clip.video)
+      clip.poster = toPortablePath(clip.poster)
+    }
+    for (const key of ['proxies', 'transcripts'] as const) if (p[key]) p[key] = Object.fromEntries(Object.entries(p[key]).map(([k, v]) => [toPortablePath(k), toPortablePath(v)]))
+    timeline(p.timeline)
+  }
   p.dir = dir
   if (!p.timeline) { const v = p.versions.find(x => x.id === p.current)!; p.timeline = timelineOf(v.path, p.media[v.path]) }
   touchRecent(p)
@@ -63,11 +86,11 @@ export async function save(p: Project) {
 /** A new project from a dropped or picked file: copy it in, probe it, grab a thumbnail. */
 export async function createFromFile(file: string): Promise<Project> {
   const title = basename(file, extname(file))
-  let dir = join(projectsRoot(), slug(title))
-  for (let n = 2; existsSync(dir); n++) dir = join(projectsRoot(), `${slug(title)}-${n}`)
+  let dir = join(projectsRoot(), filesystemSlug(title))
+  for (let n = 2; existsSync(dir); n++) dir = join(projectsRoot(), `${filesystemSlug(title)}-${n}`)
   for (const sub of ['media', 'renders', 'notes', 'clips']) await mkdir(join(dir, sub), { recursive: true })
 
-  const rel = join('media', basename(file))
+  const rel = posix.join('media', basename(file))
   await copyFile(file, join(dir, rel))
   const info = await probe(join(dir, rel))
   const v: Version = { id: id(), path: rel, title: 'Original', createdAt: Date.now(), by: 'import' }
@@ -80,8 +103,8 @@ export async function createFromFile(file: string): Promise<Project> {
 
 /** Bring another file (footage, image, audio) into an existing project's media folder. */
 export async function importMedia(p: Project, file: string) {
-  let rel = join('media', basename(file))
-  for (let n = 2; existsSync(join(p.dir, rel)); n++) rel = join('media', `${basename(file, extname(file))}-${n}${extname(file)}`)
+  let rel = posix.join('media', basename(file))
+  for (let n = 2; existsSync(join(p.dir, rel)); n++) rel = posix.join('media', `${basename(file, extname(file))}-${n}${extname(file)}`)
   await copyFile(file, join(p.dir, rel))
   p.media[rel] = await probe(join(p.dir, rel)).catch(() => ({ duration: 0, width: 0, height: 0, fps: 0, hasAudio: false, codec: 'unknown' }))
   await save(p)
@@ -89,9 +112,9 @@ export async function importMedia(p: Project, file: string) {
 }
 
 export async function addVersion(p: Project, absPath: string, title: string, by: Version['by'], timeline?: Version['timeline'], dry?: string) {
-  const rel = relative(p.dir, absPath)
+  const rel = relativeProjectPath(p.dir, absPath)
   p.media[rel] = await probe(absPath)
-  const v: Version = { id: id(), path: rel, title, createdAt: Date.now(), by, ...(timeline ? { timeline } : {}), ...(dry ? { dry: relative(p.dir, dry) } : {}) }
+  const v: Version = { id: id(), path: rel, title, createdAt: Date.now(), by, ...(timeline ? { timeline } : {}), ...(dry ? { dry: relativeProjectPath(p.dir, dry) } : {}) }
   p.versions.push(v)
   return v
 }
@@ -99,7 +122,7 @@ export async function addVersion(p: Project, absPath: string, title: string, by:
 export async function addNote(p: Project, note: Omit<Note, 'id' | 'createdAt' | 'status' | 'still'>, still?: Buffer) {
   const n: Note = { ...note, id: id(), createdAt: Date.now(), status: 'open' }
   if (still) {
-    n.still = join('notes', `${n.id}.jpg`)
+    n.still = posix.join('notes', `${n.id}.jpg`)
     await writeFile(join(p.dir, n.still), still)
   }
   p.notes.push(n)

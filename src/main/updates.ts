@@ -6,7 +6,7 @@ import { updateMode } from './update-mode'
 
 export type UpdateState = { mode: string; why?: string; status: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'none' | 'error'; version?: string; progress?: number; error?: string }
 
-export function startUpdates(onState: (s: UpdateState) => void) {
+export function startUpdates(onState: (s: UpdateState) => void, beforeInstall: () => Promise<void> = async () => {}) {
   const m = updateMode({ packaged: app.isPackaged, platform: process.platform, exe: process.execPath, env: process.env })
   let state: UpdateState = { mode: m.mode, why: m.why, status: 'idle' }
   const set = (patch: Partial<UpdateState>) => { state = { ...state, ...patch }; onState(state) }
@@ -25,5 +25,5 @@ export function startUpdates(onState: (s: UpdateState) => void) {
   const check = async () => { await autoUpdater.checkForUpdates().catch(e => set({ status: 'error', error: String(e.message || e) })); return state }
   setTimeout(check, 10_000)
   setInterval(check, 6 * 3600_000).unref?.()
-  return { state: () => state, check, install: () => autoUpdater.quitAndInstall() }
+  return { state: () => state, check, install: async () => { await beforeInstall(); autoUpdater.quitAndInstall() } }
 }

@@ -1,4 +1,4 @@
-# Push a tag like v0.2.0 → build, sign and notarize (macOS) on four runners, then publish ONE GitHub release
+# Push a tag like v0.2.0 → native builds on five runners, then publish ONE GitHub release
 # (the auto-update feed) with every build's files, and rebuild the apt repository (apt.yml).
 # The Homebrew tap (hormuz-labs/homebrew-tap) picks up new releases on its own.
 # Builds don't publish themselves: parallel uploads made duplicate releases and one Mac feed overwrote the other.
@@ -16,11 +16,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14, arch: arm64, target: --mac }
-          - { os: macos-15-intel, arch: x64, target: --mac }
-          - { os: ubuntu-24.04, arch: x64, target: --linux }
-          - { os: ubuntu-24.04-arm, arch: arm64, target: --linux }
+          - { os: macos-14, arch: arm64, shell: bash }
+          - { os: macos-15-intel, arch: x64, shell: bash }
+          - { os: ubuntu-24.04, arch: x64, shell: bash }
+          - { os: ubuntu-24.04-arm, arch: arm64, shell: bash }
+          - { os: windows-2022, arch: x64, shell: pwsh }
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,11 +37,38 @@ jobs:
       - name: Install build tools (macOS)
         if: runner.os == 'macOS'
         run: brew install cmake
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: x64
+      - name: Require public Windows signing configuration
+        if: runner.os == 'Windows'
+        env:
+          WIN_CSC_LINK: ${{ secrets.WINDOWS_CERT_P12_BASE64 }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          WINDOWS_PUBLISHER_NAME: ${{ vars.WINDOWS_PUBLISHER_NAME }}
+          MANUL_PUBLIC_RELEASE: '1'
+        run: node --input-type=module -e "import { windowsSigning } from './scripts/package.mjs'; windowsSigning()"
       - run: npm ci
-      - run: ./scripts/build-whisper.sh
+      - run: npm run build:whisper
+      - name: Inspect bundled Windows executable dependencies
+        if: runner.os == 'Windows'
+        run: ./scripts/check-windows-dependencies.ps1
       - name: Version from the tag
-        run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+        run: npm run version:tag
+      - run: npm run test:packaging
+      - run: npm run typecheck
       - run: npm test
+      - name: Windows runtime end-to-end
+        if: runner.os == 'Windows'
+        timeout-minutes: 20
+        run: |
+          npx electron-vite build
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime build failed' }
+          foreach ($test in @('filmstrip', 'clips', 'browser', 'export', 'menu')) {
+            node "test/e2e/$test.e2e.mjs"
+            if ($LASTEXITCODE -ne 0) { throw "$test E2E failed" }
+          }
       - name: Build, sign, notarize
         env:
           CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
@@ -45,13 +76,24 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WIN_CSC_LINK: ${{ secrets.WINDOWS_CERT_P12_BASE64 }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          WINDOWS_PUBLISHER_NAME: ${{ vars.WINDOWS_PUBLISHER_NAME }}
+          MANUL_PUBLIC_RELEASE: '1'
+        run: npm run package
+      - name: Verify Windows signatures and update feed
+        if: runner.os == 'Windows'
+        env:
+          WINDOWS_PUBLISHER_NAME: ${{ vars.WINDOWS_PUBLISHER_NAME }}
         run: |
-          npx electron-vite build
-          # an empty CSC_LINK makes electron-builder read the project folder as the certificate: unset what isn't configured
-          for v in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do [ -n "${!v}" ] || unset "$v"; done
-          NOTARIZE=false
-          if [ "$RUNNER_OS" = macOS ] && [ -n "$APPLE_ID" ]; then NOTARIZE=true; fi
-          npx electron-builder ${{ matrix.target }} --${{ matrix.arch }} --publish never -c.mac.notarize=$NOTARIZE
+          ./scripts/check-windows-signatures.ps1
+          node scripts/check-windows-feed.mjs
+      - name: Windows packaged app and installer smoke
+        if: runner.os == 'Windows'
+        run: |
+          node test/e2e/packaged.e2e.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Unpacked app E2E failed' }
+          ./scripts/smoke-windows-installer.ps1
       - name: Rename the Mac feed so the two architectures don't collide
         if: runner.os == 'macOS'
         run: mv dist/latest-mac.yml "dist/latest-mac-${{ matrix.arch }}.part.yml"
@@ -64,7 +106,8 @@ jobs:
             dist/*.blockmap
             dist/*.deb
             dist/*.AppImage
-            dist/*.yml
+            dist/*.exe
+            dist/latest*.yml
           if-no-files-found: error
 
   publish:

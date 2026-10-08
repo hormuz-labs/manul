@@ -4,12 +4,14 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
+import { bundledBinary } from './helpers.mjs'
 
 const root = join(import.meta.dirname, '..', '..')
 const tmp = mkdtempSync(join(tmpdir(), 'manul-tabs-'))
 for (const [name, color] of [['alpha', 'red'], ['beta', 'blue'], ['gamma', 'green']])
-  execFileSync(join(root, 'resources', 'bin', `${process.platform}-${process.arch}`, 'ffmpeg'), ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', `color=c=${color}:s=320x240:d=6`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(tmp, `${name}.mp4`)])
+  execFileSync(bundledBinary('ffmpeg'), ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', `color=c=${color}:s=320x240:d=6`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(tmp, `${name}.mp4`)])
+const tab = name => `[title$=${JSON.stringify(`${sep}${name}`)}]`
 const launch = () => electron.launch({ cwd: root, args: ['.', `--user-data-dir=${join(tmp, 'ud')}`], env: { ...process.env, MANUL_PROJECTS: join(tmp, 'p') } })
 const menu = (app, label) => app.evaluate(({ Menu }, l) => {
   const find = items => { for (const it of items) { if (it.label === l) return it; const s = it.submenu && find(it.submenu.items); if (s) return s } }
@@ -24,7 +26,7 @@ try {
     await app.evaluate(({ ipcMain }, f) => { ipcMain.removeHandler('project:pick'); ipcMain.handle('project:pick', () => f) }, join(tmp, `${name}.mp4`))
     await win.click('text=Drop a video here')
     await win.locator('button:has(svg.lucide-arrow-up)').click()
-    await win.waitForSelector(`[title$="/${name}"]`)
+    await win.waitForSelector(tab(name))
   }
   await openFile('alpha')
   await win.evaluate(() => { const v = [...document.querySelectorAll('video')].find(v => v.checkVisibility({ visibilityProperty: true })); v.currentTime = 2 })
@@ -36,7 +38,7 @@ try {
   assert.equal(await win.locator('[draggable="true"][title]').count(), 3, 'three tabs')
 
   // each tab keeps its own playhead
-  await win.click('[title$="/alpha"]')
+  await win.click(tab('alpha'))
   await win.waitForTimeout(300)
   const t = await win.evaluate(() => [...document.querySelectorAll('video')].find(v => v.checkVisibility({ visibilityProperty: true })).currentTime)
   assert.ok(Math.abs(t - 2) < 0.2, `alpha's playhead stayed at 2 s (got ${t})`)
@@ -55,7 +57,7 @@ try {
   // relaunch: alpha and gamma come back, gamma on screen
   app = await launch()
   win = await app.firstWindow()
-  await win.waitForSelector('[title$="/gamma"]')
+  await win.waitForSelector(tab('gamma'))
   assert.equal(await win.locator('[draggable="true"][title]').count(), 2)
   assert.match(await win.locator('[draggable="true"].bg-raised').getAttribute('title'), /gamma$/)
   console.log('tabs e2e: ok')

@@ -1,9 +1,8 @@
 // Manul's main process: the window, the media protocol, projects, keys, and the agent (pi-durable → AG-UI → renderer).
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron'
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { dirname, extname, join, resolve, sep } from 'node:path'
-import { Readable } from 'node:stream'
+import { dirname, join } from 'node:path'
 import { startAgent, type AgentHandle } from './agent'
 import { renderClip, setClipProtocol } from './clips'
 import { buildMenu } from './menu'
@@ -35,9 +34,11 @@ import { execFile } from 'node:child_process'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import type { Anchor, BrowserMode, ClipInfo, ConsentRequest, Project, Transcript } from '../shared/types'
 import type { Timeline } from '../shared/timeline'
+import { filesystemSlug, pathBasename } from '../shared/paths'
+import { serveMedia as mediaResponse } from './media-protocol'
 
 app.setName('Manul')
-process.env.PATH = toolPath() // the agent's bash and tools find the bundled ffmpeg / ffprobe first
+process.env.PATH = toolPath() // the agent's shell and tools find bundled executables first
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'manul', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, bypassCSP: true, corsEnabled: true } }])
 
@@ -49,7 +50,31 @@ let updates: ReturnType<typeof startUpdates> | null = null
 const open = new Map<string, Project>() // dir → project
 let browser: Browser | null = null
 let bskd: BskDaemon | null = null
+let browserStartup: Promise<void> | null = null
+let shutdownTask: Promise<void> | null = null
+let quitting = false
+let quitRequested = false
+let allowQuit = false
 const browserMode = (): BrowserMode => getConfig().browser?.mode ?? 'manul'
+
+function shutdown() {
+  quitting = true
+  for (const c of consents.values()) c.answer(false)
+  consents.clear()
+  return shutdownTask ??= new Promise<void>(done => {
+    const timeout = setTimeout(() => {
+      console.warn('Shutdown timed out; stopping the browser daemon before exit.')
+      bskd?.killNow()
+      done()
+    }, 10_000)
+    void (async () => {
+      await startup.catch(e => console.warn('startup', e))
+      await browserStartup
+      try { browser?.destroy() } catch (e) { console.warn('browser shutdown', e) }
+      await Promise.allSettled([agent?.shutdown(), bskd?.stop()])
+    })().catch(e => console.warn('shutdown', e)).finally(() => { clearTimeout(timeout); done() })
+  })
+}
 
 const send = (ch: string, ...args: unknown[]) => win?.webContents.send(ch, ...args)
 const projectOf = (dir: string) => {
@@ -68,6 +93,7 @@ const checkpoint = async (p: Project, message: string) => {
 const consents = new Map<string, { req: ConsentRequest; answer: (ok: boolean) => void }>()
 let consentSeq = 0
 export function askConsent(req: Omit<ConsentRequest, 'id'>): Promise<boolean> {
+  if (quitting) return Promise.resolve(false)
   const id = `c${++consentSeq}`
   return new Promise(answer => {
     consents.set(id, { req: { ...req, id }, answer })
@@ -77,39 +103,9 @@ export function askConsent(req: Omit<ConsentRequest, 'id'>): Promise<boolean> {
 const askTool = (project?: string) => (title: string, body: string, sizeMB: number) =>
   askConsent({ project, title, body, sizeMB, confirm: `Download ${sizeMB >= 1000 ? (sizeMB / 1000).toFixed(1) + ' GB' : sizeMB + ' MB'}` })
 
-// ---------------------------------------------------------------- media protocol: manul://media/<abs path>, with Range for scrubbing
-const MIME: Record<string, string> = { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mkv': 'video/x-matroska',
-  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4',
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json',
-  '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf' }
-
 // Libraries motion clips may load: manul://lib/<file> (GSAP, the clip runtime)
 const LIB = app.isPackaged ? join(process.resourcesPath, 'lib') : join(import.meta.dirname, '../../resources/lib')
-// Clip pages may only reach manul:// and inline data: no network, no other origins.
-const CLIP_CSP = "default-src manul: data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src manul: data: blob:"
-
-function serveMedia(req: Request): Response {
-  const url = new URL(req.url)
-  const path = decodeURIComponent(url.pathname)
-  const file = url.host === 'lib' ? join(LIB, path.replace(/^\/+/, '')) : resolve(path)
-  const roots = url.host === 'lib' ? [LIB] : [Projects.projectsRoot(), ...[...open.keys()]]
-  if (!roots.some(root => file.startsWith(root + sep)) || !existsSync(file)) return new Response('not found', { status: 404 })
-  const size = statSync(file).size
-  const type = MIME[extname(file).toLowerCase()] || 'application/octet-stream'
-  if (type.startsWith('text/html')) {
-    return new Response(Readable.toWeb(createReadStream(file)) as ReadableStream, { headers: { 'content-type': type, 'content-security-policy': CLIP_CSP, 'access-control-allow-origin': '*' } })
-  }
-  const range = /bytes=(\d*)-(\d*)/.exec(req.headers.get('range') || '')
-  if (!range) {
-    return new Response(Readable.toWeb(createReadStream(file)) as ReadableStream, { headers: { 'content-type': type, 'content-length': String(size), 'accept-ranges': 'bytes', 'access-control-allow-origin': '*' } })
-  }
-  const start = range[1] ? Number(range[1]) : size - Number(range[2])
-  const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1
-  return new Response(Readable.toWeb(createReadStream(file, { start, end })) as ReadableStream, {
-    status: 206,
-    headers: { 'content-type': type, 'content-length': String(end - start + 1), 'content-range': `bytes ${start}-${end}/${size}`, 'accept-ranges': 'bytes', 'access-control-allow-origin': '*' },
-  })
-}
+const serveMedia = (req: Request) => mediaResponse(req, LIB, [Projects.projectsRoot(), ...open.keys()])
 
 // ---------------------------------------------------------------- projects
 async function openProject(dir: string) {
@@ -163,11 +159,12 @@ async function ensureProxy(p: Project, mediaRel: string) {
   const key = `${p.dir}|${mediaRel}`
   if (!info || !needsProxy(info) || (p.proxies?.[mediaRel] && existsSync(join(p.dir, p.proxies[mediaRel]))) || proxying.has(key)) return
   proxying.add(key)
-  const out = join('proxies', `${mediaRel.split('/').pop()!.replace(/\.[^.]+$/, '')}.mp4`)
+  const out = `proxies/${pathBasename(mediaRel).replace(/\.[^.]+$/, '')}.mp4`
   try {
     await mkdir(join(p.dir, 'proxies'), { recursive: true })
     await asJob(`Making a preview copy of ${mediaRel.split('/').pop()}`, 'import', j => new Promise<void>((ok, fail) => {
-      const ff = spawn(FFMPEG, ['-y', '-loglevel', 'error', '-progress', 'pipe:1', '-nostats', ...proxyArgs(mediaRel, out, process.platform)], { cwd: p.dir })
+      const ff = spawn(FFMPEG, ['-y', '-loglevel', 'error', '-progress', 'pipe:1', '-nostats', ...proxyArgs(mediaRel, out, process.platform)], { cwd: p.dir, windowsHide: true })
+      ff.once('error', fail)
       let err = ''
       ff.stdout.on('data', d => { const m = /out_time_ms=(\d+)/.exec(String(d)); if (m && info.duration) j.progress(Math.min(1, Number(m[1]) / 1e6 / info.duration)) })
       ff.stderr.on('data', d => { err += d })
@@ -188,6 +185,7 @@ const autoTranscribe = (p: Project, mediaRel: string) => {
 /** Write (or replace) clips/<id>/clip.html and render it. */
 async function saveClip(p: Project, id: string, title: string, html: string, dur: number, overlay = false): Promise<ClipInfo & { frames: number }> {
   if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(id)) throw new Error('Clip ids are short kebab-case, e.g. "title-card".')
+  if (filesystemSlug(id, 'clip', 41) !== id) throw new Error('Clip ids cannot be Windows device names.')
   const tl = p.timeline!
   await mkdir(join(p.dir, 'clips', id), { recursive: true })
   await writeFile(join(p.dir, 'clips', id, 'clip.html'), prepareClipHtml(html, tl, dur, overlay))
@@ -228,8 +226,9 @@ async function mixInto(p: Project, tl: Timeline, dryRel: string, outRel: string)
     await writeFile(join(p.dir, commands), mixCommands(duckEnvelope(regionsOnTimeline(tl, await transcriptsFor(p, tl)), mix.music.duckDb)))
   }
   const args = mixArgs({ dry: dryRel, duration: timelineDuration(tl), mix, commands, out: outRel })
-  await new Promise<void>((ok, fail) => execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { cwd: p.dir, maxBuffer: 1 << 24 }, (err, _o, stderr) => (err ? fail(new Error(stderr.slice(-1500) || err.message)) : ok())))
-  if (commands) await rm(join(p.dir, commands), { force: true })
+  try {
+    await new Promise<void>((ok, fail) => execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { cwd: p.dir, maxBuffer: 1 << 24, windowsHide: true }, (err, _o, stderr) => (err ? fail(new Error(stderr.slice(-1500) || err.message)) : ok())))
+  } finally { if (commands) await rm(join(p.dir, commands), { force: true }) }
 }
 
 /** The film's mix changed only: reuse the version on screen as the dry film and mix it (fast: audio only). */
@@ -237,7 +236,7 @@ async function applyMix(p: Project, mix: Mix) {
   const cur = p.versions.find(v => v.id === p.current)!
   const tl = { ...(cur.timeline || p.timeline!), mix }
   const dry = cur.dry || cur.path
-  const out = join('renders', `mix-${p.versions.length + 1}.mp4`)
+  const out = `renders/mix-${p.versions.length + 1}.mp4`
   await asJob('Mixing', 'render', () => mixInto(p, tl, dry, out), { project: p.dir, doneTitle: 'Mixed' })
   const v = await Projects.addVersion(p, join(p.dir, out), describeMix(mix), 'user', tl, join(p.dir, dry))
   Projects.accept(p, v.id)
@@ -250,8 +249,8 @@ const describeMix = (m: Mix) => m.music ? `Mix: music ${m.music.src.split('/').p
 async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'agent' | 'user' = 'agent') {
   const n = p.versions.length + 1
   const mixed = !!tl.mix && (!!tl.mix.music || tl.mix.filmDb !== 0)
-  const final = join('renders', `timeline-${n}.mp4`)
-  const out = mixed ? join('renders', `timeline-${n}.dry.mp4`) : final
+  const final = `renders/timeline-${n}.mp4`
+  const out = mixed ? `renders/timeline-${n}.dry.mp4` : final
   const rendered = (id: string) => p.clips?.[id]?.video && existsSync(join(p.dir, p.clips[id].video))
   for (const id of new Set([...tl.items.flatMap(it => (it.kind === 'clip' ? [it.clip] : [])), ...(tl.overlays || []).map(o => o.clip)])) if (!rendered(id)) await bakeClip(p, id)
   const args = composeArgs(tl, {
@@ -262,7 +261,7 @@ async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'age
   })
   await asJob(`Rendering “${title}”`, 'render', j => new Promise<void>((ok, fail) => {
     j.progress(null, `${timelineDuration(tl).toFixed(1)} s`)
-    execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { cwd: p.dir, maxBuffer: 1 << 24 }, (err, _o, stderr) => (err ? fail(new Error(stderr.slice(-1500) || err.message)) : ok()))
+    execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { cwd: p.dir, maxBuffer: 1 << 24, windowsHide: true }, (err, _o, stderr) => (err ? fail(new Error(stderr.slice(-1500) || err.message)) : ok()))
   }), { project: p.dir, doneTitle: `Rendered “${title}”` })
   if (mixed) await asJob('Mixing', 'render', () => mixInto(p, tl, out, final), { project: p.dir, doneTitle: 'Mixed' })
   if (by === 'agent' && p.proposal) p.versions = p.versions.filter(v => v.id !== p.proposal)
@@ -280,7 +279,7 @@ export type ExportRequest = { preset: ExportOptions['preset']; fit?: 'pad' | 'cr
 async function exportFilm(p: Project, req: ExportRequest, outAbs: string) {
   const v = p.versions.find(x => x.id === p.current)!
   const info = p.media[v.path]
-  return asJob(`Exporting ${outAbs.split('/').pop()}`, 'render', async j => {
+  return asJob(`Exporting ${pathBasename(outAbs)}`, 'render', async j => {
     let srt: string | undefined
     if (req.captions !== 'none') {
       j.progress(null, 'Captions')
@@ -292,17 +291,21 @@ async function exportFilm(p: Project, req: ExportRequest, outAbs: string) {
     if (tmpSrt) await writeFile(tmpSrt, await readFile(srt!, 'utf8'))
     const args = exportArgs({ preset: req.preset, fit: req.fit, input: join(p.dir, v.path), out: outAbs, source: info,
       burnCaptions: tmpSrt ? '.manul-captions.srt' : undefined, fontsDir: join(LIB, 'fonts'), captionColor: req.captionColor })
-    await new Promise<void>((ok, fail) => {
-      const ff = spawn(FFMPEG, ['-y', '-loglevel', 'error', '-progress', 'pipe:1', '-nostats', ...args], { cwd: p.dir })
-      let err = ''
-      ff.stdout.on('data', d => { const m = /out_time_ms=(\d+)/.exec(String(d)); if (m && info.duration) j.progress(Math.min(1, Number(m[1]) / 1e6 / info.duration)) })
-      ff.stderr.on('data', d => { err += d })
-      ff.on('close', c => (c === 0 ? ok() : fail(new Error(err.slice(-1500)))))
-    })
-    if (tmpSrt) await rm(tmpSrt, { force: true })
-    if (req.captions === 'burn' && srt) await rm(srt, { force: true })
+    try {
+      await new Promise<void>((ok, fail) => {
+        const ff = spawn(FFMPEG, ['-y', '-loglevel', 'error', '-progress', 'pipe:1', '-nostats', ...args], { cwd: p.dir, windowsHide: true })
+        ff.once('error', fail)
+        let err = ''
+        ff.stdout.on('data', d => { const m = /out_time_ms=(\d+)/.exec(String(d)); if (m && info.duration) j.progress(Math.min(1, Number(m[1]) / 1e6 / info.duration)) })
+        ff.stderr.on('data', d => { err += d })
+        ff.on('close', c => (c === 0 ? ok() : fail(new Error(err.slice(-1500)))))
+      })
+    } finally {
+      if (tmpSrt) await rm(tmpSrt, { force: true })
+      if (req.captions === 'burn' && srt) await rm(srt, { force: true })
+    }
     return { file: outAbs, srt: req.captions === 'srt' ? srt : undefined }
-  }, { project: p.dir, doneTitle: `Exported ${outAbs.split('/').pop()}` })
+  }, { project: p.dir, doneTitle: `Exported ${pathBasename(outAbs)}` })
 }
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`
@@ -373,7 +376,7 @@ function wire() {
   })
   ipcMain.handle('project:create', async (_e, file: string) => {
     const p = await openProject((await Projects.createFromFile(file)).dir)
-    await checkpoint(p, `Imported ${file.split('/').pop()}`)
+    await checkpoint(p, `Imported ${pathBasename(file)}`)
     ensureProxy(p, p.versions[0].path)
     autoTranscribe(p, p.versions[0].path)
     return p
@@ -502,7 +505,7 @@ function createWindow() {
     ...(process.platform === 'linux' && existsSync(ICON) ? { icon: ICON } : {}),
     width: 1440, height: 900, minWidth: 900, minHeight: 600,
     backgroundColor: '#0d0c0b',
-    titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 },
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 14 } } : {}),
     show: false,
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
@@ -510,10 +513,12 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' } })
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(join(import.meta.dirname, '../renderer/index.html'))
-  win.on('closed', () => { win = null })
+  win.on('closed', () => { win = null; if (!quitting) app.quit() })
+  if (process.platform === 'win32') win.on('session-end', () => { bskd?.killNow() })
 }
 
-app.whenReady().then(async () => {
+const startup = app.whenReady().then(async () => {
+  if (quitting) return
   if (process.platform === 'darwin' && !app.isPackaged && existsSync(ICON)) app.dock?.setIcon(ICON)
   protocol.handle('manul', serveMedia)
   setClipProtocol(serveMedia)
@@ -528,7 +533,7 @@ app.whenReady().then(async () => {
   })
   wire()
   buildMenu(() => win)
-  updates = startUpdates(st => send('update', st))
+  updates = startUpdates(st => send('update', st), shutdown)
   // skills over the air (signed), at start and every 6 hours; packaged apps, or a feed given for testing
   const feed = process.env.MANUL_SKILLS_FEED || (app.isPackaged ? SKILLS_FEED : '')
   const pullSkills = () => fetchSkillUpdates({ feed, publicKeyPem: readFileSync(join(resources, 'skills-public.pem'), 'utf8'), dir: join(app.getPath('userData'), 'skill-updates') })
@@ -536,7 +541,7 @@ app.whenReady().then(async () => {
   if (feed) { setTimeout(pullSkills, 15_000); setInterval(pullSkills, 6 * 3600_000).unref?.() }
   onJobs(jobs => send('jobs', jobs))
   createWindow()
-  startBrowser(resources)
+  browserStartup = startBrowser(resources)
   try {
     agent = await startAgent({
       // which browser the agent's bsk reaches: Manul's own (private daemon) unless the user chose their Chrome
@@ -609,6 +614,7 @@ async function startBrowser(resources: string) {
   bskd = new BskDaemon({ bin: BSK_BIN, home: privateHome(app.getPath('userData'), homedir()), log: s => { if (/ERROR/.test(s)) console.warn('[bsk]', s.trim().slice(0, 300)) } })
   try {
     const { port } = await bskd.start()
+    if (quitting) { await bskd.stop(); return }
     browser = new Browser({
       win: () => win, dataDir: join(app.getPath('userData'), 'browser'), extDir: join(resources, 'bsk-ext'),
       preloadDir: join(import.meta.dirname, '../preload'), storagePreset: extensionStorage(port), send,
@@ -620,10 +626,14 @@ async function startBrowser(resources: string) {
   }
 }
 
-app.on('window-all-closed', async () => {
-  browser?.destroy()
-  await Promise.all([agent?.shutdown().catch(() => {}), bskd?.stop()])
-  app.quit()
+app.on('before-quit', e => {
+  if (allowQuit) return
+  e.preventDefault()
+  if (quitRequested) return
+  quitRequested = true
+  // Internal browser/clip windows must not keep a closed desktop app alive.
+  void shutdown().finally(() => { allowQuit = true; app.quit() })
 })
+app.on('window-all-closed', () => app.quit())
 app.on('will-quit', () => bskd?.killNow())
-app.on('activate', () => { if (!win) createWindow() })
+app.on('activate', () => { if (!win && !quitting) createWindow() })

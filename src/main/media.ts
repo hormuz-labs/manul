@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import type { MediaInfo, ToolStatus } from '../shared/types'
+import { executableName, withToolPath } from './paths'
 
 const run = promisify(execFile)
 // Manul's own pinned ffmpeg/ffprobe (scripts/fetch-ffmpeg.mjs): resources/bin/<platform>-<arch>/ in development,
@@ -13,13 +14,13 @@ export const BIN = app.isPackaged
   ? join(process.resourcesPath, 'bin')
   : join(import.meta.dirname, '../../resources/bin', `${process.platform}-${process.arch}`)
 
-export const FFMPEG = join(BIN, 'ffmpeg')
-export const FFPROBE = join(BIN, 'ffprobe')
+export const FFMPEG = join(BIN, executableName('ffmpeg'))
+export const FFPROBE = join(BIN, executableName('ffprobe'))
 /** Manul's own whisper.cpp (scripts/build-whisper.sh); its model is downloaded on demand. */
-export const WHISPER_CLI = join(BIN, 'whisper-cli')
+export const WHISPER_CLI = join(BIN, executableName('whisper-cli'))
 
 /** PATH with the bundled tools first, for every process the agent starts. */
-export const toolPath = () => [dirname(FFMPEG), dirname(FFPROBE), process.env.PATH].join(':')
+export const toolPath = () => withToolPath([dirname(FFMPEG), dirname(FFPROBE)]).PATH!
 
 export async function probe(file: string): Promise<MediaInfo> {
   const { stdout } = await run(FFPROBE, ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file])

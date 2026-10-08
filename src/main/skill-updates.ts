@@ -23,7 +23,11 @@ export function applyManifest(m: Manifest, dir: string): { applied: string[]; sk
   // validate everything before writing anything
   for (const k of m.skills) {
     if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(k.id)) throw new Error(`Skill update rejected: bad skill id "${k.id}".`)
+    if (/^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i.test(k.id)) throw new Error(`Skill update rejected: reserved skill id "${k.id}".`)
     for (const f of Object.keys(k.files)) {
+      if (f.split(/[\\/]/).some(part => /[<>:"|?*\x00-\x1f]|[. ]$/.test(part) || /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(part))) {
+        throw new Error(`Skill update rejected: non-portable file path "${f}".`)
+      }
       const target = resolve(dir, k.id, f)
       if (!target.startsWith(resolve(dir, k.id) + sep)) throw new Error(`Skill update rejected: file path "${f}" leaves the skill folder.`)
     }

@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import { encodeMediaPath } from '../../../shared/paths'
 
 export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs))
 
@@ -12,4 +13,4 @@ export const timecode = (s: number, tenths = true) => {
 }
 
 /** File path → manul:// URL served by the main process (with Range support). */
-export const mediaUrl = (abs: string) => `manul://media${abs.split('/').map(encodeURIComponent).join('/')}`
+export const mediaUrl = encodeMediaPath

@@ -1,7 +1,7 @@
 // Manul's agent: a pi-durable Harness on SQLite, so conversations, tool calls and their output survive a crash or quit.
 // One durable conversation per project. Every view change goes through the AG-UI adapter to the renderer.
 // Extensions:
-//   coding   read / write / edit / bash in the project folder (bundled ffmpeg and ffprobe are on PATH)
+//   coding   read / write / edit / native shell in the project folder (bundled ffmpeg and ffprobe are on PATH)
 //   editor   Manul's own tools: project state, probe, ffmpeg, propose a version, seek, resolve a note, ask the user
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context'
 import { Type } from '@earendil-works/pi-ai'
@@ -12,18 +12,20 @@ import { openaiProvider } from '@earendil-works/pi-ai/providers/openai'
 import { createRegistry, defineExtension, defineTool, Harness, section } from '@earendil-works/pi-durable'
 import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node'
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node'
-import { CodingTools } from '@earendil-works/pi-durable/tools'
+import { CodingTools, createPowerShellTool } from '@earendil-works/pi-durable/tools'
 import type { BaseEvent } from '@ag-ui/core'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { isAbsolute, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { AguiAdapter } from './agui'
 import { liveEnv } from './bsk'
+import { isWithinDir } from './paths'
 import { chooseModel, describeModels } from './models'
 import { buildProviders, listProviders } from './providers'
 import type { Memory } from './memory'
 import type { Skills } from './skills'
 import { FFMPEG, probe } from './media'
+import { windowsPowerShell } from './tools'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { duration as timelineDuration } from '../shared/timeline'
@@ -67,7 +69,13 @@ async function clipResult(p: Project, c: ClipInfo & { frames: number }) {
   }
 }
 
-function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
+export function codingExtension(platform = process.platform) {
+  return platform === 'win32' ? defineExtension({ ...CodingTools, tools: [
+    ...CodingTools.tools!.filter(t => t.name !== 'bash'), createPowerShellTool({ programs: [windowsPowerShell()] }),
+  ] }) : CodingTools
+}
+
+export function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
   const proj = (api: Any) => {
     const dir = dirOf(api.conversationId)
     const p = bridge.project(dir)
@@ -75,8 +83,8 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
     return p
   }
   const inProject = (p: Project, path: string) => {
-    const abs = isAbsolute(path) ? path : resolve(p.dir, path)
-    if (!abs.startsWith(p.dir)) throw new Error('Paths must stay inside the project folder.')
+    const abs = resolve(p.dir, path)
+    if (!isWithinDir(p.dir, abs)) throw new Error('Paths must stay inside the project folder.')
     return abs
   }
   return defineExtension({
@@ -87,7 +95,8 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       `renders/ (your outputs), notes/ (frame stills).\n` +
       `How to work:\n` +
       `- Start with project_state to see the versions, the current one, open notes and media details.\n` +
-      `- Edit with the ffmpeg tool (bundled; also on PATH for bash). Read the current version, write new files to renders/. Never overwrite media/.\n` +
+      `- Edit with the ffmpeg tool (bundled; also on PATH for the shell). Read the current version, write new files to renders/. Never overwrite media/.\n` +
+      (process.platform === 'win32' ? `- Shell commands use the powershell tool, not Bash. Use PowerShell syntax and built-in commands; translate Unix examples in skills. Do not require Git Bash, WSL, which, du or other Unix utilities. Quote paths with spaces; use & to run a quoted executable path. Python is optional, not assumed installed.\n` : '') +
       `- For anything about speech (cut ums or pauses, remove a sentence, find a moment, captions) read the transcript tool first and cut on word times. ` +
       `Each word's start and end are cut points already placed in the quiet around it: cut exactly on them (to drop words a–b, cut from a's start to b's end). ` +
       `To cut many pieces, build one ffmpeg command with trim/atrim + concat (or select/aselect) from the word times.\n` +
@@ -135,10 +144,10 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
         name: 'ffmpeg',
         description: 'Run the bundled ffmpeg in the project folder. Pass the arguments after "ffmpeg" (no shell quoting needed; -y is added). Paths are relative to the project folder; write outputs to renders/.',
         parameters: Type.Object({ args: Type.Array(Type.String(), { description: 'e.g. ["-i","media/a.mp4","-ss","5","-c:v","libx264","renders/cut.mp4"]' }) }),
-        execute: async (args: Any, api: Any) => {
+        execute: async (args: Any, api: Any, context) => {
           const p = proj(api)
           const out = await new Promise<string>((ok, fail) => {
-            execFile(FFMPEG, ['-y', '-hide_banner', '-loglevel', 'error', ...args.args], { cwd: p.dir, maxBuffer: 1 << 24, signal: api.signal },
+            execFile(FFMPEG, ['-y', '-hide_banner', '-loglevel', 'error', ...args.args], { cwd: p.dir, maxBuffer: 1 << 24, signal: context.abortSignal, windowsHide: true },
               (err, _o, stderr) => (err ? fail(new Error(`ffmpeg failed: ${stderr.slice(-3000) || err.message}`)) : ok(stderr.slice(-1500))))
           })
           return text(out || 'done')
@@ -317,8 +326,8 @@ export function browserExtension(bridge: Bridge, dirOf: (convId: string) => stri
         execute: async (args: Any, api: Any) => {
           const dir = dirOf(api.conversationId)
           if (!dir || !bridge.project(dir)) throw new Error('This project is not open.')
-          const abs = isAbsolute(args.path) ? args.path : resolve(dir, args.path)
-          if (!abs.startsWith(dir + '/')) throw new Error('The file must be inside the project folder (download it to downloads/ first).')
+          const abs = resolve(dir, args.path)
+          if (!isWithinDir(dir, abs)) throw new Error('The file must be inside the project folder (download it to downloads/ first).')
           if (!existsSync(abs)) throw new Error(`No file at ${args.path}.`)
           return text(`Added as ${await bridge.importMedia(dir, abs)}`)
         },
@@ -366,7 +375,7 @@ export async function startAgent(opts: {
   const convDir = new Map<string, string>() // conversation id → project dir
   const registry = createRegistry()
   const dirOf = (id: string) => convDir.get(String(id)) || ''
-  for (const ext of [CodingTools, editorExtension(opts.bridge, dirOf), memoryExtension(opts.memory), skillsExtension(opts.skills),
+  for (const ext of [codingExtension(), editorExtension(opts.bridge, dirOf), memoryExtension(opts.memory), skillsExtension(opts.skills),
     ...(opts.browserPrompt ? [browserExtension(opts.bridge, dirOf, opts.browserPrompt)] : [])]) registry.install(ext)
   const shellEnv = opts.shellEnv ? liveEnv(opts.shellEnv) : undefined
 
@@ -425,4 +434,3 @@ export async function startAgent(opts: {
     async shutdown() { for (const d of [...live.keys()]) this.close(d); await harness.close(ctx) },
   }
 }
-

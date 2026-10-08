@@ -1,6 +1,6 @@
 import { generateKeyPairSync, sign } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { applyManifest, buildManifest, verifyManifest } from '../src/main/skill-updates'
@@ -41,6 +41,17 @@ describe('over-the-air skill updates', () => {
     expect(() => applyManifest({ issued: 9, skills: [{ id: '../x', version: 1, files: { 'SKILL.md': 'a' } }] }, dir)).toThrow(/id/)
   })
 
+  it('rejects Windows device names and non-portable paths before writing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'manul-ota-'))
+    for (const id of ['con', 'aux', 'nul', 'com1', 'lpt9']) {
+      expect(() => applyManifest({ issued: 1, skills: [{ id, version: 1, files: { 'SKILL.md': 'x' } }] }, dir)).toThrow(/reserved/)
+    }
+    for (const path of ['references/CON.md', 'NUL', 'name:stream', 'trailing.', 'trailing ', 'bad?.md', 'D:\\outside.md']) {
+      expect(() => applyManifest({ issued: 1, skills: [{ id: 'valid', version: 1, files: { [path]: 'x' } }] }, dir)).toThrow(/path/)
+    }
+    expect(existsSync(join(dir, '.manifest.json'))).toBe(false)
+  })
+
   it('updates override bundled skills; the user\'s own copy still wins', () => {
     const root = mkdtempSync(join(tmpdir(), 'manul-ota-'))
     const mk = (d: string, body: string) => { mkdirSync(join(root, d, 'motion-design'), { recursive: true }); writeFileSync(join(root, d, 'motion-design', 'SKILL.md'), `---\nname: motion-design\ndescription: ${body}\n---\n`) }
@@ -79,7 +90,7 @@ describe('the skills feed', () => {
 
   it('the shipped public key verifies what the signing script makes', async () => {
     const { execFileSync } = await import('node:child_process')
-    const key = join(process.env.HOME!, '.config/manul/skills-signing.pem')
+    const key = join(homedir(), '.config/manul/skills-signing.pem')
     if (!existsSync(key)) return // only on a machine that holds the signing key
     const root = join(import.meta.dirname, '..')
     execFileSync('node', ['--experimental-strip-types', '--no-warnings', 'scripts/sign-skills.mjs'], { cwd: root })

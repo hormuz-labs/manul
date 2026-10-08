@@ -178,6 +178,15 @@ sudo apt update && sudo apt install manul
 
 Other Linux: grab the AppImage from the [latest release](https://github.com/hormuz-labs/manul/releases/latest). More at **[manul.si](https://manul.si)**.
 
+**Windows x64:** a native build and per-user NSIS installer are configured, but have not yet been validated or published.
+Do not treat CI's unsigned test artifacts as public releases. After the signing and clean-Windows gates in
+[RELEASING.md](RELEASING.md) pass, the release installer will be named `Manul-<version>-windows-x64-Setup.exe`.
+Open that single offline installer: no wizard, repositories, package manager, Node, Git, Git Bash, Python,
+FFmpeg or developer tools to install. It installs for your account, creates Desktop and Start menu shortcuts,
+and opens Manul. The app and core tool executables are bundled; speech models and optional heavier tools
+still download inside Manul when requested. Requires **Windows 10 version 1903 (build 18362) or newer,
+or Windows 11, x64**. Windows ARM64 and 32-bit installers are not configured.
+
 It's free and open source. Bring a Claude, Gemini or OpenAI key (it's kept in your system's keychain), or wait for the single **Manul key**, coming soon.
 
 Want to hack on it? Run it from source with **[CONTRIBUTING.md](CONTRIBUTING.md)**.
