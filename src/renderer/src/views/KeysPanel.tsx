@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import type { KeyInfo } from '../../../shared/types'
+import { ProvidersSection } from './ProvidersSection'
 
 const CAPS: { cap: string; label: string }[] = [
   { cap: 'text', label: 'Editing agent' },
@@ -16,6 +17,7 @@ export function KeysPanel() {
   const [keys, setKeys] = useState<KeyInfo[]>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [value, setValue] = useState('')
+  const [customKeyed, setCustomKeyed] = useState(false)
   useEffect(() => { window.manul.keys.list().then(setKeys) }, [])
 
   const save = async (env: string, v: string) => {
@@ -23,7 +25,7 @@ export function KeysPanel() {
     setEditing(null)
     setValue('')
   }
-  const have = new Set(keys.filter(k => k.set).flatMap(k => k.unlocks))
+  const have = new Set([...keys.filter(k => k.set).flatMap(k => k.unlocks), ...(customKeyed ? ['text'] : [])])
 
   return (
     <div>
@@ -60,6 +62,7 @@ export function KeysPanel() {
               )}
             </div>
           ))}
+          <ProvidersSection onKeyed={setCustomKeyed} />
           <div className="mt-4 rounded-lg border border-dashed border-line p-3">
             <div className="mb-2 text-xs font-medium text-dim">What works with your keys</div>
             <div className="flex flex-wrap gap-x-4 gap-y-1">

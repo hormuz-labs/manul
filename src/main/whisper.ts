@@ -11,6 +11,7 @@ import { asJob, type JobHandle } from './jobs'
 import { FFMPEG, probe, WHISPER_CLI } from './media'
 import { isInstalled, scriptPath, venvPython, WHISPER_MODEL, whisperEnv, whisperModelPath } from './tools'
 import type { Segment, Transcript, WhisperConfig, WhisperStatus, Word } from '../shared/types'
+import { dtwFlags, dtwLag, envelope, readWav, snapSegments, whisperCppWords } from './wordtimes'
 
 const run = promisify(execFile)
 
@@ -113,34 +114,42 @@ async function runTranscribe(file: string, outJson: string, j: JobHandle): Promi
   await mkdir(dirname(outJson), { recursive: true })
   let segments: Segment[], language: string
 
-  if (engine.engine === 'system' || engine.engine === 'bundled') {
-    // whisper.cpp wants 16 kHz mono WAV; one word per segment (-ml 1 -sow) gives word timings
-    const tmp = join(dirname(outJson), `.${basename(outJson, '.json')}`)
-    j.progress(null, 'Extracting audio')
-    await run(FFMPEG, ['-y', '-loglevel', 'error', '-i', file, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', `${tmp}.wav`])
-    const english = /\.en(\b|[.-])/.test(basename(engine.model!))
-    await proc(engine.binary!, ['-m', engine.model!, '-f', `${tmp}.wav`, '-ojf', '-of', tmp, '-ml', '1', '-sow', '-pp', '-np', '-t', '4',
-      '-l', english ? 'en' : 'auto', '--prompt', FILLER_PROMPT], undefined, line => {
-      const m = /progress\s*=\s*(\d+)%/.exec(line)
-      if (m) j.progress(Number(m[1]) / 100, `${engine.label}`)
-    })
-    const raw = JSON.parse(await readFile(`${tmp}.json`, 'utf8')) as { result?: { language?: string }; transcription: { offsets: { from: number; to: number }; text: string }[] }
-    await rm(`${tmp}.wav`, { force: true }); await rm(`${tmp}.json`, { force: true })
-    const words: Word[] = raw.transcription
-      .map(t => ({ w: t.text.trim(), s: t.offsets.from / 1000, e: t.offsets.to / 1000 }))
-      .filter(w => w.w && !/^\[.*\]$/.test(w.w))
-    segments = groupWords(words)
-    language = raw.result?.language || (english ? 'en' : 'auto')
-  } else {
-    const tmp = `${outJson}.tmp`
-    await proc(venvPython('whisper'), [scriptPath('transcribe.py'), file, '--out', tmp, '--model', WHISPER_MODEL], whisperEnv(), line => {
-      const m = /^PROGRESS ([\d.]+)/.exec(line)
-      if (m) j.progress(Number(m[1]), engine.label)
-    })
-    const raw = JSON.parse(await readFile(tmp, 'utf8')) as { language: string; segments: Segment[] }
-    await rm(tmp, { force: true })
-    segments = raw.segments
-    language = raw.language
+  // 16 kHz mono WAV: what whisper.cpp reads, and what word boundaries are checked against
+  const wav = join(dirname(outJson), `.${basename(outJson, '.json')}.wav`)
+  j.progress(null, 'Extracting audio')
+  await run(FFMPEG, ['-y', '-loglevel', 'error', '-i', file, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav])
+  try {
+    if (engine.engine === 'system' || engine.engine === 'bundled') {
+      // one word per segment (-ml 1 -sow); DTW token times for word starts where the build and model support it
+      const tmp = wav.replace(/\.wav$/, '')
+      const english = /\.en(\b|[.-])/.test(basename(engine.model!))
+      const dtw = await dtwFlags(engine.binary!, engine.model!)
+      await proc(engine.binary!, ['-m', engine.model!, '-f', wav, '-ojf', '-of', tmp, '-ml', '1', '-sow', '-pp', '-np', '-t', '4',
+        '-l', english ? 'en' : 'auto', '--prompt', FILLER_PROMPT, ...dtw], undefined, line => {
+        const m = /progress\s*=\s*(\d+)%/.exec(line)
+        if (m) j.progress(Number(m[1]) / 100, `${engine.label}`)
+      })
+      const raw = JSON.parse(await readFile(`${tmp}.json`, 'utf8'))
+      await rm(`${tmp}.json`, { force: true })
+      segments = groupWords(whisperCppWords(raw, dtw.length ? dtwLag(engine.model!) : null))
+      language = raw.result?.language || (english ? 'en' : 'auto')
+    } else {
+      const tmp = `${outJson}.tmp`
+      await proc(venvPython('whisper'), [scriptPath('transcribe.py'), file, '--out', tmp, '--model', WHISPER_MODEL], whisperEnv(), line => {
+        const m = /^PROGRESS ([\d.]+)/.exec(line)
+        if (m) j.progress(Number(m[1]), engine.label)
+      })
+      const raw = JSON.parse(await readFile(tmp, 'utf8')) as { language: string; segments: Segment[] }
+      await rm(tmp, { force: true })
+      segments = raw.segments
+      language = raw.language
+    }
+    // every word's start and end become cut points in the quiet around it (see wordtimes.ts)
+    j.progress(null, 'Placing word boundaries')
+    const { sr, x } = readWav(await readFile(wav))
+    segments = snapSegments(segments, envelope(x, sr))
+  } finally {
+    await rm(wav, { force: true })
   }
 
   const t: Transcript = { media: basename(file), language, model: engine.label, segments, createdAt: Date.now() }

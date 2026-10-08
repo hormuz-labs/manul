@@ -1,16 +1,17 @@
 // Manul's main process: the window, the media protocol, projects, keys, and the agent (pi-durable → AG-UI → renderer).
 import { CRASH_DSN } from './crash' // first: crash reports must start before anything else
 import { app, BrowserWindow, dialog, ipcMain, powerMonitor, protocol, shell } from 'electron'
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { startAgent, type AgentHandle } from './agent'
+import { renderCuts } from './cuts'
 import { renderClip, setClipProtocol } from './clips'
 import { buildMenu } from './menu'
 import { startUpdates } from './updates'
-import { fetchSkillUpdates, SKILLS_FEED } from './skill-updates'
 import { keyStatus, loadKeys, setKey } from './keys'
+import { importOmp, ompAvailable, providerInfo, removeProvider, saveProvider } from './providers'
 import { asJob, listJobs, onJobs } from './jobs'
 import { toolPath, toolStatus } from './media'
 import { thumbnails } from './thumbnails'
@@ -27,13 +28,19 @@ import { Browser } from './browser'
 import { agentEnv, browserPrompt, BskDaemon, BSK_BIN, chromeBsk, extensionStorage, findUserBsk, privateHome } from './bsk'
 import { homedir } from 'node:os'
 import * as Projects from './projects'
-import { addOverlay, composeArgs, duration as timelineDuration, insertAt } from '../shared/timeline'
+import * as Files from './files'
+import { addOverlay, applyEdit, composeArgs, describeEdit, duration as timelineDuration, insertAt, sameCut, type Edit, type Item } from '../shared/timeline'
 import { moveElement, prepareClipHtml } from '../shared/clip-html'
 import { captionCues, exportArgs, toSrt, type ExportOptions } from '../shared/export'
 import { needsProxy, proxyArgs } from '../shared/proxy'
+import { joinAttached } from '../shared/attached'
+import { extOf } from '../shared/file-kinds'
+import { matchSubtitles, parseSubtitles, shiftSubtitles } from '../shared/subtitles'
+import type { Speakers as SpeakersResult } from '../shared/speakers'
+import * as Speakers from './speakers'
 import { duckEnvelope, mixArgs, mixCommands, regionsOnTimeline, type Mix } from '../shared/mix'
 import { spawn } from 'node:child_process'
-import { FFMPEG } from './media'
+import { FFMPEG, FFPROBE, probe } from './media'
 import { execFile } from 'node:child_process'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import type { Anchor, BrowserMode, ClipInfo, ConsentRequest, Project, Transcript } from '../shared/types'
@@ -123,6 +130,8 @@ async function openProject(dir: string) {
   const p = open.get(dir) || (await Projects.load(dir))
   open.set(dir, p)
   for (const rel of Object.keys(p.media)) ensureProxy(p, rel) // older projects, or a copy that was deleted
+  // files added or removed in Finder (and projects from before the file list) show up in the list and to the agent
+  Projects.syncFiles(p).then(changed => { if (changed) return publish(p) }).catch(e => console.warn('files', e))
   if (agent) {
     const conv = await agent.open(dir, p.conversation)
     if (conv !== p.conversation || !p.conversations?.some(c => c.id === conv)) { useConversation(p, conv); await Projects.save(p) }
@@ -155,12 +164,85 @@ async function transcriptOf(p: Project, mediaRel: string, opts: { ask: boolean }
   const job = Whisper.transcribe(join(p.dir, mediaRel), join(p.dir, out), `Transcribing ${mediaRel.split('/').pop()}`, p.dir)
     .then(async t => {
       p.transcripts = { ...p.transcripts, [mediaRel]: out }
+      if (p.subtitles?.[mediaRel]) await checkSubtitles(p, mediaRel, t)
       await publish(p)
+      // then who speaks when, in the background (local and free, so it never asks)
+      if (t.segments.length) speakersOf(p, mediaRel, { make: true }).catch(e => console.warn('speakers failed', e))
       return t
     })
     .finally(() => inflight.delete(key))
   inflight.set(key, job)
   return job
+}
+
+// ---------------------------------------------------------------- who speaks when
+const diarizing = new Map<string, Promise<SpeakersResult>>()
+
+/** The voices in a media file: made already, or (make) worked out as a background job. With count, diarize for exactly
+ *  that many people (the agent knows; more accurate) and make that the one shown. */
+async function speakersOf(p: Project, mediaRel: string, o: { make: boolean; count?: number }): Promise<SpeakersResult | null> {
+  const abs = join(p.dir, mediaRel)
+  if (!o.count) {
+    const have = await Speakers.cachedSpeakers(p.dir, abs, p.speakers?.[mediaRel] && join(p.dir, p.speakers[mediaRel]))
+    if (have) return have.result
+    if (!o.make) return null
+  }
+  const key = `${p.dir}|${mediaRel}|${o.count || 0}`
+  const busy = diarizing.get(key)
+  if (busy) return busy
+  const name = mediaRel.split('/').pop()
+  const job = asJob(`Finding who speaks in ${name}`, 'speakers', async j => Speakers.analyzeSpeakers(p.dir, abs, {
+    speakers: o.count, transcript: await transcriptOf(p, mediaRel, { ask: false }).catch(() => null), onProgress: x => j.progress(x),
+  }),
+    { project: p.dir, doneTitle: `Found who speaks in ${name}` })
+    .then(async ({ result, file }) => {
+      p.speakers = { ...p.speakers, [mediaRel]: file.slice(p.dir.length + 1) }
+      await publish(p)
+      return result
+    })
+    .finally(() => diarizing.delete(key))
+  diarizing.set(key, job)
+  return job
+}
+
+/** Name voices (id → name; an empty name clears it). The same name on two voices makes them one person. */
+async function nameSpeakers(p: Project, mediaRel: string, names: Record<string, string>) {
+  const now = { ...p.speakerNames?.[mediaRel] }
+  for (const [id, n] of Object.entries(names)) { if (n.trim()) now[id] = n.trim(); else delete now[id] }
+  p.speakerNames = { ...p.speakerNames, [mediaRel]: now }
+  await checkpoint(p, `Named speakers in ${mediaRel.split('/').pop()}`)
+  return now
+}
+
+// ---------------------------------------------------------------- subtitles for a video
+/** The subtitles that go with a media file: the ones chosen, else ones named after it (chosen from then on). */
+function subtitlesLink(p: Project, mediaRel: string) {
+  const link = p.subtitles?.[mediaRel]
+  if (link && p.files?.[link.file]) return link
+  const byName = Object.keys(p.files || {}).find(f => p.files![f].kind === 'subtitles' && Files.subtitlesFor(f, p.files!) === mediaRel)
+  if (!byName) return undefined
+  p.subtitles = { ...p.subtitles, [mediaRel]: { file: byName } }
+  return p.subtitles[mediaRel]
+}
+
+/** Do the linked subtitles match what's said (and how far off are their times)? Needs the transcript. */
+async function checkSubtitles(p: Project, mediaRel: string, t?: Transcript | null) {
+  const link = p.subtitles?.[mediaRel]
+  if (!link) return
+  t ??= await transcriptOf(p, mediaRel, { ask: false }).catch(() => null)
+  const cues = parseSubtitles(await readFile(join(p.dir, link.file), 'utf8'), extOf(link.file))
+  const m = t ? matchSubtitles(cues, t.segments.flatMap(s => s.words)) : null
+  p.subtitles = { ...p.subtitles, [mediaRel]: { file: link.file, ...(m || {}) } }
+}
+
+async function subtitlesState(p: Project, mediaRel: string) {
+  const before = JSON.stringify(p.subtitles?.[mediaRel])
+  const link = subtitlesLink(p, mediaRel)
+  if (link && link.match === undefined && p.transcripts?.[mediaRel]) await checkSubtitles(p, mediaRel)
+  if (JSON.stringify(p.subtitles?.[mediaRel]) !== before) await publish(p)
+  const now = p.subtitles?.[mediaRel]
+  const cues = now ? parseSubtitles(await readFile(join(p.dir, now.file), 'utf8').catch(() => ''), extOf(now.file)) : []
+  return { link: now, cues, candidates: Object.keys(p.files || {}).filter(f => p.files![f].kind === 'subtitles').sort() }
 }
 
 /** Heavy or hard-to-decode footage gets a light preview copy in proxies/ (the player uses it; renders never do). */
@@ -254,7 +336,7 @@ async function applyMix(p: Project, mix: Mix) {
 const describeMix = (m: Mix) => m.music ? `Mix: music ${m.music.src.split('/').pop()} at ${m.music.db} dB, ducked ${m.music.duckDb} dB` : `Mix: film audio ${m.filmDb >= 0 ? '+' : ''}${m.filmDb} dB`
 
 /** Render a timeline into renders/ and propose it as a version (or, for the user's own edits, make it current). */
-async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'agent' | 'user' = 'agent') {
+async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'agent' | 'user' = 'agent', propose = by === 'agent') {
   const n = p.versions.length + 1
   const mixed = !!tl.mix && (!!tl.mix.music || tl.mix.filmDb !== 0)
   const final = join('renders', `timeline-${n}.mp4`)
@@ -267,17 +349,95 @@ async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'age
     overlayOf: o => p.clips![o.clip].video,
     out,
   })
-  await asJob(`Rendering “${title}”`, 'render', j => new Promise<void>((ok, fail) => {
+  await asJob(`Rendering “${title}”`, 'render', async j => {
     j.progress(null, `${timelineDuration(tl).toFixed(1)} s`)
-    execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { cwd: p.dir, maxBuffer: 1 << 24 }, (err, _o, stderr) => (err ? fail(new Error(stderr.slice(-1500) || err.message)) : ok()))
-  }), { project: p.dir, doneTitle: `Rendered “${title}”` })
+    // only cuts of one file: most of the picture is copied as it is (fast); anything else, or if that fails, in full
+    const cut = await renderCuts({ ffmpeg: FFMPEG, ffprobe: FFPROBE, cwd: p.dir, tl, out, progress: f => j.progress(f) })
+      .catch(e => ({ ok: false as const, why: `it failed: ${e instanceof Error ? e.message : e}` }))
+    if (cut.ok) return cut.copied
+    console.info(`Rendering “${title}” in full: ${cut.why}`)
+    await new Promise<void>((ok, fail) => execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { cwd: p.dir, maxBuffer: 1 << 24 }, (err, _o, stderr) => (err ? fail(new Error(stderr.slice(-1500) || err.message)) : ok())))
+  }, { project: p.dir, doneTitle: `Rendered “${title}”`, doneDetail: copied => (copied ? `Copied ${Math.round(copied * 100)}% of the picture as it was` : undefined) })
   if (mixed) await asJob('Mixing', 'render', () => mixInto(p, tl, out, final), { project: p.dir, doneTitle: 'Mixed' })
-  if (by === 'agent' && p.proposal) p.versions = p.versions.filter(v => v.id !== p.proposal)
+  if (propose && p.proposal) p.versions = p.versions.filter(v => v.id !== p.proposal)
   const v = await Projects.addVersion(p, join(p.dir, final), title, by, tl, mixed ? join(p.dir, out) : undefined)
-  if (by === 'user') Projects.accept(p, v.id)
-  else p.proposal = v.id
-  await checkpoint(p, by === 'user' ? title : `Proposed “${title}”`)
+  if (propose) p.proposal = v.id
+  else Projects.accept(p, v.id)
+  await checkpoint(p, propose ? `Proposed “${title}”` : title)
   return v.id
+}
+
+// ---------------------------------------------------------------- the edit, by hand
+// Splits, cuts, trims, moves and volume change the project's timeline at once: the film plays from its pieces and is
+// rendered only when it is exported or saved as a version. Every change can be undone (per project, until a version
+// is put on screen); the project's history gets one point a little after a run of edits.
+/** back/forward: the edits to undo and redo; since: what was done since the version (undone ones taken off), for its title */
+/** head: the edit as the last change left it (replaced since by a version, History…: the stack no longer applies) */
+type Undo = { base: string; head?: Timeline; back: { tl: Timeline; what: string }[]; forward: { tl: Timeline; what: string }[]; since: string[] }
+const undos = new Map<string, Undo>()
+function undoOf(p: Project) {
+  let u = undos.get(p.dir)
+  if (!u || u.base !== p.current || (u.head && u.head !== p.timeline)) { u = { base: p.current, back: [], forward: [], since: [] }; undos.set(p.dir, u) }
+  return u
+}
+const undoState = (p: Project) => { const u = undoOf(p); return { back: u.back.length, forward: u.forward.length } }
+const sendUndo = (p: Project) => send('timeline-undo', p.dir, undoState(p))
+const summary = (what: string[]) => (what.length <= 3 ? what.join(', ') : `${what.slice(0, 2).join(', ')} and ${what.length - 2} more edits`)
+
+const pendingNotes = new Map<string, { timer?: NodeJS.Timeout; what: string[] }>()
+function noteLater(p: Project, what: string) {
+  const n = pendingNotes.get(p.dir) || { what: [] }
+  clearTimeout(n.timer)
+  n.what.push(what)
+  n.timer = setTimeout(() => { pendingNotes.delete(p.dir); new History(p.dir).record(summary(n.what)).catch(e => console.warn('history', e)) }, 2000)
+  pendingNotes.set(p.dir, n)
+}
+
+async function editTimeline(p: Project, edits: Edit[]) {
+  if (p.proposal) throw new Error('Accept or reject the proposed version first, then edit.')
+  const maxOf = (it: Item) => (it.kind === 'media' ? p.media[it.src]?.duration : p.clips?.[it.clip]?.duration)
+  const before = p.timeline!
+  let tl = before
+  for (const e of edits) {
+    if (e.op === 'insert' && !(p.media[e.src]?.width && p.media[e.src].duration > 0)) throw new Error(`${e.src.split('/').pop()} isn't footage that can go in the film.`)
+    tl = applyEdit(tl, e, maxOf)
+  }
+  if (sameCut(before, tl)) return p
+  const u = undoOf(p)
+  const what = summary(edits.map(describeEdit))
+  u.back.push({ tl: before, what })
+  if (u.back.length > 200) u.back.shift()
+  u.forward = []
+  u.since.push(what)
+  p.timeline = u.head = tl
+  await publish(p)
+  noteLater(p, what)
+  sendUndo(p)
+  return p
+}
+
+async function undoEdit(p: Project, redo: boolean) {
+  if (p.proposal) throw new Error('Accept or reject the proposed version first.')
+  const u = undoOf(p)
+  const step = (redo ? u.forward : u.back).pop()
+  if (!step) return p
+  ;(redo ? u.back : u.forward).push({ tl: p.timeline!, what: step.what })
+  if (redo) u.since.push(step.what)
+  else u.since.splice(u.since.lastIndexOf(step.what), 1)
+  p.timeline = u.head = step.tl
+  await publish(p)
+  noteLater(p, `${redo ? 'Redo' : 'Undo'} ${step.what.charAt(0).toLowerCase()}${step.what.slice(1)}`)
+  sendUndo(p)
+  return p
+}
+
+/** Render the edit into a version and put it on screen (the user's own work: no before/after). */
+async function renderEdit(p: Project) {
+  if (!Projects.edited(p)) return p.current
+  const u = undoOf(p)
+  const id = await proposeTimeline(p, p.timeline!, u.since.length ? summary(u.since) : 'Edited by hand', 'user', false)
+  sendUndo(p)
+  return id
 }
 
 // ---------------------------------------------------------------- export
@@ -343,8 +503,6 @@ function wire() {
   ipcMain.handle('skills:enable', (_e, id: string, on: boolean) => { skills.setEnabled(id, on); return skillState() })
   ipcMain.handle('skills:profile', (_e, id: string) => { skills.useProfile(id); return skillState() })
   ipcMain.handle('skills:newProfile', (_e, name: string) => { const p = skills.createProfile(name); skills.useProfile(p.id); return skillState() })
-  ipcMain.handle('skills:edit', async (_e, id: string) => { const k = skills.fork(id); await shell.openPath(k.path); return skillState() })
-  ipcMain.handle('skills:folder', () => shell.openPath(join(app.getPath('userData'), 'skills')))
   ipcMain.handle('memory:list', () => memory.list())
   ipcMain.handle('memory:save', (_e, name: string, description: string, body: string) => { memory.remember(name, description, body); return memory.list() })
   ipcMain.handle('memory:forget', (_e, name: string) => { memory.forget(name); return memory.list() })
@@ -357,6 +515,32 @@ function wire() {
     return r.canceled ? null : r.filePaths[0]
   })
   ipcMain.handle('transcript:get', async (_e, dir: string, mediaRel: string, make: boolean) => transcriptOf(projectOf(dir), mediaRel, { ask: make }))
+  ipcMain.handle('speakers:get', (_e, dir: string, mediaRel: string, make: boolean) => speakersOf(projectOf(dir), mediaRel, { make }))
+  ipcMain.handle('speakers:name', (_e, dir: string, mediaRel: string, names: Record<string, string>) => nameSpeakers(projectOf(dir), mediaRel, names))
+  ipcMain.handle('subtitles:get', (_e, dir: string, mediaRel: string) => subtitlesState(projectOf(dir), mediaRel))
+  ipcMain.handle('subtitles:link', async (_e, dir: string, mediaRel: string, file: string | null) => {
+    const p = projectOf(dir)
+    if (file && p.files?.[file]?.kind !== 'subtitles') throw new Error(`${file} isn't a subtitle file in this project.`)
+    const rest = { ...p.subtitles }
+    delete rest[mediaRel]
+    p.subtitles = file ? { ...rest, [mediaRel]: { file } } : rest
+    if (file) await checkSubtitles(p, mediaRel)
+    await checkpoint(p, file ? `Subtitles for ${mediaRel.split('/').pop()}: ${file.split('/').pop()}` : `No subtitles for ${mediaRel.split('/').pop()}`)
+    return subtitlesState(p, mediaRel)
+  })
+  // move the linked subtitles' times so they line up with the speech (rewrites the project's copy in media/)
+  ipcMain.handle('subtitles:shift', async (_e, dir: string, mediaRel: string) => {
+    const p = projectOf(dir)
+    const link = p.subtitles?.[mediaRel]
+    if (!link?.offset) return subtitlesState(p, mediaRel)
+    const file = join(p.dir, link.file)
+    await writeFile(file, shiftSubtitles(await readFile(file, 'utf8'), extOf(link.file), -link.offset))
+    const info = await Files.inspect(p.dir, link.file, probe)
+    p.files = { ...p.files, [link.file]: { ...info.info, addedAt: p.files?.[link.file]?.addedAt ?? Date.now() } }
+    await checkSubtitles(p, mediaRel)
+    await checkpoint(p, `Moved ${link.file.split('/').pop()} ${Math.abs(link.offset)} s ${link.offset > 0 ? 'earlier' : 'later'}`)
+    return subtitlesState(p, mediaRel)
+  })
   ipcMain.handle('media:thumbnails', (_e, dir: string, src: string, count: number, start?: number, end?: number) => {
     const p = projectOf(dir)
     const info = p.media[src]
@@ -372,6 +556,12 @@ function wire() {
   })
   ipcMain.handle('keys:list', () => keyStatus())
   ipcMain.handle('keys:set', (_e, name: string, value: string) => { setKey(name, value); agent?.keysChanged(); return keyStatus() })
+  // custom model providers (any OpenAI/Anthropic-compatible endpoint), and importing the ones omp already has
+  const providersState = () => ({ providers: providerInfo(), omp: ompAvailable() })
+  ipcMain.handle('providers:list', () => providersState())
+  ipcMain.handle('providers:save', (_e, p, key?: string | null, replacing?: string) => { saveProvider(p, key, replacing); agent?.keysChanged(); return providersState() })
+  ipcMain.handle('providers:remove', (_e, id: string) => { removeProvider(id); agent?.keysChanged(); return providersState() })
+  ipcMain.handle('providers:import-omp', () => { const added = importOmp(); agent?.keysChanged(); return { ...providersState(), added } })
   ipcMain.handle('agent:ready', async () => !!agent && (await agent.hasModel()))
 
   ipcMain.handle('project:recent', () => Projects.recent())
@@ -405,7 +595,30 @@ function wire() {
   ipcMain.handle('browser:mode', () => browserMode())
   ipcMain.handle('browser:set-mode', (_e, mode: BrowserMode) => { setConfig({ browser: { mode: mode === 'chrome' ? 'chrome' : 'manul' } }); return browserMode() })
   ipcMain.handle('browser:chrome', () => chromeBsk({ userHome: homedir(), bundled: BSK_BIN }))
-  ipcMain.handle('project:import', async (_e, dir: string, file: string) => { const p = projectOf(dir); const rel = await Projects.importMedia(p, file); send('project', p); ensureProxy(p, rel); autoTranscribe(p, rel); return rel })
+  // any file, a folder or a .zip; returns the new paths in media/
+  ipcMain.handle('project:import', async (_e, dir: string, file: string) => {
+    const p = projectOf(dir)
+    const rels = await Projects.addFiles(p, file)
+    send('project', p)
+    for (const rel of rels) { ensureProxy(p, rel); autoTranscribe(p, rel) }
+    return rels
+  })
+  // into the Trash, with what Manul made from them; files the film uses stay (with the reason)
+  ipcMain.handle('project:removeFiles', async (_e, dir: string, rels: string[]) => {
+    const p = projectOf(dir)
+    const r = await Projects.removeFiles(p, rels, abs => shell.trashItem(abs))
+    if (r.removed.length) await checkpoint(p, `Removed ${r.removed.length === 1 ? r.removed[0] : `${r.removed.length} files`}`)
+    return r
+  })
+  ipcMain.handle('project:pickFiles', async () => {
+    const r = await dialog.showOpenDialog(win!, {
+      title: 'Add files',
+      buttonLabel: 'Add',
+      // macOS can pick files and folders in one dialog; elsewhere asking for both shows only folders
+      properties: ['openFile', 'multiSelections', ...(process.platform === 'darwin' ? ['openDirectory' as const] : [])],
+    })
+    return r.canceled ? [] : r.filePaths
+  })
   ipcMain.handle('project:decide', async (_e, dir: string, accept: boolean) => {
     const p = projectOf(dir)
     if (!p.proposal) return p
@@ -429,15 +642,23 @@ function wire() {
     const suffix = { original: '', landscape: '-16x9', vertical: '-9x16', square: '-1x1' }[req.preset]
     const r = await dialog.showSaveDialog(win!, { title: 'Export', defaultPath: join(app.getPath('videos'), `${p.title}${suffix}.mp4`), filters: [{ name: 'MP4 video', extensions: ['mp4'] }] })
     if (r.canceled || !r.filePath) return null
+    await renderEdit(p) // hand edits first become a version
     return exportFilm(p, req, r.filePath, 'user')
   })
   ipcMain.handle('export:reveal', (_e, file: string) => shell.showItemInFolder(file))
   ipcMain.handle('mix:speech', async (_e, dir: string, versionId?: string) => {
     const p = projectOf(dir)
-    const tl = p.versions.find(v => v.id === (versionId || p.current))?.timeline || p.timeline!
+    // 'edit': the edit by hand, playing from its pieces
+    const tl = versionId === 'edit' ? p.timeline! : p.versions.find(v => v.id === (versionId || p.current))?.timeline || p.timeline!
     return regionsOnTimeline(tl, await transcriptsFor(p, tl))
   })
-  ipcMain.handle('mix:apply', async (_e, dir: string, mix: Mix) => { const p = projectOf(dir); await applyMix(p, mix); return p })
+  ipcMain.handle('mix:apply', async (_e, dir: string, mix: Mix) => {
+    const p = projectOf(dir)
+    // while the edit isn't rendered the mix is part of it (rendered with it); otherwise mixing the version is quick
+    if (Projects.edited(p)) return editTimeline(p, [{ op: 'mix', mix }])
+    await applyMix(p, mix)
+    return p
+  })
   ipcMain.handle('history:log', (_e, dir: string) => new History(projectOf(dir).dir).log())
   ipcMain.handle('history:restore', async (_e, dir: string, id: string) => {
     const { clips } = await new History(dir).restore(id)
@@ -449,25 +670,38 @@ function wire() {
   })
 
   // A message to the agent, optionally anchored (time / range / box) with a frame still (JPEG data URL).
-  ipcMain.handle('agent:send', async (_e, dir: string, msg: { text: string; anchor?: Anchor; still?: string }) => {
+  // What the user attached (files in media/, versions of the film, motion clips) follows the text, each with what it is.
+  ipcMain.handle('agent:send', async (_e, dir: string, msg: { text: string; anchor?: Anchor; still?: string; files?: string[] }) => {
     const p = projectOf(dir)
-    let content: string | Record<string, unknown>[] = msg.text
+    const body = joinAttached(msg.text, Files.refLines(msg.files || [], p))
+    let content: string | Record<string, unknown>[] = body
     if (msg.anchor) {
       const jpeg = msg.still ? Buffer.from(msg.still.split(',')[1], 'base64') : undefined
       const n = await Projects.addNote(p, { anchor: msg.anchor, text: msg.text }, jpeg)
       await checkpoint(p, `Note: ${msg.text.slice(0, 60)}`)
-      content = [{ type: 'text', text: `[note ${n.id} ${describe(msg.anchor)}] ${msg.text}` }]
+      content = [{ type: 'text', text: `[note ${n.id} ${describe(msg.anchor)}] ${body}` }]
       if (jpeg) content.push({ type: 'image', data: jpeg.toString('base64'), mimeType: 'image/jpeg' })
     }
     // a new conversation is named after its first message
     const rec = p.conversations?.find(c => c.id === p.conversation)
-    if (rec && rec.title === 'New conversation') { rec.title = msg.text.replace(/\s+/g, ' ').trim().slice(0, 48) || rec.title; await publish(p) }
+    if (rec && rec.title === 'New conversation') { rec.title = (msg.text || (msg.files || []).map(f => f.split('/').pop()).join(', ')).replace(/\s+/g, ' ').trim().slice(0, 48) || rec.title; await publish(p) }
     await agent!.send(dir, content)
   })
   ipcMain.handle('clip:save', (_e, dir: string, id: string, title: string, html: string, dur: number, overlay?: boolean) => saveClip(projectOf(dir), id, title, html, dur, !!overlay))
   ipcMain.handle('clip:overlay', (_e, dir: string, id: string, at: number, title: string) => {
     const p = projectOf(dir)
     return proposeTimeline(p, addOverlay(p.timeline!, { clip: id, start: at, dur: p.clips![id].duration }), title)
+  })
+  // the edit by hand (and footage dragged from the Files tab onto the timeline)
+  ipcMain.handle('timeline:edit', (_e, dir: string, edits: Edit[]) => editTimeline(projectOf(dir), edits))
+  ipcMain.handle('timeline:undo', (_e, dir: string, redo: boolean) => undoEdit(projectOf(dir), redo))
+  ipcMain.handle('timeline:undoState', (_e, dir: string) => undoState(projectOf(dir)))
+  ipcMain.handle('timeline:render', (_e, dir: string) => renderEdit(projectOf(dir)))
+  ipcMain.handle('timeline:insertMedia', async (_e, dir: string, rel: string, at: number) => {
+    const p = projectOf(dir)
+    const info = p.media[rel]
+    if (!info?.width || !(info.duration > 0)) throw new Error(`${rel.split('/').pop()} isn't footage that can go in the film.`)
+    return editTimeline(p, [{ op: 'insert', at, src: rel, in: 0, out: Math.round(info.duration * 1000) / 1000 }])
   })
   ipcMain.handle('clip:insert', async (_e, dir: string, id: string, at: number, title: string) => {
     const p = projectOf(dir)
@@ -564,20 +798,12 @@ app.whenReady().then(async () => {
   Tools.setOnInstalled((tool, ok) => telemetry.track('tool installed', { tool, ok }))
   memory = new Memory(join(app.getPath('userData'), 'memory'))
   const resources = app.isPackaged ? process.resourcesPath : join(import.meta.dirname, '../../resources')
-  skills = new Skills({
-    bundled: join(resources, 'skills'),
-    updates: join(app.getPath('userData'), 'skill-updates'),
-    user: join(app.getPath('userData'), 'skills'),
-    profiles: join(app.getPath('userData'), 'profiles'),
-  })
+  skills = new Skills({ bundled: join(resources, 'skills'), profiles: join(app.getPath('userData'), 'profiles') })
+  // skills come only from the bundle now: drop what the old over-the-air feed downloaded (a cache, never the user's)
+  rmSync(join(app.getPath('userData'), 'skill-updates'), { recursive: true, force: true })
   wire()
   buildMenu(() => win)
   updates = startUpdates(st => send('update', st))
-  // skills over the air (signed), at start and every 6 hours; packaged apps, or a feed given for testing
-  const feed = process.env.MANUL_SKILLS_FEED || (app.isPackaged ? SKILLS_FEED : '')
-  const pullSkills = () => fetchSkillUpdates({ feed, publicKeyPem: readFileSync(join(resources, 'skills-public.pem'), 'utf8'), dir: join(app.getPath('userData'), 'skill-updates') })
-    .then(r => { if (r.applied.length) console.log('skills updated:', r.applied.join(', ')) }).catch(e => console.warn('skills feed', e.message))
-  if (feed) { setTimeout(pullSkills, 15_000); setInterval(pullSkills, 6 * 3600_000).unref?.() }
   onJobs(jobs => send('jobs', jobs))
   createWindow()
   startBrowser(resources)
@@ -586,6 +812,11 @@ app.whenReady().then(async () => {
       // which browser the agent's bsk reaches: Manul's own (private daemon) unless the user chose their Chrome
       shellEnv: () => agentEnv(browserMode(), { bundledDir: dirname(BSK_BIN), privateHome: bskd!.home, userHome: homedir(), userBsk: findUserBsk({ home: homedir(), bundled: BSK_BIN }), path: process.env.PATH || '' }),
       browserPrompt: () => browserPrompt(browserMode()),
+      // the agent's files and shell stay in the project: Manul's resources read-only, and the browser CLI's own state
+      fence: (() => {
+        const userBsk = findUserBsk({ home: homedir(), bundled: BSK_BIN })
+        return { resources, extraRw: [privateHome(app.getPath('userData'), homedir()), join(homedir(), '.bsk')], extraRo: userBsk ? [dirname(userBsk)] : [] }
+      })(),
       dbPath: join(app.getPath('userData'), 'agent.sqlite'),
       memory,
       skills,
@@ -608,6 +839,12 @@ app.whenReady().then(async () => {
         },
         seek: (dir, t) => send('seek', dir, t),
         transcript: (dir, mediaRel) => transcriptOf(projectOf(dir), mediaRel, { ask: true }),
+        speakers: async (dir, mediaRel, count) => {
+          const p = projectOf(dir)
+          const result = (await speakersOf(p, mediaRel, { make: true, count }))!
+          return { result, file: p.speakers![mediaRel], names: p.speakerNames?.[mediaRel] || {} }
+        },
+        nameSpeakers: (dir, mediaRel, names) => nameSpeakers(projectOf(dir), mediaRel, names),
         saveClip: (dir, id, title, html, dur, overlay) => saveClip(projectOf(dir), id, title, html, dur, overlay),
         async overlayClip(dir, id, at, dur, title) {
           const p = projectOf(dir)
@@ -628,15 +865,21 @@ app.whenReady().then(async () => {
           const p = projectOf(dir)
           await mkdir(join(p.dir, 'exports'), { recursive: true })
           const suffix = { original: '', landscape: '-16x9', vertical: '-9x16', square: '-1x1' }[req.preset]
+          await renderEdit(p) // an edit not rendered yet becomes a version first
           return exportFilm(p, req, join(p.dir, 'exports', `${p.title}${suffix}.mp4`), 'agent')
         },
-        setMix: (dir, mix) => applyMix(projectOf(dir), mix),
-        async importMedia(dir, abs) {
+        async setMix(dir, mix) {
           const p = projectOf(dir)
-          const rel = await Projects.importMedia(p, abs)
-          await checkpoint(p, `Added ${rel}`)
-          ensureProxy(p, rel); autoTranscribe(p, rel)
-          return rel
+          if (Projects.edited(p)) { await editTimeline(p, [{ op: 'mix', mix }]); return 'Set the mix on the edit: the user hears it now; it renders with the edit.' }
+          return `Mixed as version ${await applyMix(p, mix)}.`
+        },
+        editTimeline: (dir, edits) => editTimeline(projectOf(dir), edits),
+        async importFiles(dir, abs) {
+          const p = projectOf(dir)
+          const rels = await Projects.addFiles(p, abs)
+          await checkpoint(p, `Added ${rels.length === 1 ? rels[0] : `${rels.length} files`}`)
+          for (const rel of rels) { ensureProxy(p, rel); autoTranscribe(p, rel) }
+          return Files.attachedLines(rels, p.files || {}, 30, p.subtitles)
         },
         rerenderTimeline: (dir, title) => { const p = projectOf(dir); return proposeTimeline(p, p.timeline!, title) },
       },

@@ -26,6 +26,10 @@ jobs:
       - run: npm ci
       - name: Build bundled whisper.cpp
         run: ./scripts/build-whisper.sh
+      - name: Build the bundled beat tracker
+        run: ./scripts/build-beats.sh
+      - name: Build the bundled model runners (speakers, vision)
+        run: ./scripts/build-ml.sh
       - run: npm run typecheck
       - run: npm test
       # Electron 44 downloads its executable lazily; do not let the E2E launch timeout include that download.

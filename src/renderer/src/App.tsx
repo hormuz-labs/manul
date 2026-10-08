@@ -7,7 +7,7 @@ import { CommandPalette } from '@/components/CommandPalette'
 import { TabBar } from '@/components/TabBar'
 import { runCommand, useCommands } from '@/lib/commands'
 import { closeTab, cycleTab, moveTab, openTab, type Tabs } from '@/lib/tabs'
-import { cn } from '@/lib/utils'
+import { cn, typing } from '@/lib/utils'
 import { SettingsDialog, type Section } from './views/SettingsDialog'
 import { ProjectView } from './views/ProjectView'
 import { Start } from './views/Start'
@@ -15,7 +15,7 @@ import type { Project } from '../../shared/types'
 
 export function App() {
   const [tabs, setTabs] = useState<Tabs>({ open: [], active: null })
-  const [projects, setProjects] = useState<Record<string, { p: Project; prompt?: string }>>({})
+  const [projects, setProjects] = useState<Record<string, { p: Project; prompt?: string; files?: string[] }>>({})
   const restored = useRef(false)
   const [settings, setSettings] = useState<Section | null>(null)
   const [ready, setReady] = useState(false)
@@ -26,7 +26,12 @@ export function App() {
   const [ready2update, setReady2update] = useState<string | null>(null)
   useEffect(() => window.manul.updates.onChange(st => setReady2update(st.status === 'ready' ? st.version || 'A new version' : null)), [])
   const check = () => window.manul.agent.ready().then(setReady)
-  useEffect(() => window.manul.onMenu(id => (id === 'palette' ? setPalette(true) : runCommand(id))), [])
+  useEffect(() => window.manul.onMenu(id => {
+    if (id === 'palette') setPalette(true)
+    // Edit → Undo / Redo: the field being typed in undoes its text; elsewhere the timeline undoes an edit
+    else if (id === 'undo' || id === 'redo') { if (typing()) document.execCommand(id); else runCommand(`timeline.${id}`) }
+    else runCommand(id)
+  }), [])
   useEffect(() => { check(); const a = window.manul.agent.onReady(check); const b = window.manul.onNotice(setNotice); return () => { a(); b() } }, [])
 
   // open tabs come back after a relaunch
@@ -44,8 +49,8 @@ export function App() {
   // the shown project's agent conversation is the one events and sends go to
   useEffect(() => { if (tabs.active) window.manul.agent.attach(tabs.active) }, [tabs.active])
 
-  const openProject = useCallback((p: Project, prompt?: string) => {
-    setProjects(x => ({ ...x, [p.dir]: { p, prompt } }))
+  const openProject = useCallback((p: Project, prompt?: string, files?: string[]) => {
+    setProjects(x => ({ ...x, [p.dir]: { p, prompt, files } }))
     setTabs(t => openTab(t, p.dir))
   }, [])
   const close = useCallback((dir: string) => {
@@ -73,23 +78,25 @@ export function App() {
   ], [close])
 
   const titles = Object.fromEntries(Object.entries(projects).map(([d, x]) => [d, x.p.title]))
+  // tabs only once there's a choice: one open project already has its name in its own title bar
+  const tabbed = tabs.open.length > 1 || (tabs.open.length === 1 && tabs.active === null)
   return (
     <TooltipProvider>
       <div className="flex h-full flex-col">
-        {tabs.open.length > 0 && (
+        {tabbed && (
           <TabBar open={tabs.open} active={tabs.active} titles={titles}
             onSelect={d => setTabs(t => ({ ...t, active: d }))} onClose={close} onMove={(d, to) => setTabs(t => moveTab(t, d, to))} />
         )}
         <div className="relative min-h-0 flex-1">
           {tabs.open.map(d => projects[d] && (
             <div key={d} className={cn('absolute inset-0', d !== tabs.active && 'invisible')}>
-              <ProjectView initial={projects[d].p} firstPrompt={projects[d].prompt} ready={ready} active={d === tabs.active} tabbed
+              <ProjectView initial={projects[d].p} firstPrompt={projects[d].prompt} firstFiles={projects[d].files} ready={ready} active={d === tabs.active} tabbed={tabbed}
                 onKeys={() => setSettings('keys')} onTools={() => setSettings('tools')} onHome={() => setTabs(t => ({ ...t, active: null }))} />
             </div>
           ))}
           {tabs.active === null && (
             <div className="absolute inset-0">
-              <Start ready={ready} tabbed={tabs.open.length > 0} onKeys={() => setSettings('keys')} onTools={() => setSettings('tools')} onOpen={openProject} />
+              <Start ready={ready} tabbed={tabbed} onKeys={() => setSettings('keys')} onTools={() => setSettings('tools')} onOpen={openProject} />
             </div>
           )}
         </div>

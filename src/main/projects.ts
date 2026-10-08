@@ -1,16 +1,18 @@
 // Projects live in ~/Movies/Manul/<name>/ :
 //   project.json   versions, notes, media info (the source of truth the UI and the agent share)
-//   media/         imported files (copied, so the project is self-contained)
+//   media/         imported files (copied, so the project is self-contained): footage, music, subtitles, documents…
 //   renders/       the agent's outputs
 //   notes/         frame stills attached to notes
+//   fonts/         fonts the user added (copies, with Manul's Inter), the folder subtitles take fonts from
 import { app } from 'electron'
 import { execFile } from 'node:child_process'
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, relative } from 'node:path'
 import { promisify } from 'node:util'
-import { FFMPEG, probe } from './media'
-import { fromMedia } from '../shared/timeline'
+import { FFMPEG, FONTS_DIR, probe } from './media'
+import * as Files from './files'
+import { sameCut, timelineOfFile } from '../shared/timeline'
 import type { MediaInfo, Note, Project, RecentProject, Version } from '../shared/types'
 
 const run = promisify(execFile)
@@ -33,11 +35,14 @@ function touchRecent(p: Project) {
 }
 
 /** A timeline that is just this media file, in its own size and frame rate (even sizes, sane rate). */
-const timelineOf = (src: string, info: MediaInfo) => fromMedia(src, info.duration, {
-  width: Math.max(2, Math.round((info.width || 1920) / 2) * 2),
-  height: Math.max(2, Math.round((info.height || 1080) / 2) * 2),
-  fps: info.fps > 0 && info.fps <= 120 ? Math.round(info.fps * 100) / 100 : 30,
-})
+export const timelineOf = (src: string, info: MediaInfo) => timelineOfFile(src, info)
+
+/** The edit was changed by hand (or by the agent's edit_timeline) since the version on screen was rendered. */
+export function edited(p: Project) {
+  const v = p.versions.find(x => x.id === p.current)
+  if (!v || !p.timeline) return false
+  return !sameCut(p.timeline, v.timeline ?? timelineOf(v.path, p.media[v.path]))
+}
 
 /** Make a version the one on screen; the timeline restarts from it. */
 export function accept(p: Project, versionId: string) {
@@ -56,8 +61,12 @@ export async function load(dir: string): Promise<Project> {
   return p
 }
 
+let saves = 0
+/** Write project.json whole or not at all (edits by hand save often; a crash mid-write must not leave half a file). */
 export async function save(p: Project) {
-  await writeFile(join(p.dir, 'project.json'), JSON.stringify(p, null, 1))
+  const tmp = join(p.dir, `.project.json.${process.pid}.${++saves}.tmp`)
+  await writeFile(tmp, JSON.stringify(p, null, 1))
+  await rename(tmp, join(p.dir, 'project.json'))
 }
 
 /** A new project from a dropped or picked file: copy it in, probe it, grab a thumbnail. */
@@ -69,23 +78,56 @@ export async function createFromFile(file: string): Promise<Project> {
 
   const rel = join('media', basename(file))
   await copyFile(file, join(dir, rel))
-  const info = await probe(join(dir, rel))
+  const { info: about, media: info } = await Files.inspect(dir, rel, probe)
+  if (!info) {
+    await rm(dir, { recursive: true, force: true })
+    throw new Error(`${basename(file)} isn't a video Manul can play (${about.summary}). Start from a video; other files can be added to it.`)
+  }
   const v: Version = { id: id(), path: rel, title: 'Original', createdAt: Date.now(), by: 'import' }
-  const p: Project = { id: id(), title, dir, createdAt: Date.now(), versions: [v], current: v.id, notes: [], media: { [rel]: info }, timeline: timelineOf(rel, info) }
+  const p: Project = { id: id(), title, dir, createdAt: Date.now(), versions: [v], current: v.id, notes: [], media: { [rel]: info }, files: { [rel]: about }, timeline: timelineOf(rel, info) }
   await run(FFMPEG, ['-y', '-ss', String(Math.min(1, info.duration / 2)), '-i', join(dir, rel), '-frames:v', '1', '-vf', 'scale=480:-2', join(dir, 'thumb.jpg')]).catch(() => {})
   await save(p)
   touchRecent(p)
   return p
 }
 
-/** Bring another file (footage, image, audio) into an existing project's media folder. */
-export async function importMedia(p: Project, file: string) {
-  let rel = join('media', basename(file))
-  for (let n = 2; existsSync(join(p.dir, rel)); n++) rel = join('media', `${basename(file, extname(file))}-${n}${extname(file)}`)
-  await copyFile(file, join(p.dir, rel))
-  p.media[rel] = await probe(join(p.dir, rel)).catch(() => ({ duration: 0, width: 0, height: 0, fps: 0, hasAudio: false, codec: 'unknown' }))
+/** Record what a file in media/ is (and its probe, for footage, audio and images). */
+async function register(p: Project, rel: string) {
+  const r = await Files.inspect(p.dir, rel, probe)
+  p.files = { ...p.files, [rel]: r.info }
+  if (r.media) p.media[rel] = r.media
+  if (r.info.font) await projectFont(p, rel)
+}
+
+/** Subtitles (libass) load every file in their fonts folder, so they can't take fonts from media/ beside the footage:
+ *  a font the user adds is also copied into the project's fonts/, with Manul's Inter beside it. */
+async function projectFont(p: Project, rel: string) {
+  const dir = join(p.dir, 'fonts')
+  await mkdir(dir, { recursive: true })
+  for (const f of readdirSync(FONTS_DIR).filter(f => /\.(ttf|otf)$/i.test(f))) if (!existsSync(join(dir, f))) await copyFile(join(FONTS_DIR, f), join(dir, f))
+  if (!existsSync(join(dir, basename(rel)))) await copyFile(join(p.dir, rel), join(dir, basename(rel)))
+}
+
+/** Bring files into a project: a file of any kind, a folder (all its files) or a .zip (its contents). Returns their
+ *  paths in media/. */
+export async function addFiles(p: Project, src: string): Promise<string[]> {
+  const rels = await Files.copyIn(p.dir, src)
+  for (const rel of rels) await register(p, rel)
   await save(p)
-  return rel
+  return rels
+}
+
+/** Bring one file into the project; its path in media/. */
+export const importMedia = async (p: Project, file: string) => (await addFiles(p, file))[0]
+
+/** Bring project.json's file list in line with media/ (files added or removed in Finder, projects made before the
+ *  list existed). True when it changed. */
+export async function syncFiles(p: Project): Promise<boolean> {
+  const onDisk = new Set((await Files.walk(join(p.dir, 'media')).catch(() => [] as string[])).map(f => join('media', f)))
+  let changed = false
+  for (const rel of Object.keys(p.files || {})) if (!onDisk.has(rel) && !existsSync(join(p.dir, rel))) { delete p.files![rel]; changed = true } // (or added while listing)
+  for (const rel of onDisk) if (!p.files?.[rel]) { await register(p, rel).catch(e => console.warn('file', rel, e)); changed = true }
+  return changed
 }
 
 export async function addVersion(p: Project, absPath: string, title: string, by: Version['by'], timeline?: Version['timeline'], dry?: string) {
@@ -105,4 +147,55 @@ export async function addNote(p: Project, note: Omit<Note, 'id' | 'createdAt' | 
   p.notes.push(n)
   await save(p)
   return n
+}
+
+/** Why a file can't be removed: the film uses it (a version, the edit, its music, a motion clip). */
+export function usedBy(p: Project, rel: string): string | null {
+  const v = p.versions.find(x => x.path === rel)
+  if (v) return `it is the version “${v.title}”`
+  const inEdit = (tl?: Project['timeline']) => !!tl && (tl.items.some(i => i.kind === 'media' && i.src === rel) || tl.mix?.music?.src === rel)
+  if (inEdit(p.timeline)) return 'the edit uses it'
+  const ver = p.versions.find(x => inEdit(x.timeline))
+  if (ver) return `the version “${ver.title}” uses it`
+  for (const id of Object.keys(p.clips || {})) {
+    const html = join(p.dir, 'clips', id, 'clip.html')
+    if (existsSync(html) && readFileSync(html, 'utf8').includes(rel)) return `the motion clip “${p.clips![id].title}” uses it`
+  }
+  return null
+}
+
+/** Take files out of the project: into the Trash (trash), with what Manul made from them (transcript, preview copy,
+ *  speakers, the subtitles link, a font's copy in fonts/). A folder whose files all go is trashed whole. Files the
+ *  film uses stay, with the reason. */
+export async function removeFiles(p: Project, rels: string[], trash: (abs: string) => Promise<void>) {
+  const blocked: { file: string; why: string }[] = []
+  const going = rels.filter(rel => {
+    if (!p.files?.[rel]) return false
+    const why = usedBy(p, rel)
+    if (why) blocked.push({ file: rel, why })
+    return !why
+  })
+  // a folder (media/<name>/…) whose every file goes is trashed as one
+  const folders = new Map<string, string[]>()
+  for (const rel of going) { const parts = rel.split('/'); if (parts.length > 2) folders.set(parts[1], [...(folders.get(parts[1]) || []), rel]) }
+  const whole = new Set([...folders].filter(([name, list]) => Object.keys(p.files!).filter(f => f.startsWith(`media/${name}/`)).length === list.length).map(([name]) => name))
+  const inWhole = (rel: string) => rel.split('/').length > 2 && whole.has(rel.split('/')[1])
+  for (const name of whole) await trash(join(p.dir, 'media', name))
+  for (const rel of going) if (!inWhole(rel) && existsSync(join(p.dir, rel))) await trash(join(p.dir, rel))
+
+  for (const rel of going) {
+    const font = p.files![rel].font && basename(rel)
+    delete p.files![rel]
+    delete p.media[rel]
+    for (const map of [p.transcripts, p.proxies, p.speakers]) {
+      if (map?.[rel]) { await rm(join(p.dir, map[rel]), { force: true }); delete map[rel] }
+    }
+    delete p.speakerNames?.[rel]
+    delete p.subtitles?.[rel]
+    for (const [media, link] of Object.entries(p.subtitles || {})) if (link.file === rel) delete p.subtitles![media]
+    // its copy in fonts/, unless another font in the project has the same file name
+    if (font && !Object.keys(p.files!).some(f => p.files![f].font && basename(f) === font)) await rm(join(p.dir, 'fonts', font), { force: true })
+  }
+  await save(p)
+  return { removed: going, blocked }
 }

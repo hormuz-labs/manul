@@ -10,22 +10,31 @@ import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic'
 import { googleProvider } from '@earendil-works/pi-ai/providers/google'
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai'
 import { createRegistry, defineExtension, defineTool, Harness, section } from '@earendil-works/pi-durable'
-import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node'
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node'
 import { CodingTools } from '@earendil-works/pi-durable/tools'
 import type { BaseEvent } from '@ag-ui/core'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { isAbsolute, resolve } from 'node:path'
+import { isAbsolute, resolve, sep } from 'node:path'
 import { AguiAdapter } from './agui'
 import { liveEnv } from './bsk'
 import { chooseModel, describeModels } from './models'
+import { buildProviders, listProviders } from './providers'
 import type { Memory } from './memory'
 import type { Skills } from './skills'
-import { FFMPEG, probe } from './media'
-import { readFile } from 'node:fs/promises'
+import { BIN, FFMPEG, FONTS_DIR, probe } from './media'
+import { FencedEnv, fencedArgv, fenceFor, realish, type Fence } from './fence'
+import { homedir } from 'node:os'
+import { analyze, contactSheet, report, sheetFrames } from './analysis'
+import { analyzeMusic, musicReport } from './music'
+import { cachedSpeakers, speakersReport, withSentences } from './speakers'
+import { nameOf, speakerOfSegments, type SpeakerNames, type Speakers } from '../shared/speakers'
+import { findSubjects, shotSubjects, subjectsReport, track } from './subjects'
+import { fileLine } from './files'
+import { ATTACHED } from '../shared/attached'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { duration as timelineDuration } from '../shared/timeline'
+import { batch, duration as timelineDuration, sameCut, starts, timelineOfFile, type Edit, type Timeline } from '../shared/timeline'
 import type { ClipInfo, Project, Transcript } from '../shared/types'
 
 type Any = Record<string, any>
@@ -40,14 +49,21 @@ export type Bridge = {
   seek(dir: string, t: number): void
   /** Makes the transcript if needed (may ask the user to download speech recognition). */
   transcript(dir: string, mediaRel: string): Promise<Transcript | null>
+  /** Who speaks when (made if needed; with count, for exactly that many people), its file and the names given. */
+  speakers(dir: string, mediaRel: string, count?: number): Promise<{ result: Speakers; file: string; names: SpeakerNames }>
+  /** Name voices (id → name, "" clears); the same name on two voices makes them one person. */
+  nameSpeakers(dir: string, mediaRel: string, names: SpeakerNames): Promise<SpeakerNames>
   saveClip(dir: string, id: string, title: string, html: string, dur: number, overlay: boolean): Promise<ClipInfo & { frames: number }>
   overlayClip(dir: string, id: string, at: number, dur: number | undefined, title: string): Promise<string>
   bakeClip(dir: string, id: string): Promise<ClipInfo & { frames: number }>
   insertClip(dir: string, id: string, at: number, title: string): Promise<string>
   rerenderTimeline(dir: string, title: string): Promise<string>
+  /** Change the edit at once (no render); the user can undo it. */
+  editTimeline(dir: string, edits: Edit[]): Promise<Project>
+  /** A sentence on what happened (a new version, or the mix kept with an edit not rendered yet). */
   setMix(dir: string, mix: { filmDb: number; music?: { src: string; db: number; duckDb: number } }): Promise<string>
-  /** Copy a file (e.g. a download) into media/ and add it to the project. */
-  importMedia(dir: string, absPath: string): Promise<string>
+  /** Copy a file, folder or .zip (e.g. a download) into media/ and add it to the project; a line per new file. */
+  importFiles(dir: string, absPath: string): Promise<string[]>
   exportFilm(dir: string, req: { preset: 'original' | 'landscape' | 'vertical' | 'square'; fit?: 'pad' | 'crop'; captions: 'none' | 'burn' | 'srt'; captionColor?: string }): Promise<{ file: string; srt?: string }>
 }
 
@@ -66,7 +82,36 @@ async function clipResult(p: Project, c: ClipInfo & { frames: number }) {
   }
 }
 
-function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
+const Option = Type.Object({ label: Type.String(), description: Type.Optional(Type.String()) })
+
+/** The edit's pieces, one line each: id, where it sits in the film, what it is. */
+export function piecesOf(tl: Timeline) {
+  const at = starts(tl)
+  const r = (n: number) => Math.round(n * 100) / 100
+  return tl.items.map((i, k) => {
+    const where = `${r(at[k])}–${r(at[k] + (i.kind === 'media' ? i.out - i.in : i.dur))} s`
+    if (i.kind === 'clip') return `${i.id} ${where}: clip ${i.clip}`
+    const level = i.muted ? ' (muted)' : i.db ? ` (${i.db > 0 ? '+' : ''}${i.db} dB)` : ''
+    return `${i.id} ${where}: ${i.src} ${r(i.in)}–${r(i.out)}${level}`
+  })
+}
+
+/** The edit was changed (by hand or with edit_timeline) since the version on screen was rendered. */
+export function editedOf(p: Project) {
+  const v = p.versions.find(x => x.id === p.current)
+  return !!v && !!p.timeline && !!p.media[v.path] && !sameCut(p.timeline, v.timeline ?? timelineOfFile(v.path, p.media[v.path]))
+}
+
+/** Text plus a JPEG the model can see. */
+async function imageResult(caption: string, path: string) {
+  const data = await readFile(path)
+  return { content: [{ type: 'text' as const, text: caption }, { type: 'image' as const, data: data.toString('base64'), mimeType: 'image/jpeg' }] }
+}
+
+/** Where the agent may go, per project (src/main/fence.ts): Manul's resources read-only, plus extra folders. */
+export type FenceConfig = { resources: string; extraRw?: string[]; extraRo?: string[] }
+
+function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenceConfig?: FenceConfig) {
   const proj = (api: Any) => {
     const dir = dirOf(api.conversationId)
     const p = bridge.project(dir)
@@ -75,8 +120,15 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
   }
   const inProject = (p: Project, path: string) => {
     const abs = isAbsolute(path) ? path : resolve(p.dir, path)
-    if (!abs.startsWith(p.dir)) throw new Error('Paths must stay inside the project folder.')
+    const real = realish(abs), root = realish(p.dir)
+    if (real !== root && !real.startsWith(root + sep)) throw new Error('Paths must stay inside the project folder.')
     return abs
+  }
+  /** Run a bundled program inside the agent's fence (its paths come from the model). */
+  const fencedExec = (p: Project, bin: string, args: string[]): [string, string[]] => {
+    if (!fenceConfig) return [bin, args]
+    const argv = fencedArgv(fenceFor({ project: p.dir, ...fenceConfig }), [bin, ...args], { home: homedir(), fenceBin: join(BIN, 'manul-fence') })
+    return argv ? [argv[0], argv.slice(1)] : [bin, args]
   }
   return defineExtension({
     name: 'editor',
@@ -86,25 +138,52 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       `renders/ (your outputs), notes/ (frame stills).\n` +
       `How to work:\n` +
       `- Start with project_state to see the versions, the current one, open notes and media details.\n` +
+      `- Know the footage before deciding anything about it. Measure first: analyze_video gives the shots (cut times), camera shake and motion, ` +
+      `exposure, contrast, colour cast, black/frozen frames, loudness and silence, plus one frame per shot to see what each shot shows; ` +
+      `the transcript tool gives speech; speakers gives who speaks when; find_subjects gives where faces and objects are per shot (and crops that follow them). Then look (frames at chosen times, a zoomed box, or an image file) only for what numbers can't tell: ` +
+      `what is in a shot, where faces or text are, whether a render looks right. Never write scripts (Python or other) to analyse pixels or sound, ` +
+      `and never use another ffmpeg: the bundled one has what you need (vidstabdetect/vidstabtransform for shake, rubberband for speed, scdet, signalstats, ebur128…).\n` +
+      `- Open-ended requests (make it cinematic, clean it up, fix it, turn it into a promo/short): analyze_video first, then say in 2–4 short lines what you found ` +
+      `and offer the fixes you'd make as ask_user with multiple: true — one option per fix, its description saying what changes and where ` +
+      `(e.g. "Stabilise shots 2 and 4 — strong handheld shake"). Apply the chosen ones together in one render. Precise requests ("cut the first 5 s") need no questions.\n` +
       `- Edit with the ffmpeg tool (bundled; also on PATH for bash). Read the current version, write new files to renders/. Never overwrite media/.\n` +
+      `- Files the user gives you (more footage, music, voice-over, logos, photos, subtitles, fonts, LUTs) are in media/ and listed ` +
+      `in project_state under files, each with what it is; a message lists the ones attached to it under "${ATTACHED}" (files, and also ` +
+      `versions of the film and motion clips the user pointed at; "@name" in the message means the attached one of that name). Use them when the request ` +
+      `touches them, and say so. Subtitles: read them for the words and times, and burn, restyle or retime them (video-editing skill, ` +
+      `references/inputs.md). If a file's use isn't clear, ask.\n` +
       `- For anything about speech (cut ums or pauses, remove a sentence, find a moment, captions) read the transcript tool first and cut on word times. ` +
-      `To cut many pieces, build one ffmpeg command with trim/atrim + concat (or select/aselect) from the word times; keep ~0.05 s of air around cuts.\n` +
+      `Each word's start and end are cut points already placed in the quiet around it: cut exactly on them (to drop words a–b, cut from a's start to b's end). ` +
+      `To cut many pieces, build one ffmpeg command with trim/atrim + concat (or select/aselect) from the word times.\n` +
       `- Get it right in one render: plan every cut from the transcript first. Check a render at most once (e.g. the transcript of the output) ` +
       `and only when unsure; never re-render just to polish. The user will ask if they want more.\n` +
       `- When a cut is ready, call propose_version: the user sees it as a before/after and accepts or rejects it. One proposal per request.\n` +
+      `- The film is also an edit: pieces of files in order (project_state → timeline.pieces). The user can split, cut, trim, move and ` +
+      `set the volume of pieces by hand; so can you, with edit_timeline: it changes the edit at once, without rendering, and the user ` +
+      `can undo it. Prefer it to ffmpeg for plain cuts, trims, reordering and volume (cut ums or pauses with word times and src). ` +
+      `When timeline.edited is set, the current version's file doesn't have those changes yet: work on the edit (edit_timeline, ` +
+      `insert_clip, overlay_clip), or call rerender_timeline first before using ffmpeg on the film.\n` +
       `- Notes arrive as "[note <id> @ start–end, box x,y,w,h]" plus a still of the frame with the box drawn on it. The box is in 0–1 fractions of the picture ` +
       `(x,y = top-left). Act on exactly that moment and region; when done, call resolve_note with a one-line reply. ` +
       `A note on "clip <id> element <name>" is about that element (data-manul-id) of clips/<id>/clip.html: edit only it (read + edit tools), ` +
       `then render_clip and rerender_timeline.\n` +
+      `- Skills: read video-editing before any edit, and the skill for the kind of video (talking-head, short-form, promos-and-montages, ` +
+      `tutorials, cleanup-and-repair, motion-design, music-generation) — see the skills list.\n` +
+      `- Fonts for text you draw with ffmpeg: ${FONTS_DIR} (Inter-Regular.ttf, Inter-Bold.ttf; drawtext fontfile=…, subtitles fontsdir=…). ` +
+      `Fonts the user added are in the project's fonts/ folder with Inter: then use fontsdir=fonts (never fontsdir=media).\n` +
       `- Prefer one well-built ffmpeg command over many small ones. Keep codecs sensible: libx264 -crf 18 -preset veryfast, aac 192k, -movflags +faststart.\n` +
       `- When you need a decision from the user, call ask_user with 2–5 options and stop.\n` +
+      `API keys the user saved in Manul are already in your shell's environment (e.g. $ELEVENLABS_API_KEY, $GEMINI_API_KEY): use them in commands as they are; ` +
+      `never print, echo, measure or log a key or any part of it, and never look for keys elsewhere (other shells, files).\n` +
+      `Your files and shell are fenced to the project folder (plus temp folders and Manul's bundled tools, skills, models and fonts, ` +
+      `read-only); anything else is refused, so don't look elsewhere. Files the user adds are already copied into media/ (never look for the originals).\n` +
       `Stay inside the project folder. Never inspect, run or search Manul's own program files, other folders or system processes; ` +
       `if a tool fails, read its error and fix your input instead of investigating the app.\n` +
       `Write replies in short plain Markdown. Say what you did, not how.\n\n` + MOTION_POINTER, { tag: false })],
     tools: [
       defineTool({
         name: 'project_state',
-        description: 'The project: versions (which one is current, which is proposed), notes with their anchors, and media details (duration, size, fps, audio).',
+        description: 'The project: versions (which one is current, which is proposed), notes with their anchors, the files the user added (what each is), and media details (duration, size, fps, audio).',
         parameters: Type.Object({}),
         execute: async (_args: Any, api: Any) => {
           const p = proj(api)
@@ -114,11 +193,13 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
             current: cur && { ...cur, ...p.media[cur.path] },
             proposal: p.proposal,
             timeline: p.timeline && { size: `${p.timeline.width}x${p.timeline.height}`, fps: p.timeline.fps, duration: timelineDuration(p.timeline),
-              items: p.timeline.items.map(i => (i.kind === 'media' ? `media ${i.src} ${i.in}–${i.out}` : `clip ${i.clip} ${i.dur}s`)),
+              ...(editedOf(p) ? { edited: 'changed since the current version was rendered (by the user by hand, or edit_timeline): the version\'s file does not have these changes yet' } : {}),
+              pieces: piecesOf(p.timeline),
               overlays: (p.timeline.overlays || []).map(o => `overlay ${o.clip} at ${o.start}s for ${o.dur}s`) },
             clips: Object.values(p.clips || {}).map(c => ({ id: c.id, title: c.title, duration: c.duration })),
             versions: p.versions.map(v => ({ id: v.id, title: v.title, path: v.path, by: v.by })),
             notes: p.notes.filter(n => n.status === 'open').map(n => ({ id: n.id, at: `${fmt(n.anchor.t0)}${n.anchor.t1 != null ? `–${fmt(n.anchor.t1)}` : ''}`, box: n.anchor.box, text: n.text })),
+            files: Object.keys(p.files || {}).map(rel => fileLine(rel, p.files!, p.subtitles)),
             media: p.media,
           })
         },
@@ -130,13 +211,139 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
         execute: async (args: Any, api: Any) => text(await probe(inProject(proj(api), args.path))),
       }),
       defineTool({
+        name: 'analyze_video',
+        description: 'Measure a video before editing it: every shot (cut times), camera shake and motion per shot, exposure, contrast, saturation and colour cast, ' +
+          'black and frozen frames, loudness (LUFS, peak) and silences — then a contact sheet with one frame per shot (labelled #shot and time). ' +
+          'Deterministic and cached; call it first for any request that depends on what the footage is like.',
+        parameters: Type.Object({ media: Type.Optional(Type.String({ description: 'project-relative path; default the current version' })) }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const rel = args.media || p.versions.find(v => v.id === p.current)!.path
+          const file = inProject(p, rel)
+          const a = await analyze(p.dir, file, api.signal)
+          if (!a.shots.length) return text(report(a, rel))
+          const sheet = join(p.dir, '.cache', 'analysis', `sheet-${Date.now()}.jpg`)
+          await contactSheet(file, sheetFrames(a), sheet, { signal: api.signal })
+          return imageResult(report(a, rel) + '\nContact sheet attached (one frame per shot).', sheet)
+        },
+      }),
+      defineTool({
+        name: 'analyze_music',
+        description: 'The rhythm of music (a music file, or any video\'s soundtrack): tempo, how steady it is, every bar\'s downbeat with its loudness, ' +
+          'where the energy lifts, drops or breaks, and the strongest hits. Every beat time is saved to a JSON file you can read. ' +
+          'Call it before cutting picture to music, placing music under picture, or timing titles, speed ramps or transitions to the music.',
+        parameters: Type.Object({ media: Type.String({ description: 'project-relative audio or video file, e.g. media/song.mp3' }) }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const { music, beatsFile } = await analyzeMusic(p.dir, inProject(p, args.media), api.signal)
+          return text(musicReport(music, args.media, beatsFile.slice(p.dir.length + 1)))
+        },
+      }),
+      defineTool({
+        name: 'speakers',
+        description: 'Who speaks when: speaker turns (A, B, C… in order of first speaking) with talk time per speaker and, when there is a transcript, ' +
+          'what each turn says. For podcasts, interviews and any clip with several people: cutting or cropping to the speaker, reactions, ' +
+          'lower thirds, picking one person\'s answers. Pass speakers when you know how many people talk (much more accurate).',
+        parameters: Type.Object({
+          media: Type.Optional(Type.String({ description: 'project-relative path; default the current version' })),
+          speakers: Type.Optional(Type.Number({ description: 'how many people speak, if known' })),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const rel = args.media || p.versions.find(v => v.id === p.current)!.path
+          inProject(p, rel)
+          let { result, file, names } = await bridge.speakers(p.dir, rel, args.speakers)
+          const t = await bridge.transcript(p.dir, rel).catch(() => null)
+          if (t) result = withSentences(result, t)
+          return text(speakersReport(result, rel, file, 120, names))
+        },
+      }),
+      defineTool({
+        name: 'name_speakers',
+        description: 'Name the voices speakers found (e.g. {"A": "Tony Stark", "C": "Ultron"}), once you know who is who (people addressing each other ' +
+          'in the transcript, faces with look). The user sees the names in the transcript. Give two voices the same name when they are one person ' +
+          '(diarization splits a person when the sound changes, most of all in films); an empty name clears one. Only name people you are sure of.',
+        parameters: Type.Object({
+          media: Type.Optional(Type.String({ description: 'project-relative path; default the current version' })),
+          names: Type.Record(Type.String(), Type.String(), { description: 'voice letter → name' }),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const rel = args.media || p.versions.find(v => v.id === p.current)!.path
+          inProject(p, rel)
+          const now = await bridge.nameSpeakers(p.dir, rel, args.names || {})
+          return text(`Names for ${rel}: ${Object.entries(now).map(([id, n]) => `${id} = ${n}`).join(', ') || 'none'}`)
+        },
+      }),
+      defineTool({
+        name: 'find_subjects',
+        description: 'Where the subject is, per shot: faces and objects (people, cars, animals, everyday things), how big, how often seen, and for a narrower ' +
+          'shape (9:16 by default) a crop that follows the main subject smoothly, with its ready-made ffmpeg crop filter. Use for vertical/square ' +
+          'versions, for keeping text off faces, and for knowing who/what is where without guessing from frames.',
+        parameters: Type.Object({
+          media: Type.Optional(Type.String({ description: 'project-relative video; default the current version' })),
+          t0: Type.Optional(Type.Number()), t1: Type.Optional(Type.Number()),
+          aspect: Type.Optional(Type.Union([Type.Literal('9:16'), Type.Literal('1:1'), Type.Literal('4:5')], { description: 'the target shape; default 9:16' })),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const rel = args.media || p.versions.find(v => v.id === p.current)!.path
+          const file = inProject(p, rel)
+          const found = await findSubjects(p.dir, file, { t0: args.t0, t1: args.t1, signal: api.signal })
+          const shots = await analyze(p.dir, file, api.signal).then(a => a.shots.map(sh => ({ s: sh.s, e: sh.e })), () => [{ s: 0, e: found.info.duration }])
+          const ranges = shots.map(sh => ({ s: Math.max(sh.s, found.t0), e: Math.min(sh.e, found.t1) })).filter(sh => sh.e - sh.s > 0.2)
+          const [aspect, ratio] = ({ '9:16': ['9/16', 9 / 16], '1:1': ['1', 1], '4:5': ['4/5', 4 / 5] } as Record<string, [string, number]>)[args.aspect || '9:16']
+          const cw = (found.info.height * ratio) / found.info.width // the crop's width as a fraction of the frame's
+          const tracks = track(found.dets)
+          return text(subjectsReport(rel, ranges.map(r => shotSubjects(tracks, r.s, r.e, found.fps, cw, found.dets)), { aspect, fps: found.fps, cw, file: found.file.slice(p.dir.length + 1) }))
+        },
+      }),
+      defineTool({
+        name: 'look',
+        description: 'See frames of a video, labelled with their times: at given times, or `count` frames spread over t0–t1; `box` (0–1 fractions, x,y = top-left) zooms every frame ' +
+          'into that region to read text or check a detail. Or see an image file in the project (`image`). Use after analyze_video, for what measurements can\'t tell.',
+        parameters: Type.Object({
+          media: Type.Optional(Type.String({ description: 'project-relative video; default the current version' })),
+          times: Type.Optional(Type.Array(Type.Number(), { maxItems: 16, description: 'seconds' })),
+          t0: Type.Optional(Type.Number()), t1: Type.Optional(Type.Number()),
+          count: Type.Optional(Type.Number({ description: 'frames between t0 and t1 (default 6, max 16)' })),
+          box: Type.Optional(Type.Object({ x: Type.Number(), y: Type.Number(), w: Type.Number(), h: Type.Number() })),
+          image: Type.Optional(Type.String({ description: 'project-relative image to look at instead of a video' })),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const out = join(p.dir, '.cache', 'look', `${Date.now()}.jpg`)
+          await mkdir(join(p.dir, '.cache', 'look'), { recursive: true })
+          if (args.image) {
+            const src = inProject(p, args.image)
+            if (!existsSync(src)) throw new Error(`No file at ${args.image}.`)
+            await new Promise<void>((ok, fail) => execFile(FFMPEG, ['-y', '-loglevel', 'error', '-i', src, '-frames:v', '1',
+              '-vf', 'scale=min(1568\\,iw):-2', '-q:v', '3', out], { signal: api.signal }, err => (err ? fail(new Error(`Can't read ${args.image} as an image.`)) : ok())))
+            return imageResult(args.image, out)
+          }
+          const rel = args.media || p.versions.find(v => v.id === p.current)!.path
+          const file = inProject(p, rel)
+          const dur = (await probe(file)).duration
+          let times: number[] = args.times?.length ? args.times : []
+          if (!times.length) {
+            const t0 = Math.max(0, args.t0 ?? 0), t1 = Math.min(dur, args.t1 ?? dur)
+            const n = Math.max(1, Math.min(16, Math.round(args.count ?? 6)))
+            times = Array.from({ length: n }, (_, k) => t0 + ((t1 - t0) * (k + 0.5)) / n)
+          }
+          times = times.slice(0, 16).map(t => Math.max(0, Math.min(t, dur - 0.04)))
+          await contactSheet(file, times.map(t => ({ t, label: fmt(t) })), out, { box: args.box, signal: api.signal })
+          return imageResult(`${rel}: frames at ${times.map(fmt).join(', ')}${args.box ? ' (zoomed into the box)' : ''}.`, out)
+        },
+      }),
+      defineTool({
         name: 'ffmpeg',
         description: 'Run the bundled ffmpeg in the project folder. Pass the arguments after "ffmpeg" (no shell quoting needed; -y is added). Paths are relative to the project folder; write outputs to renders/.',
         parameters: Type.Object({ args: Type.Array(Type.String(), { description: 'e.g. ["-i","media/a.mp4","-ss","5","-c:v","libx264","renders/cut.mp4"]' }) }),
         execute: async (args: Any, api: Any) => {
           const p = proj(api)
           const out = await new Promise<string>((ok, fail) => {
-            execFile(FFMPEG, ['-y', '-hide_banner', '-loglevel', 'error', ...args.args], { cwd: p.dir, maxBuffer: 1 << 24, signal: api.signal },
+            const [bin, argv] = fencedExec(p, FFMPEG, ['-y', '-hide_banner', '-loglevel', 'error', ...args.args])
+            execFile(bin, argv, { cwd: p.dir, maxBuffer: 1 << 24, signal: api.signal },
               (err, _o, stderr) => (err ? fail(new Error(`ffmpeg failed: ${stderr.slice(-3000) || err.message}`)) : ok(stderr.slice(-1500))))
           })
           return text(out || 'done')
@@ -144,7 +351,7 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       }),
       defineTool({
         name: 'transcript',
-        description: 'What is said in a media file, with word timings (seconds), fillers (um, uh) included. Made on first use; if no speech recognition is installed the user is asked to download it. ' +
+        description: 'What is said in a media file, with word timings (seconds), fillers (um, uh) included. Word starts and ends are cut points already placed in the quiet around each word: cut exactly on them, no extra room needed. Made on first use; if no speech recognition is installed the user is asked to download it. ' +
           'Lines are "start–end  text" per sentence, then each word as word@start-end. Use t0/t1 to read part of a long file, search to find words.',
         parameters: Type.Object({
           media: Type.Optional(Type.String({ description: 'project-relative path; default the current version' })),
@@ -154,13 +361,18 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
         execute: async (args: Any, api: Any) => {
           const p = proj(api)
           const media = args.media || p.versions.find(v => v.id === p.current)!.path
+          inProject(p, media)
           const t = await bridge.transcript(p.dir, media)
           if (!t) return text('No transcript: speech recognition is not installed.')
           const q = args.search?.toLowerCase()
-          const segs = t.segments.filter(s => (args.t0 == null || s.e >= args.t0) && (args.t1 == null || s.s <= args.t1) && (!q || s.text.toLowerCase().includes(q)))
+          // who says each sentence, when speakers has been worked out already (never waits for it)
+          const sp = await cachedSpeakers(p.dir, join(p.dir, media), p.speakers?.[media] && join(p.dir, p.speakers[media]))
+          const who = sp ? speakerOfSegments(t.segments, sp.result.turns) : []
+          const names = p.speakerNames?.[media] || {}
+          const segs = t.segments.map((s, i) => ({ ...s, who: who[i] })).filter(s => (args.t0 == null || s.e >= args.t0) && (args.t1 == null || s.s <= args.t1) && (!q || s.text.toLowerCase().includes(q)))
           const n = (x: number) => x.toFixed(2)
-          return text(`${media} · ${t.language} · ${t.model} · ${t.segments.length} sentences\n` +
-            segs.map(s => `${n(s.s)}–${n(s.e)}  ${s.text}\n  ${s.words.map(w => `${w.w}@${n(w.s)}-${n(w.e)}`).join(' ')}`).join('\n'))
+          return text(`${media} · ${t.language} · ${t.model} · ${t.segments.length} sentences${sp ? ' · [speaker] before each sentence' : ''}\n` +
+            segs.map(s => `${n(s.s)}–${n(s.e)}  ${s.who ? `[${nameOf(s.who, names)}] ` : ''}${s.text}\n  ${s.words.map(w => `${w.w}@${n(w.s)}-${n(w.e)}`).join(' ')}`).join('\n'))
         },
       }),
       defineTool({
@@ -203,8 +415,52 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
         execute: async (args: Any, api: Any) => text(`Proposed as version ${await bridge.overlayClip(proj(api).dir, args.id, args.at, args.duration, args.title)}.`),
       }),
       defineTool({
+        name: 'edit_timeline',
+        description: 'Change the edit at once, without rendering: the user sees and plays it straight away and can undo it (⌘Z). ' +
+          'Pieces are timeline.pieces in project_state (id, where it sits in the film, which part of which file). Times are seconds of the film ' +
+          'as it is before this call, so give all of a request\'s edits in one call. ' +
+          'cut {from, to} takes that span out and closes the gap; with src, from/to are times in that file (e.g. word times from its transcript) and every part of the film showing them goes. ' +
+          'split {at} cuts a piece in two. delete {ids}. move {id, before} puts a piece before another (no before: at the end). ' +
+          'trim {id, in, out}: the part of its file a piece shows (a clip: out = its length). level {ids, db, muted}: louder or quieter (-40…+12 dB), or silent. ' +
+          'insert {at, src, in, out}: a file (or part of it) put into the film at that time. The edit renders when the user exports it or saves it as a version.',
+        parameters: Type.Object({
+          edits: Type.Array(Type.Object({
+            op: Type.Union(['cut', 'split', 'delete', 'move', 'trim', 'level', 'insert'].map(o => Type.Literal(o))),
+            from: Type.Optional(Type.Number()), to: Type.Optional(Type.Number()), at: Type.Optional(Type.Number()),
+            src: Type.Optional(Type.String({ description: 'cut: a file whose times from/to are; insert: the file to put in' })),
+            id: Type.Optional(Type.String()), ids: Type.Optional(Type.Array(Type.String())), before: Type.Optional(Type.String()),
+            in: Type.Optional(Type.Number()), out: Type.Optional(Type.Number()),
+            db: Type.Optional(Type.Number()), muted: Type.Optional(Type.Boolean()),
+          })),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const need = (e: Any, ...keys: string[]) => { for (const k of keys) if (e[k] == null) throw new Error(`${e.op} needs ${keys.join(', ')}.`) }
+          const edits = (args.edits as Any[]).map((e): Parameters<typeof batch>[1][number] => {
+            switch (e.op) {
+              case 'cut': need(e, 'from', 'to'); return { op: 'cut', from: e.from, to: e.to, ...(e.src ? { src: e.src } : {}) }
+              case 'split': need(e, 'at'); return { op: 'split', at: e.at }
+              case 'delete': return { op: 'delete', ids: e.ids || (e.id ? [e.id] : []) }
+              case 'move': need(e, 'id'); return { op: 'move', id: e.id, before: e.before }
+              case 'trim': need(e, 'id'); return { op: 'trim', id: e.id, in: e.in, out: e.out }
+              case 'level': return { op: 'level', ids: e.ids || (e.id ? [e.id] : []), db: e.db, muted: e.muted }
+              case 'insert': {
+                need(e, 'at', 'src')
+                const info = p.media[e.src]
+                if (!info) throw new Error(`${e.src} is not in the project.`)
+                return { op: 'insert', at: e.at, src: e.src, in: e.in ?? 0, out: e.out ?? info.duration }
+              }
+              default: throw new Error(`Unknown op ${e.op}.`)
+            }
+          })
+          const after = await bridge.editTimeline(p.dir, batch(p.timeline!, edits))
+          const tl = after.timeline!
+          return text(`The edit is now ${timelineDuration(tl).toFixed(2)} s (not rendered; the user can undo):\n${piecesOf(tl).join('\n')}`)
+        },
+      }),
+      defineTool({
         name: 'rerender_timeline',
-        description: 'Render the current timeline again (after a clip in it changed) and propose it.',
+        description: 'Render the current timeline (the edit) and propose it: after a clip in it changed, or to turn an edit not rendered yet (timeline.edited) into a version.',
         parameters: Type.Object({ title: Type.String() }),
         execute: async (args: Any, api: Any) => text(`Proposed as version ${await bridge.rerenderTimeline(proj(api).dir, args.title)}.`),
       }),
@@ -223,7 +479,7 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
           const p = proj(api)
           const mix = { filmDb: args.film_db, ...(args.music ? { music: { src: args.music.src, db: args.music.db, duckDb: args.music.duck_db } } : {}) }
           if (mix.music && !p.media[mix.music.src]) throw new Error(`${mix.music.src} is not in the project; the user can add music with Add media.`)
-          return text(`Mixed as version ${await bridge.setMix(p.dir, mix)}.`)
+          return text(await bridge.setMix(p.dir, mix))
         },
       }),
       defineTool({
@@ -266,12 +522,25 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string) {
       }),
       defineTool({
         name: 'ask_user',
-        description: 'Ask the user to choose between options (shown as buttons). Ends your turn; the answer arrives as the next message.',
+        description: 'Ask the user to decide, with options shown as buttons. One question: question + options (multiple: true for checkboxes, e.g. which fixes ' +
+          'to apply). Several things at once (type of video, platform, length, style…): questions, up to 4, answered together in one card. ' +
+          'Put the option you recommend first, with "(recommended)" in its label, and say in each description what the user gets. ' +
+          'The card always offers "You decide" (then use your recommendations) and the user can type their own answer instead. ' +
+          'Ends your turn; the answer arrives as the next message.',
         parameters: Type.Object({
-          question: Type.String(),
-          options: Type.Array(Type.Object({ label: Type.String(), description: Type.Optional(Type.String()) }), { minItems: 1, maxItems: 5 }),
+          question: Type.Optional(Type.String()),
+          options: Type.Optional(Type.Array(Option, { minItems: 1, maxItems: 8 })),
+          multiple: Type.Optional(Type.Boolean({ description: 'let the user pick several (checkboxes); all start ticked' })),
+          questions: Type.Optional(Type.Array(Type.Object({
+            question: Type.String(),
+            options: Type.Array(Option, { minItems: 2, maxItems: 6 }),
+            multiple: Type.Optional(Type.Boolean({ description: 'checkboxes; none start ticked' })),
+          }), { minItems: 1, maxItems: 4 })),
         }),
-        execute: async () => ({ content: [{ type: 'text' as const, text: 'The question is on screen; wait for the answer.' }], control: { terminate: true } }),
+        execute: async (args: Any) => {
+          if (!args.questions?.length && !(args.question && args.options?.length)) throw new Error('Give question + options, or questions.')
+          return { content: [{ type: 'text' as const, text: 'The question is on screen; wait for the answer.' }], control: { terminate: true } }
+        },
       }),
     ],
   })
@@ -310,7 +579,8 @@ export function browserExtension(bridge: Bridge, dirOf: (convId: string) => stri
     tools: [
       defineTool({
         name: 'import_media',
-        description: 'Add a file in the project folder (e.g. one you downloaded to downloads/) to the project\'s media, so it can be used in the edit. Returns its path in media/.',
+        description: 'Add a file in the project folder (e.g. one you downloaded to downloads/) to the project\'s media, so it can be used in the edit. ' +
+          'A folder or .zip adds every file in it. Returns each new path in media/ and what the file is.',
         parameters: Type.Object({ path: Type.String({ description: 'relative to the project folder, e.g. downloads/music.mp3' }) }),
         execute: async (args: Any, api: Any) => {
           const dir = dirOf(api.conversationId)
@@ -318,7 +588,7 @@ export function browserExtension(bridge: Bridge, dirOf: (convId: string) => stri
           const abs = isAbsolute(args.path) ? args.path : resolve(dir, args.path)
           if (!abs.startsWith(dir + '/')) throw new Error('The file must be inside the project folder (download it to downloads/ first).')
           if (!existsSync(abs)) throw new Error(`No file at ${args.path}.`)
-          return text(`Added as ${await bridge.importMedia(dir, abs)}`)
+          return text(`Added:\n${(await bridge.importFiles(dir, abs)).join('\n')}`)
         },
       }),
     ],
@@ -329,14 +599,7 @@ function skillsExtension(skills: Skills) {
   return defineExtension({
     name: 'skills',
     sections: [section('skills', () => skills.prompt() || undefined)],
-    tools: [
-      defineTool({
-        name: 'fork_skill',
-        description: 'Copy a bundled skill into the user\'s skills folder so it can be changed (bundled skills are read-only). Returns the path of the editable SKILL.md.',
-        parameters: Type.Object({ id: Type.String() }),
-        execute: async (args: Any) => text(`Editable copy: ${skills.fork(args.id).path}`),
-      }),
-    ],
+    tools: [],
   })
 }
 
@@ -348,20 +611,35 @@ export async function startAgent(opts: {
   shellEnv?: () => Record<string, string>
   /** The browser section of the instructions, for the current setting. */
   browserPrompt?: () => string
+  /** Fence the agent's files and shell to the project (and these). Without it, nothing is fenced (tests). */
+  fence?: FenceConfig
 }) {
   const models = createModels({ authContext: { env: async (n: string) => process.env[n], fileExists: async (p: string) => existsSync(p) } })
   for (const p of [anthropicProvider, googleProvider, openaiProvider]) models.setProvider(p())
+  // custom providers (Azure AI Foundry, gateways, local servers): rebuilt when they or their keys change
+  let custom: string[] = []
+  const loadCustom = () => {
+    for (const id of custom) models.deleteProvider(id)
+    const built = buildProviders()
+    for (const p of built) models.setProvider(p as any)
+    custom = built.map(p => p.id)
+  }
+  loadCustom()
 
   const convDir = new Map<string, string>() // conversation id → project dir
   const registry = createRegistry()
   const dirOf = (id: string) => convDir.get(String(id)) || ''
-  for (const ext of [CodingTools, editorExtension(opts.bridge, dirOf), memoryExtension(opts.memory), skillsExtension(opts.skills),
+  for (const ext of [CodingTools, editorExtension(opts.bridge, dirOf, opts.fence), memoryExtension(opts.memory), skillsExtension(opts.skills),
     ...(opts.browserPrompt ? [browserExtension(opts.bridge, dirOf, opts.browserPrompt)] : [])]) registry.install(ext)
   const shellEnv = opts.shellEnv ? liveEnv(opts.shellEnv) : undefined
 
   const harness = await Harness.open(await openNodeSqliteStorage(opts.dbPath), {
     models, registry,
-    env: ({ cwd }: Any) => new NodeExecutionEnv({ cwd: cwd ?? process.cwd(), shellEnv }),
+    env: ({ cwd }: Any) => {
+      const dir = cwd ?? process.cwd()
+      const fence: Fence = opts.fence ? fenceFor({ project: dir, ...opts.fence }) : { rw: ['/'], ro: [] }
+      return new FencedEnv({ cwd: dir, shellEnv }, fence, { home: homedir(), fenceBin: opts.fence ? join(BIN, 'manul-fence') : undefined }, !!opts.fence)
+    },
   } as any, ctx)
   harness.resume() // finish any run a crash or quit left unfinished
 
@@ -398,8 +676,9 @@ export async function startAgent(opts: {
     current: (dir: string) => (live.has(dir) ? String(live.get(dir)!.conv.id) : undefined),
     hasModel: async () => !!(await pickModel()),
     model: (dir?: string) => pickModel(dir),
-    models: async () => describeModels(await available()),
-    keysChanged() { /* models are re-read on every use */ },
+    models: async () => describeModels(await available(), Object.fromEntries(listProviders().map(p => [p.id, p.name]))),
+    /** keys or custom providers changed: built-in models are re-read on every use, custom providers are rebuilt */
+    keysChanged: loadCustom,
     async send(dir: string, content: string | Any[]) {
       const l = live.get(dir)
       if (!l) throw new Error('This project is not open.')

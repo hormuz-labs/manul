@@ -1,6 +1,6 @@
 // The Screen view: the film, the scrubber with notes, and the agent beside it.
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, AudioLines, Globe, Loader2, Upload, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, Globe, Loader2, Upload, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, SquareDashed, X } from 'lucide-react'
 import { JobsTray } from '@/components/JobsTray'
 import { HistoryButton } from '@/components/HistoryButton'
 import { useCommands } from '@/lib/commands'
@@ -8,22 +8,26 @@ import { Button } from '@/components/ui/button'
 import { Tip } from '@/components/ui/tooltip'
 import { Kbd } from '@/components/ui/kbd'
 import { useAgent } from '@/lib/agui'
-import { cn, mediaUrl, timecode } from '@/lib/utils'
+import { cn, mediaUrl, timecode, typing } from '@/lib/utils'
 import { AgentPanel } from './AgentPanel'
 import { BrowserPanel } from './BrowserPanel'
-import { TranscriptPanel } from './TranscriptPanel'
-import { TimelineStrip } from './TimelineStrip'
+import { SidePanel, type SideTab } from './SidePanel'
+import { EditStatus, EditTools } from './EditTools'
 import { ClipEditor } from './ClipEditor'
 import { ExportDialog } from './ExportDialog'
 import { MixPanel } from './MixPanel'
-import { useLiveMix } from '@/lib/liveMix'
-import type { Mix } from '../../../shared/mix'
+import { DRAG_FILE, dragKind } from './FilesPanel'
+import { useLiveMix, type MixSource } from '@/lib/liveMix'
+import { dbToGain, type Mix } from '../../../shared/mix'
 import { needsProxy } from '../../../shared/proxy'
+import { keptOf, length, nextKept, rangesOf, sameCut, sourceAt, starts, timelineOfFile, type Edit, type Item } from '../../../shared/timeline'
 import { Scrubber } from './Scrubber'
-import { Stage, type StageHandle } from './Stage'
+import { Stage, type LiveEdit, type StageHandle } from './Stage'
 import type { Anchor, Box, Project } from '../../../shared/types'
 
-export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, ready, active = true, tabbed = false }: { initial: Project; firstPrompt?: string; onHome(): void; onKeys(): void; onTools(): void; ready: boolean; active?: boolean; tabbed?: boolean }) {
+const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
+export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, onTools, ready, active = true, tabbed = false }: { initial: Project; firstPrompt?: string; firstFiles?: string[]; onHome(): void; onKeys(): void; onTools(): void; ready: boolean; active?: boolean; tabbed?: boolean }) {
   const [p, setP] = useState(initial)
   const agent = useAgent(p.dir)
   const stage = useRef<StageHandle>(null)
@@ -32,16 +36,30 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   const [duration, setDuration] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [anchor, setAnchor] = useState<Anchor | undefined>()
+  // files attached to the next message (paths in media/): ones just added, or picked from the Files list
+  const [attached, setAttached] = useState<string[]>(firstFiles || [])
+  const attach = (rels: string[]) => setAttached(a => [...new Set([...a, ...rels])])
   const [drawing, setDrawing] = useState(false)
   const [compare, setCompare] = useState<'after' | 'before'>('after')
   const [over, setOver] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
+  const [source, setSource] = useState<MixSource | null>(null)
+  // editing by hand: the selected piece, what can be undone, a version being saved
+  const [selected, setSelected] = useState<string | null>(null)
+  const [undo, setUndo] = useState({ back: 0, forward: 0 })
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { window.manul.timeline.undoState(p.dir).then(setUndo).catch(() => {}) }, [p.dir, p.current])
+  useEffect(() => window.manul.timeline.onUndo((dir, u) => { if (dir === p.dir) setUndo(u) }), [p.dir])
   const [regions, setRegions] = useState<[number, number][]>([])
   const [editing, setEditing] = useState<{ itemId: string; clip: string; start: number } | null>(null)
+  // the side panel (Transcript · Subtitles · Files): open or a rail, and which tab
   const [showTranscript, setShowTranscript] = useState(() => localStorage.getItem('manul.transcript') !== '0')
   useEffect(() => { try { localStorage.setItem('manul.transcript', showTranscript ? '1' : '0') } catch { /* private mode */ } }, [showTranscript])
+  const [side, setSide] = useState<SideTab>(() => (['transcript', 'subtitles', 'files'].includes(localStorage.getItem('manul.side') || '') ? localStorage.getItem('manul.side') as SideTab : 'transcript'))
+  useEffect(() => { try { localStorage.setItem('manul.side', side) } catch { /* private mode */ } }, [side])
+  const showSide = (tab: SideTab) => { setSide(tab); setShowTranscript(true) }
+  const [dropping, setDropping] = useState<string | null>(null)
   const sentFirst = useRef(false)
   const [browsing, setBrowsing] = useState(false)
   // the agent opened or focused a browser window: show it (in the project on screen)
@@ -54,10 +72,12 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   const send = useCallback(async (text: string) => {
     const a = anchor
     const still = a ? stage.current?.still(a.box) : undefined
+    const files = attached
     setAnchor(undefined)
     setDrawing(false)
-    await window.manul.agent.send(p.dir, { text, anchor: a, still }).catch(e => alert((e as Error).message))
-  }, [anchor, p.dir])
+    setAttached([])
+    await window.manul.agent.send(p.dir, { text, anchor: a, still, files }).catch(e => alert((e as Error).message))
+  }, [anchor, attached, p.dir])
 
   // the request typed on the start screen goes out once the project is open
   useEffect(() => {
@@ -74,25 +94,35 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
       const v = stage.current?.video
       if (e.key === ' ') { e.preventDefault(); if (v) v.paused ? v.play() : v.pause() }
       else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); noteHere() }
-      else if (e.key === 'b' || e.key === 'B') { e.preventDefault(); v?.pause(); setDrawing(d => !d) }
+      else if ((e.key === 'b' || e.key === 'B') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); v?.pause(); setDrawing(d => !d) }
+      else if ((e.key === 'Backspace' || e.key === 'Delete') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); deleteSelection() }
       else if (e.key === 't' || e.key === 'T') { e.preventDefault(); setShowTranscript(x => !x) }
       else if (e.key === 'ArrowLeft' && v) seek(Math.max(0, v.currentTime - (e.shiftKey ? 5 : 1)))
       else if (e.key === 'ArrowRight' && v) seek(Math.min(duration, v.currentTime + (e.shiftKey ? 5 : 1)))
-      else if (e.key === 'Escape') { setAnchor(undefined); setDrawing(false); setEditing(null) }
+      else if (e.key === 'Escape') { setAnchor(undefined); setDrawing(false); setEditing(null); setSelected(null) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
 
   const mod = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+'
-  const addMedia = async () => { const f = await window.manul.project.pick(); if (f) await window.manul.project.import(p.dir, f) }
+  /** Copy files, folders or .zips into the project and attach them to the next message. */
+  const addFiles = async (paths: string[]) => {
+    for (const f of paths) {
+      try { attach(await window.manul.project.import(p.dir, f)) } catch (e) { alert((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')) }
+    }
+  }
+  const pickFiles = async () => addFiles(await window.manul.project.pickFiles())
   // a background tab stops playing and leaves the menu, palette and keys to the tab on screen
   useEffect(() => { if (!active) stage.current?.video?.pause() }, [active])
   useCommands(!active ? [] : [
     { id: 'export', title: 'Export…', keywords: 'save render mp4 vertical shorts captions srt', shortcut: `${mod}E`, run: () => setExporting(true) },
-    { id: 'media', title: 'Add media…', keywords: 'import footage image audio', shortcut: `${mod}I`, run: addMedia },
+    { id: 'media', title: 'Add files…', keywords: 'import media footage image audio music logo subtitles srt vtt font lut folder zip', shortcut: `${mod}I`, run: pickFiles },
     { id: 'reveal', title: 'Show project in Finder', keywords: 'folder files', run: () => window.manul.project.reveal(p.dir) },
-    { id: 'transcript', title: 'Show or hide the transcript', keywords: 'words text', shortcut: 'T', run: () => setShowTranscript(x => !x) },
+    { id: 'transcript', title: 'Show or hide the side panel', keywords: 'transcript words text subtitles files', shortcut: 'T', run: () => setShowTranscript(x => !x) },
+    { id: 'side.transcript', title: 'Show the transcript', keywords: 'words speakers', run: () => showSide('transcript') },
+    { id: 'side.subtitles', title: 'Show the subtitles', keywords: 'srt vtt captions', run: () => showSide('subtitles') },
+    { id: 'side.files', title: 'Show the files', keywords: 'media footage music delete', run: () => showSide('files') },
     { id: 'history', title: 'History', keywords: 'undo restore versions', run: () => setHistoryOpen(true) },
     { id: 'note', title: 'Add a note at the playhead', shortcut: 'N', run: () => noteHere() },
     { id: 'box', title: 'Draw a box on the picture', shortcut: 'B', run: () => { stage.current?.video?.pause(); setDrawing(true) } },
@@ -106,14 +136,94 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   const current = p.versions.find(v => v.id === p.current)!
   const proposal = p.proposal ? p.versions.find(v => v.id === p.proposal) : undefined
   const onScreen = proposal && compare === 'after' ? proposal : current
-  // the live mix starts from the mix the version on screen was rendered with; the player plays its dry film
-  const applied: Mix = onScreen.timeline?.mix || { filmDb: 0 }
+  // The edit (p.timeline) changed by hand since the version on screen was rendered: it plays from its pieces.
+  const tl = p.timeline!
+  const edited = useMemo(() => !sameCut(tl, current.timeline ?? (p.media[current.path] ? timelineOfFile(current.path, p.media[current.path]) : tl)), [tl, current, p.media])
+  const live = edited && onScreen === current
+  const editable = !proposal
+  // what the timeline shows: the edit, or the proposal's pieces while it is on screen
+  const track = onScreen === current ? tl : onScreen.timeline ?? timelineOfFile(onScreen.path, p.media[onScreen.path])
+  const liveEdit = useMemo<LiveEdit | null>(() => !live ? null : {
+    pieces: tl.items.map(it => it.kind === 'media'
+      ? { id: it.id, url: mediaUrl(`${p.dir}/${p.proxies?.[it.src] || it.src}`), in: it.in, out: it.out, gain: it.muted ? 0 : dbToGain(it.db || 0) }
+      : { id: it.id, url: `${mediaUrl(`${p.dir}/${p.clips?.[it.clip]?.video}`)}?v=${p.clips?.[it.clip]?.updatedAt}`, in: 0, out: it.dur, gain: 0 }),
+    fps: tl.fps, width: tl.width, height: tl.height,
+    overlays: (tl.overlays || []).filter(o => p.clips?.[o.clip]).map(o => ({ id: o.id, url: `${mediaUrl(`${p.dir}/clips/${o.clip}/clip.html`)}?v=${p.clips![o.clip].updatedAt}`, start: o.start, dur: o.dur })),
+  }, [live, tl, p.dir, p.proxies, p.clips])
+  // The transcript and subtitles of a film made of pieces (the edit, or a version rendered from one): those of the file
+  // most of it comes from, at the moment of it on screen. A click on a word goes to where the film shows it; words cut
+  // out are struck through. (A render is never transcribed again: its words are its pieces'.)
+  const view = live ? tl : onScreen.timeline
+  const mapped = !!view && !(view.items.length === 1 && view.items[0].kind === 'media' && view.items[0].src === onScreen.path)
+  const mainSrc = useMemo(() => {
+    const by = new Map<string, number>()
+    for (const it of view?.items || []) if (it.kind === 'media') by.set(it.src, (by.get(it.src) || 0) + length(it))
+    return [...by].sort((a, b) => b[1] - a[1])[0]?.[0] ?? onScreen.path
+  }, [view, onScreen.path])
+  const sideMedia = mapped ? mainSrc : onScreen.path
+  const under = mapped ? sourceAt(view!, time) : null
+  const sideTime = !mapped ? time : under?.item.kind === 'media' && under.item.src === mainSrc ? under.at : -1
+  const kept = useMemo(() => (mapped ? keptOf(view!, mainSrc) : undefined), [mapped, view, mainSrc])
+  const sideSeek = (s: number) => { if (!mapped) return seek(s); const t = nextKept(view!, mainSrc, s); if (t != null) seek(t) }
+  const sideRange = (r: { t0: number; t1: number }) => {
+    if (!mapped) return r
+    const parts = rangesOf(view!, mainSrc, r.t0, r.t1)
+    return parts.length ? { t0: Math.min(...parts.map(x => x[0])), t1: Math.max(...parts.map(x => x[1])) } : null
+  }
+  // the live mix starts from the mix the version on screen was rendered with (or the edit's); the player plays its dry film
+  const applied: Mix = (live ? tl.mix : onScreen.timeline?.mix) || { filmDb: 0 }
   const [mix, setMix] = useState<Mix>(applied)
-  useEffect(() => { setMix(applied) }, [onScreen.id]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { window.manul.mix.speech(p.dir, onScreen.id).then(setRegions).catch(() => setRegions([])) }, [p.dir, onScreen.id, p.transcripts])
-  useLiveMix(videoEl, p.dir, mix, regions)
+  useEffect(() => { setMix(applied) }, [onScreen.id, live]) // eslint-disable-line react-hooks/exhaustive-deps
+  const speechKey = live ? JSON.stringify(tl.items) : onScreen.id
+  useEffect(() => { window.manul.mix.speech(p.dir, live ? 'edit' : onScreen.id).then(setRegions).catch(() => setRegions([])) }, [p.dir, speechKey, p.transcripts]) // eslint-disable-line react-hooks/exhaustive-deps
+  useLiveMix(source, p.dir, mix, regions)
+
+  // ---- editing by hand
+  const selectedItem = track.items.find(i => i.id === selected)
+  useEffect(() => { if (selected && !track.items.some(i => i.id === selected) && !track.overlays?.some(o => o.id === selected)) setSelected(null) }, [track, selected])
+  const maxOf = (it: Item) => (it.kind === 'media' ? p.media[it.src]?.duration : p.clips?.[it.clip]?.duration)
+  /** Change the edit, then put the playhead at `then` (where a cut closed, a piece now starts…). */
+  const doEdit = async (edits: Edit[], then?: number) => {
+    try {
+      const np = await window.manul.timeline.edit(p.dir, edits)
+      setP(np)
+      if (then != null) seek(then)
+    } catch (e) { alert(clean(e)) }
+  }
+  const range = anchor?.t1 != null ? { t0: anchor.t0, t1: anchor.t1 } : null
+  const deletes = !editable ? null : range ? 'range' as const : selectedItem && track.items.length > 1 ? 'piece' as const : null
+  const deleteSelection = () => {
+    if (deletes === 'range') { setAnchor(undefined); doEdit([{ op: 'cut', from: range!.t0, to: range!.t1 }], range!.t0) }
+    else if (deletes === 'piece') { const k = track.items.indexOf(selectedItem!); setSelected(null); doEdit([{ op: 'delete', ids: [selectedItem!.id] }], starts(track)[k]) }
+  }
+  const split = () => { if (editable) doEdit([{ op: 'split', at: time }]) }
+  const undoEdit = async (redo: boolean) => { try { setP(await window.manul.timeline.undo(p.dir, redo)) } catch (e) { alert(clean(e)) } }
+  const saveVersion = async () => {
+    setSaving(true)
+    try { await window.manul.timeline.render(p.dir) } catch (e) { alert(clean(e)) } finally { setSaving(false) }
+  }
+  // the menu and palette run these (Edit → Undo, Split at Playhead…) with what is on screen now
+  const act = useRef({ split, deleteSelection, undoEdit, saveVersion, edited })
+  act.current = { split, deleteSelection, undoEdit, saveVersion, edited }
+  useCommands(!active ? [] : [
+    { id: 'timeline.split', title: 'Split at the playhead', keywords: 'cut blade razor timeline', shortcut: `${mod}B`, run: () => { if (!typing()) act.current.split() } },
+    { id: 'timeline.delete', title: 'Delete the selection', keywords: 'cut remove range piece timeline', shortcut: '⌫', run: () => act.current.deleteSelection() },
+    { id: 'timeline.undo', title: 'Undo an edit', keywords: 'timeline back', shortcut: `${mod}Z`, run: () => act.current.undoEdit(false) },
+    { id: 'timeline.redo', title: 'Redo an edit', keywords: 'timeline', shortcut: `⇧${mod}Z`, run: () => act.current.undoEdit(true) },
+    { id: 'timeline.render', title: 'Save the edit as a version', keywords: 'render timeline', run: () => { if (act.current.edited) act.current.saveVersion() } },
+  ], [p.dir, active])
   const playable = onScreen.dry || onScreen.path
   const decide = async (accept: boolean) => setP(await window.manul.project.decide(p.dir, accept))
+  /** A file dragged from the Files tab: footage goes into the edit at t (at once), music under it (heard live,
+   *  Apply in Mix keeps it), subtitles with the video on screen. */
+  const dropFile = async (rel: string, t?: number) => {
+    const kind = p.files?.[rel]?.kind
+    try {
+      if (kind === 'video' && t != null) setP(await window.manul.timeline.insertMedia(p.dir, rel, t))
+      else if (kind === 'audio') setMix(m => ({ ...m, music: { src: rel, db: m.music?.db ?? -14, duckDb: m.music?.duckDb ?? 10 } }))
+      else if (kind === 'subtitles') { await window.manul.subtitles.link(p.dir, sideMedia, rel); showSide('subtitles') }
+    } catch (err) { alert(clean(err)) }
+  }
 
   return (
     <div
@@ -122,20 +232,21 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
       onDragLeave={e => { if (e.currentTarget === e.target) setOver(false) }}
       onDrop={async e => {
         e.preventDefault(); setOver(false)
-        for (const f of Array.from(e.dataTransfer.files)) {
-          await window.manul.project.import(p.dir, window.manul.pathForFile(f))
-        }
+        await addFiles(Array.from(e.dataTransfer.files).map(f => window.manul.pathForFile(f)).filter(Boolean))
       }}
     >
       <ExportDialog dir={p.dir} open={exporting} onOpenChange={setExporting} />
       {/* title bar */}
       <div className={cn('drag flex h-11 shrink-0 items-center gap-2 bg-bg pr-2', tabbed ? 'pl-2' : 'pl-20')}>
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={onHome} title="All projects"><ArrowLeft /></Button>
-        <span className="truncate font-medium">{p.title}</span>
+        <span className="truncate font-medium" data-project-title={p.title}>{p.title}</span>
         <select
           className="no-drag h-7 rounded-md border border-line bg-raised px-1.5 text-xs text-dim outline-none"
           value={p.current}
-          onChange={async e => setP(await window.manul.project.setCurrent(p.dir, e.target.value))}
+          onChange={async e => {
+            if (edited && !confirm('Your edit isn\'t saved as a version. Switch anyway? (History keeps it.)')) return
+            setP(await window.manul.project.setCurrent(p.dir, e.target.value))
+          }}
           title="Versions"
         >
           {p.versions.filter(v => v.id !== p.proposal).map((v, i) => <option key={v.id} value={v.id}>v{i + 1} · {v.title}</option>)}
@@ -151,31 +262,35 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {showTranscript ? (
-          <div className="w-[300px] shrink-0 bg-panel">
-            <TranscriptPanel
-              project={p}
-              media={onScreen.path}
-              time={time}
-              onSeek={seek}
-              onCollapse={() => setShowTranscript(false)}
-              onRange={r => { stage.current?.video?.pause(); setAnchor({ ...r, box: anchor?.box }); input.current?.focus() }}
-            />
-          </div>
-        ) : (
-          /* collapsed: a slim rail that opens it again */
-          <button
-            onClick={() => setShowTranscript(true)}
-            title="Show the transcript (T)"
-            aria-label="Show the transcript"
-            className="group flex w-10 shrink-0 flex-col items-center gap-3 bg-panel pt-3 text-dim hover:bg-hover hover:text-fg"
-          >
-            <AudioLines className="size-4" />
-            <span className="text-[11px] tracking-wide [writing-mode:vertical-rl]">Transcript</span>
-          </button>
-        )}
+        <SidePanel
+          project={p}
+          media={sideMedia}
+          time={sideTime}
+          kept={kept}
+          open={showTranscript}
+          onOpen={setShowTranscript}
+          tab={side}
+          onTab={setSide}
+          onSeek={sideSeek}
+          onRange={r => { const fr = sideRange(r); if (!fr) return; stage.current?.video?.pause(); setAnchor({ ...fr, box: anchor?.box }); input.current?.focus() }}
+          attached={attached}
+          onAttach={attach}
+          onAdd={pickFiles}
+          onRemoved={rels => setAttached(a => a.filter(r => !rels.includes(r)))}
+        />
         {/* the film */}
-        <div className={cn('relative flex min-w-0 flex-1 flex-col gap-2 bg-canvas p-3', over && 'bg-amber-soft')}>
+        <div
+          className={cn('relative flex min-w-0 flex-1 flex-col gap-2 bg-canvas p-3', over && 'bg-amber-soft')}
+          // from the Files tab: subtitles go with the video on screen, music under the film (footage goes on the timeline)
+          onDragOver={e => { const k = dragKind(e.dataTransfer.types); if (k === 'subtitles' || k === 'audio') { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDropping(k) } }}
+          onDragLeave={e => { if (e.currentTarget === e.target) setDropping(null) }}
+          onDrop={e => { const rel = e.dataTransfer.getData(DRAG_FILE); setDropping(null); if (rel) { e.preventDefault(); dropFile(rel) } }}
+        >
+          {dropping && (
+            <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-amber bg-amber-soft text-[13px] font-medium text-amber">
+              {dropping === 'subtitles' ? 'Drop: use these subtitles for this video' : 'Drop: make this the film’s music'}
+            </div>
+          )}
           <BrowserPanel visible={browsing && active} onClose={() => setBrowsing(false)} />
           {proposal && (
             <div className="flex items-center gap-2 rounded-lg border border-amber/30 bg-amber-soft px-3 py-1.5">
@@ -215,7 +330,8 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             <Stage
               ref={stage}
               src={mediaUrl(`${p.dir}/${p.proxies?.[playable] || playable}`)}
-              onVideo={setVideoEl}
+              edit={liveEdit}
+              onSource={setSource}
               notes={p.notes}
               time={time}
               drawing={drawing}
@@ -228,34 +344,35 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             />
           </div>
 
-          {(onScreen.timeline || p.timeline) && ((onScreen.timeline || p.timeline)!.items.some(i => i.kind === 'clip') || !!(onScreen.timeline || p.timeline)!.overlays?.length) && (
-            <TimelineStrip
-              dir={p.dir}
-              timeline={(onScreen.timeline || p.timeline)!}
-              clips={p.clips || {}}
-              selected={editing?.itemId}
-              onSelect={(it, start) => {
-                if (it.kind !== 'clip') return
-                stage.current?.video?.pause()
-                seek(start + Math.min(it.dur / 2, 1))
-                setEditing({ itemId: it.id, clip: it.clip, start })
-              }}
-              onSelectOverlay={o => {
-                stage.current?.video?.pause()
-                seek(o.start + Math.min(o.dur / 2, 1))
-                setEditing({ itemId: o.id, clip: o.clip, start: o.start })
-              }}
-            />
-          )}
           <Scrubber
-            media={{ dir: p.dir, src: onScreen.path, revision: onScreen.createdAt, fps: p.media[onScreen.path]?.fps || 30 }}
+            onDropFile={(rel, t) => dropFile(rel, t)}
+            dir={p.dir}
+            revision={onScreen.createdAt}
+            fps={live ? tl.fps : p.media[onScreen.path]?.fps || 30}
             duration={duration}
             time={time}
             notes={p.notes}
             range={anchor}
+            track={track}
+            clips={p.clips || {}}
+            editable={editable}
+            selected={selected ?? editing?.itemId ?? null}
+            maxOf={maxOf}
+            tools={<EditTools editable={editable} deletes={deletes} undo={undo} piece={selectedItem?.kind === 'media' ? selectedItem : undefined}
+              onSplit={split} onDelete={deleteSelection} onUndo={() => undoEdit(false)} onRedo={() => undoEdit(true)}
+              onLevel={l => selectedItem && doEdit([{ op: 'level', ids: [selectedItem.id], ...l }])} />}
+            status={edited && editable ? <EditStatus saving={saving} onSave={saveVersion} /> : null}
             onSeek={seek}
             onRange={r => setAnchor(r ? { ...r, box: anchor?.box } : undefined)}
             onNote={n => seek(n.anchor.t0)}
+            onSelect={id => { setSelected(id); if (editing && id !== editing.itemId) setEditing(null) }}
+            onEdit={edits => doEdit(edits)}
+            onOpenClip={(id, clip, start) => {
+              stage.current?.video?.pause()
+              setSelected(id)
+              seek(start + Math.min((p.clips?.[clip]?.duration ?? 2) / 2, 1))
+              setEditing({ itemId: id, clip, start })
+            }}
           />
 
           <div className="flex items-center gap-1">
@@ -271,12 +388,6 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             <Tip label={<>Draw a box on the picture <Kbd>B</Kbd></>}>
               <Button size="sm" variant={drawing ? 'secondary' : 'ghost'} onClick={() => { stage.current?.video?.pause(); setDrawing(d => !d) }}><SquareDashed />Box</Button>
             </Tip>
-            <Tip label="Add footage, images or audio (or drop files anywhere)">
-              <Button size="sm" variant="ghost" onClick={async () => {
-                const f = await window.manul.project.pick()
-                if (f) await window.manul.project.import(p.dir, f)
-              }}><Plus />Media</Button>
-            </Tip>
           </div>
         </div>
 
@@ -289,6 +400,9 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             agent={agent}
             anchor={anchor}
             onClearAnchor={() => { setAnchor(undefined); setDrawing(false) }}
+            attached={attached}
+            onAttach={attach}
+            onDetach={rels => setAttached(a => a.filter(r => !rels.includes(r)))}
             onSend={send}
             onStop={() => window.manul.agent.stop(p.dir)}
             ready={ready}

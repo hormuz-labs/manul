@@ -26,8 +26,9 @@ const LABEL: Record<string, string> = { anthropic: 'Anthropic', google: 'Google'
 // Not chat models an editing agent can use: research agents, computer use, speech, embeddings, image-only, live audio.
 const NOT_AGENT = /deep-research|computer-use|tts|embedding|-image\b|image-generation|\blive\b|audio|transcribe|realtime/i
 
-export const describeModels = (available: Available[]) => available.filter(m => !NOT_AGENT.test(m.id)).map(m => ({
-  provider: m.provider, providerLabel: LABEL[m.provider] || m.provider, modelId: m.id, name: m.name || m.id,
+/** labels: provider id → display name, for custom providers (Settings → Keys → Other providers). */
+export const describeModels = (available: Available[], labels: Record<string, string> = {}) => available.filter(m => !NOT_AGENT.test(m.id)).map(m => ({
+  provider: m.provider, providerLabel: LABEL[m.provider] || labels[m.provider] || m.provider, modelId: m.id, name: m.name || m.id,
   context: m.contextWindow, price: m.cost ? { input: m.cost.input, output: m.cost.output } : undefined,
   images: (m.input || []).includes('image'), reasoning: !!m.reasoning,
 }))
