@@ -1,6 +1,7 @@
 // Editing by hand on the timeline: split at the playhead, delete a piece, undo and redo (the Edit menu's too), cut a
 // selected range with Backspace, a piece's volume and mute, moving a piece by its name, trimming one by its edge. The
-// edit plays straight from its pieces, across its cuts, and nothing renders until it's saved as a version.
+// edit plays straight from its pieces, across its cuts, and nothing renders until it's saved as a version (fast:
+// copying the picture between keyframes).
 // Run after npm run build. MANUL_E2E_SHOTS=<folder> saves screenshots there.
 import { _electron as electron } from 'playwright-core'
 import assert from 'node:assert/strict'
@@ -13,8 +14,9 @@ const root = join(import.meta.dirname, '..', '..')
 const BIN = join(root, 'resources', 'bin', `${process.platform}-${process.arch}`)
 const tmp = mkdtempSync(join(tmpdir(), 'manul-timeline-'))
 const shots = process.env.MANUL_E2E_SHOTS
+// a keyframe every 2 s: saving the edit copies the picture between them and encodes only the frames at the cuts
 execFileSync(join(BIN, 'ffmpeg'), ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:r=25:d=10', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=10',
-  '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', join(tmp, 'film.mp4')])
+  '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-g', '50', '-c:a', 'aac', '-shortest', join(tmp, 'film.mp4')])
 const clock = s => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`
 const near = (a, b, eps = 0.05) => Math.abs(a - b) <= eps
 
@@ -140,6 +142,28 @@ try {
   await win.waitForFunction(() => [...document.querySelectorAll('[data-testid="timeline-filmstrip"]')].every(s => s.querySelector('img')), null, { timeout: 20_000 })
   assert.ok(!project().transcripts?.[v.path], 'the render is not transcribed')
   if (shots) await win.screenshot({ path: join(shots, 'timeline-saved.png') })
+
+  // saved fast (most of the picture copied as it was), and it plays right across the joins: of pieces 4–9 s, 0–1 s and
+  // 2–4 s of the file (a keyframe every 2 s), 0–4 s and 6–8 s are copied, 4–6 s encoded. At each moment (on a frame;
+  // the first frames after the joins among them) the picture is the frame ffmpeg decodes there, not the one either side.
+  const jobs = await win.evaluate(() => window.manul.jobs.list())
+  assert.ok(jobs.some(j => /^Copied \d+% of the picture as it was$/.test(j.detail || '')), `rendered fast: ${JSON.stringify(jobs.map(j => [j.title, j.detail]))}`)
+  const still = t => execFileSync(join(BIN, 'ffmpeg'), ['-v', 'error', '-ss', t.toFixed(2), '-i', join(dir, v.path), '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 1 << 24 })
+  const mse = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += (a[i] - b[i]) ** 2; return s / a.length }
+  for (const t of [2, 3.96, 4, 4.6, 5.4, 5.96, 6, 7]) {
+    await seekTo(t)
+    await win.waitForFunction(() => { const el = document.querySelector('video:not([data-edit-player])'); return el && !el.seeking && el.readyState >= 2 })
+    const shown = Buffer.from(await win.evaluate(() => {
+      const el = document.querySelector('video:not([data-edit-player])')
+      const c = document.createElement('canvas')
+      c.width = el.videoWidth; c.height = el.videoHeight
+      const g = c.getContext('2d', { willReadFrequently: true })
+      g.drawImage(el, 0, 0)
+      return [...g.getImageData(0, 0, c.width, c.height).data].filter((_, i) => i % 4 !== 3)
+    }))
+    const [before, here, after] = [t - 0.04, t, t + 0.04].map(x => mse(shown, still(x)))
+    assert.ok(here < Math.min(before, after) / 3, `the picture at ${t} s is the file's frame there (${here.toFixed(0)}; either side ${before.toFixed(0)}, ${after.toFixed(0)})`)
+  }
   console.log('timeline e2e: ok')
 } finally {
   await app.close()

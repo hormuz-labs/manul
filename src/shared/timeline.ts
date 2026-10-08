@@ -1,6 +1,6 @@
 // The timeline: what the film is made of, in order. Media segments (a range of an imported or rendered file) and
 // motion clips (agent-made HTML, rendered frame-exact). Pure functions, shared by the main process and the UI;
-// a render turns a timeline into one MP4 (composeArgs).
+// a render turns a timeline into one MP4 (composeArgs; an edit that only cuts one file is mostly copied, main/cuts.ts).
 
 /** A range of a file. db: its sound louder or quieter (0 = as it is); muted: silent. */
 export type MediaItem = { id: string; kind: 'media'; src: string; in: number; out: number; db?: number; muted?: boolean }
@@ -294,6 +294,19 @@ export function addOverlay(tl: Timeline, o: Omit<Overlay, 'id'>): Timeline {
 
 export const removeOverlay = (tl: Timeline, id: string): Timeline => ({ ...tl, overlays: (tl.overlays || []).filter(o => o.id !== id) })
 
+const A_NORM = 'aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo'
+
+/**
+ * A piece's sound, from a to b of input k's audio: 48 kHz stereo at the piece's level, with 10 ms fades where pieces
+ * meet (so a cut never clicks). Shared by the full render and the fast one for cuts (main/cuts.ts).
+ */
+export function soundOf(k: number, it: Item, a: number, b: number, fades: boolean, label: string) {
+  const len = round(b - a)
+  const level = it.kind === 'media' && it.muted ? ',volume=0' : it.kind === 'media' && it.db ? `,volume=${it.db}dB` : ''
+  const fade = fades ? `,afade=t=in:d=0.01,afade=t=out:st=${round(Math.max(0, len - 0.01))}:d=0.01` : ''
+  return `[${k}:a]atrim=start=${round(a)}:end=${round(b)},asetpts=PTS-STARTPTS,${A_NORM}${fade}${level}[${label}]`
+}
+
 /**
  * One ffmpeg command for the whole timeline: every item scaled/padded to the timeline's size and rate, with a stereo
  * 48 kHz track (silence for items without audio), then concatenated. Paths are as the caller gives them (usually
@@ -305,18 +318,12 @@ export function composeArgs(tl: Timeline, o: { inputOf(i: Item): string; hasAudi
   const inputIndex = (path: string) => { let k = inputs.indexOf(path); if (k < 0) { inputs.push(path); k = inputs.length - 1 } return k }
   const parts: string[] = []
   const norm = `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},format=yuv420p`
-  const aNorm = 'aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo'
   tl.items.forEach((it, n) => {
     const k = inputIndex(o.inputOf(it))
     const len = round(length(it))
     const [a, b] = it.kind === 'media' ? [it.in, it.out] : [0, it.dur]
     parts.push(`[${k}:v]trim=start=${round(a)}:end=${round(b)},setpts=PTS-STARTPTS,${norm}[v${n}]`)
-    const level = it.kind === 'media' && it.muted ? ',volume=0' : it.kind === 'media' && it.db ? `,volume=${it.db}dB` : ''
-    // 10 ms fades where pieces meet, so a cut never clicks
-    const fades = tl.items.length > 1 ? `,afade=t=in:d=0.01,afade=t=out:st=${round(Math.max(0, len - 0.01))}:d=0.01` : ''
-    parts.push(o.hasAudio(it)
-      ? `[${k}:a]atrim=start=${round(a)}:end=${round(b)},asetpts=PTS-STARTPTS,${aNorm}${fades}${level}[a${n}]`
-      : `anullsrc=r=48000:cl=stereo,atrim=0:${len},${aNorm}[a${n}]`)
+    parts.push(o.hasAudio(it) ? soundOf(k, it, a, b, tl.items.length > 1, `a${n}`) : `anullsrc=r=48000:cl=stereo,atrim=0:${len},${A_NORM}[a${n}]`)
   })
   parts.push(`${tl.items.map((_, n) => `[v${n}][a${n}]`).join('')}concat=n=${tl.items.length}:v=1:a=1[v][a]`)
   // overlays on top, each shifted to its start and shown only during its time; the footage shows through transparency

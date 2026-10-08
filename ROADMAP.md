@@ -176,7 +176,9 @@ pro editors can take a Manul rough cut into their own editor.
 - ✅ Transcript panel with text-based editing (click to seek, drag to select a range, fillers marked, find)
 - 🚧 Tracks drawer (timeline, mix, inspector) (editing by hand done: split, cut a range, delete, trim, reorder and
       per-piece volume on the timeline, played straight from the pieces with undo; the agent edits the same way with
-      edit_timeline; renders only when saved as a version or exported. Still to come: more tracks, transitions, speed)
+      edit_timeline; renders only when saved as a version or exported, and a cut of one file renders fast: the picture
+      between keyframes is copied as it is and only the frames at each cut are encoded (a 20-minute 1080p film with ten
+      cuts: 10 s instead of 90 s). Still to come: more tracks, transitions, speed)
 - ✅ Agent browser with take-over (Manul's own browser via private bsk; Settings → Browser switches to the user's Chrome)
 - 🚧 Bring in your own footage, images and extra videos anywhere (files, folders and zips: subtitles, music, fonts,
       LUTs, logos; footage dragged onto the timeline goes into the edit at once)

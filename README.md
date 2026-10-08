@@ -113,7 +113,7 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/square-split-horizontal.svg" width="36" alt=""></td>
-<td><b>Your hands on the timeline too</b><br>Split, cut a range, trim, reorder and set a piece's volume yourself when that's quicker than asking. Your edit plays at once, straight from the footage, and Manul works from it</td>
+<td><b>Your hands on the timeline too</b><br>Split, cut a range, trim, reorder and set a piece's volume yourself when that's quicker than asking. Your edit plays at once, straight from the footage, and Manul works from it. Saving a cut copies the footage between the cuts as it is instead of encoding the whole film again, so it's quick even for a long film</td>
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/type.svg" width="36" alt=""></td>

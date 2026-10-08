@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { startAgent, type AgentHandle } from './agent'
+import { renderCuts } from './cuts'
 import { renderClip, setClipProtocol } from './clips'
 import { buildMenu } from './menu'
 import { startUpdates } from './updates'
@@ -35,7 +36,7 @@ import type { Speakers as SpeakersResult } from '../shared/speakers'
 import * as Speakers from './speakers'
 import { duckEnvelope, mixArgs, mixCommands, regionsOnTimeline, type Mix } from '../shared/mix'
 import { spawn } from 'node:child_process'
-import { FFMPEG, probe } from './media'
+import { FFMPEG, FFPROBE, probe } from './media'
 import { execFile } from 'node:child_process'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import type { Anchor, BrowserMode, ClipInfo, ConsentRequest, Project, Transcript } from '../shared/types'
@@ -340,10 +341,15 @@ async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'age
     overlayOf: o => p.clips![o.clip].video,
     out,
   })
-  await asJob(`Rendering “${title}”`, 'render', j => new Promise<void>((ok, fail) => {
+  await asJob(`Rendering “${title}”`, 'render', async j => {
     j.progress(null, `${timelineDuration(tl).toFixed(1)} s`)
-    execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { cwd: p.dir, maxBuffer: 1 << 24 }, (err, _o, stderr) => (err ? fail(new Error(stderr.slice(-1500) || err.message)) : ok()))
-  }), { project: p.dir, doneTitle: `Rendered “${title}”` })
+    // only cuts of one file: most of the picture is copied as it is (fast); anything else, or if that fails, in full
+    const cut = await renderCuts({ ffmpeg: FFMPEG, ffprobe: FFPROBE, cwd: p.dir, tl, out, progress: f => j.progress(f) })
+      .catch(e => ({ ok: false as const, why: `it failed: ${e instanceof Error ? e.message : e}` }))
+    if (cut.ok) return cut.copied
+    console.info(`Rendering “${title}” in full: ${cut.why}`)
+    await new Promise<void>((ok, fail) => execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { cwd: p.dir, maxBuffer: 1 << 24 }, (err, _o, stderr) => (err ? fail(new Error(stderr.slice(-1500) || err.message)) : ok())))
+  }, { project: p.dir, doneTitle: `Rendered “${title}”`, doneDetail: copied => (copied ? `Copied ${Math.round(copied * 100)}% of the picture as it was` : undefined) })
   if (mixed) await asJob('Mixing', 'render', () => mixInto(p, tl, out, final), { project: p.dir, doneTitle: 'Mixed' })
   if (propose && p.proposal) p.versions = p.versions.filter(v => v.id !== p.proposal)
   const v = await Projects.addVersion(p, join(p.dir, final), title, by, tl, mixed ? join(p.dir, out) : undefined)
