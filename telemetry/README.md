@@ -1,23 +1,81 @@
-# Manul telemetry
+# Crash reports and usage statistics
 
-Manul's opt-in active-time reports go to a local collector on `shanur-pc`. [Metabase](https://analytics.manul.si/dashboard) is the **one reporting dashboard**. `/dashboard` keeps a stable browser URL and displays the private Metabase dashboard in a same-origin frame; `/` and direct visits to an old `/dashboard/<id>-manul-overview` URL redirect to `/dashboard`. Sign in with the private Metabase admin account; there is no separate dashboard token.
+Manul asks once, on first run, with two boxes that start **unticked**:
+
+- **Send crash reports**: crashes and errors go to [Sentry](https://sentry.io).
+- **Share usage statistics**: a short, fixed list of events goes to [PostHog](https://posthog.com) through Manul's
+  proxy.
+
+Closing the dialog counts as no to both. Either can be changed at any time in **Settings → About**, and the change
+takes effect at once. Builds made from source never ask and send nothing, because the addresses below are only set
+in release builds.
+
+## What is never sent
+
+Your footage, file or folder names, paths, project titles, prompts, agent replies, transcripts, API keys, or URLs.
+Users' IP addresses are not passed on to PostHog. Sentry is told not to keep them.
+
+## Usage statistics
+
+Every event and property is listed in [`src/shared/telemetry.ts`](../src/shared/telemetry.ts). The app drops
+anything else, and the proxy rebuilds each event from the same list and refuses anything that isn't on it.
+
+| Event | Properties |
+|---|---|
+| `app opened` | none |
+| `project created` | none |
+| `active time` | `seconds` of use while Manul is focused and you are not idle (sent in steps of at least a minute) |
+| `agent run` | `provider` and `model` used, `tools`: the names of Manul's tools it called, `toolCalls`, `ok`, `seconds` |
+| `version decided` | `accepted`: whether you kept the version the agent proposed |
+| `export finished` | `preset` (original, landscape, vertical, square), `captions` (none, srt, burn), `by` (user or agent), `ok`, `seconds` |
+| `tool installed` | `tool` (e.g. whisper), `ok` |
+
+Every event also carries `app_version`, `os`, `arch`, and a random installation ID that is not tied to you. Saying no
+deletes anything unsent and the ID, and saying yes again starts a new one. Events wait on disk while offline (at most
+500) and are retried with the same IDs, so they are not counted twice.
+
+## Crash reports
+
+Sentry's Electron SDK reports native crashes of the app and its windows, and uncaught errors in the main process
+and the interface. To keep your data out of reports:
+
+- local variable values, console output, network requests and screenshots are switched off;
+- file paths in error messages are replaced with `<path>`;
+- the computer's name and user details are removed.
+
+The SDK runs in release builds either way, but nothing is sent unless crash reports are ticked. A crash from before
+you said yes is never sent later. See [`src/main/crash.ts`](../src/main/crash.ts).
 
 ## How the pieces fit
 
-- Cloudflare routes `analytics.manul.si` to `127.0.0.1:8787` on the host. `manul-analytics-gateway.service` sends **only** `POST /v1/usage` to the collector on `127.0.0.1:8788`. `/dashboard` serves a same-origin frame of the private dashboard; other requests go to Metabase on `127.0.0.1:3300` and use Metabase's login. The collector does not serve a dashboard or a public stats API.
-- `manul-telemetry.service` stores accepted opt-in events in `usage.sqlite` and retries PostHog Product Analytics forwarding from a SQLite queue. It sends only anonymous installation IDs and active seconds; no project names, media, prompts, keys, or browser data. The same PostHog project token sends fixed operational errors to PostHog Logs, never request bodies or IDs.
-- `manul-metabase-sync.timer` refreshes `telemetry/analytics.sqlite` hourly. This database contains daily local usage totals, GitHub snapshots (installer requests, stars, forks, rolling 14-day clone totals), and PostHog aggregates (daily ingested active time/participating installations for the rolling 30 days, rolling 30-day usage event count, and rolling 7-day operational log count). The PostHog panels are labeled separately from the local intake; counts can differ if forwarding is pending. The dashboard shows the last successful PostHog sync time so retained values are identifiable when the API is unavailable. Failed GitHub requests preserve previously sampled figures for that day. It contains no raw installation IDs, events, or log contents. Metabase's own configuration is in a persistent Docker PostgreSQL volume.
+```
+Manul ── usage batches ──▶ analytics.manul.si (Cloudflare Worker, telemetry/proxy) ──▶ PostHog
+Manul ── crash reports ──────────────────────────────────────────────────────────────▶ Sentry
+GitHub Actions, daily (telemetry/github-stats.mjs) ── downloads, stars, forks, clones ──▶ PostHog
+```
 
-## Operating it on this host
+- **Proxy** ([`proxy/worker.ts`](proxy/worker.ts)). It accepts only `POST /batch/` for Manul's PostHog project,
+  limits each IP to 30 batches a minute, and passes on nothing from the request but the cleaned events.
+- **Dashboards** are made in PostHog. There is no server of ours to run.
+- **GitHub numbers** come from [`.github/workflows/github-stats.yml`](../.github/workflows/github-stats.yml) as one
+  `github snapshot` event a day. Installer downloads are GitHub's `download_count` for `.dmg`, `.deb` and `.AppImage`
+  files: requests, not people or completed installs. Clone counts cover GitHub's rolling 14 days and need a token
+  with push access.
 
-`make dashboard` starts the local Metabase containers and sets up the aggregate database/dashboard. Open **https://analytics.manul.si/dashboard**; locally, use `http://127.0.0.1:8787/dashboard` through the gateway. The setup script records the actual Metabase dashboard ID in ignored `telemetry/dashboard-id.txt` for the gateway's frame. When following links inside Metabase, navigation stays inside the frame; use the browser address bar to return to `/dashboard`. On a new host, run `make dashboard` after the first aggregate sync. `manul-analytics-gateway.service`, `manul-telemetry.service`, and `manul-metabase-sync.timer` are enabled in this user's systemd; they survive reboot (user lingering is enabled). Docker Compose uses restart policies for Metabase and its database.
+## Setting it up
 
-All host secrets live in the ignored root `.env` (mode `0600`); use `.env.example` as a template. It holds the Metabase database and admin credentials, optional `POSTHOG_PROJECT_TOKEN=phc_...` and `POSTHOG_HOST=https://us.i.posthog.com` (or EU) for sending events/logs, `POSTHOG_PROJECT_ID` and `POSTHOG_PERSONAL_API_KEY` for read-only PostHog queries (`query:read` and `logs:read` scopes), and optional `GITHUB_TRAFFIC_TOKEN` for GitHub's private clone-traffic API and increased rate limits. After changing the collector's settings restart it with `systemctl --user restart manul-telemetry.service`; the hourly sync reads the same file on its next run. Use `python3 telemetry/rotate_metabase_admin.py` to change the Metabase admin password without losing the other settings. Both PostHog credentials are **server-only**; no browser snippet is installed. PostHog aggregates refresh on the hourly sync; failed reads keep the last successful snapshot rather than creating false zeros.
+1. **PostHog.** Create a project. Note its project token (`phc_…`, public by design: it can only send events) and its
+   region's capture host (`https://us.i.posthog.com` or `https://eu.i.posthog.com`).
+2. **Proxy.** Put the token and host in [`proxy/wrangler.toml`](proxy/wrangler.toml). Then, from `telemetry/proxy`,
+   run `npx wrangler deploy`. It serves `analytics.manul.si`, so remove that name's old tunnel route first.
+3. **Sentry.** Create an Electron project and note its DSN. For readable stack traces, also create an auth token
+   that can upload source maps.
+4. **GitHub repository settings.**
+   - Variables: `MANUL_TELEMETRY_URL=https://analytics.manul.si`, `MANUL_POSTHOG_TOKEN`, `MANUL_SENTRY_DSN`,
+     `SENTRY_ORG`, `SENTRY_PROJECT`, and for the daily snapshot `POSTHOG_TOKEN` and `POSTHOG_HOST`.
+   - Secrets: `SENTRY_AUTH_TOKEN`, and optionally `GH_TRAFFIC_TOKEN` for clone counts.
 
-For local status, run `systemctl --user status manul-analytics-gateway manul-telemetry manul-metabase-sync.timer` and `docker compose --env-file .env -f telemetry/metabase.compose.yml ps`. The collector health endpoint is `http://127.0.0.1:8788/healthz`; Metabase responds on `http://127.0.0.1:3300/api/health`. To refresh the aggregates manually, run `systemctl --user start manul-metabase-sync.service`.
+   The release workflow builds them in. Hidden source maps are uploaded to Sentry and then deleted, so they never
+   ship in the app.
 
-## Release builds and the counts
-
-The app is **off by default**. When enabled in Settings → About, it counts up to 15 seconds per tick while focused and not idle. It sends an installation UUID, an event UUID, and active seconds in batches of at least a minute. The collector deduplicates retries. GitHub's installer `download_count` is asset requests, not people or successful installs; `.zip` update assets, manifests, and blockmaps are excluded. GitHub clone totals cover only the last 14 days. No desktop usage appears until a release is built with `MANUL_TELEMETRY_URL=https://analytics.manul.si` and users opt in.
-
-Tests: `python3 -m unittest discover -s telemetry/tests` and `npm test -- test/telemetry.test.ts`.
+Tests: `npm test -- test/telemetry.test.ts`.

@@ -180,7 +180,7 @@ Other Linux: grab the AppImage from the [latest release](https://github.com/horm
 
 It's free and open source. Bring a Claude, Gemini or OpenAI key (it's kept in your system's keychain), or wait for the single **Manul key**, coming soon.
 
-Anonymous active-time reporting is optional and off by default. If enabled in Settings → About, Manul sends a random installation ID and foreground active seconds, never your footage, project data, prompts, or keys. [How it works and what download counts mean](telemetry/README.md).
+On first run Manul asks whether to send crash reports and usage statistics. Both boxes start unticked, and you can change them anytime in Settings → About. It never sends your footage, file or project names, prompts, transcripts or keys. [Exactly what is sent](telemetry/README.md).
 
 Want to hack on it? Run it from source with **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 

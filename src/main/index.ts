@@ -1,4 +1,5 @@
 // Manul's main process: the window, the media protocol, projects, keys, and the agent (pi-durable → AG-UI → renderer).
+import { CRASH_DSN } from './crash' // first: crash reports must start before anything else
 import { app, BrowserWindow, dialog, ipcMain, powerMonitor, protocol, shell } from 'electron'
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -17,6 +18,8 @@ import * as Tools from './tools'
 import * as Whisper from './whisper'
 import { getConfig, setConfig } from './config'
 import { UsageTelemetry } from './telemetry'
+import type { TelemetryState } from '../shared/telemetry'
+import type { BaseEvent } from '@ag-ui/core'
 import { Memory } from './memory'
 import { History } from './history'
 import { Skills } from './skills'
@@ -37,6 +40,7 @@ import type { Anchor, BrowserMode, ClipInfo, ConsentRequest, Project, Transcript
 import type { Timeline } from '../shared/timeline'
 
 declare const __MANUL_TELEMETRY_URL__: string
+declare const __MANUL_POSTHOG_TOKEN__: string
 
 app.setName('Manul')
 process.env.PATH = toolPath() // the agent's bash and tools find the bundled ffmpeg / ffprobe first
@@ -280,7 +284,9 @@ async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'age
 export type ExportRequest = { preset: ExportOptions['preset']; fit?: 'pad' | 'crop'; captions: 'none' | 'burn' | 'srt'; captionColor?: string }
 
 /** Export the version on screen to outAbs (and an .srt next to it when asked). */
-async function exportFilm(p: Project, req: ExportRequest, outAbs: string) {
+async function exportFilm(p: Project, req: ExportRequest, outAbs: string, by: 'user' | 'agent') {
+  const started = Date.now()
+  const done = (ok: boolean) => telemetry.track('export finished', { preset: req.preset, captions: req.captions, by, ok, seconds: (Date.now() - started) / 1000 })
   const v = p.versions.find(x => x.id === p.current)!
   const info = p.media[v.path]
   return asJob(`Exporting ${outAbs.split('/').pop()}`, 'render', async j => {
@@ -305,7 +311,7 @@ async function exportFilm(p: Project, req: ExportRequest, outAbs: string) {
     if (tmpSrt) await rm(tmpSrt, { force: true })
     if (req.captions === 'burn' && srt) await rm(srt, { force: true })
     return { file: outAbs, srt: req.captions === 'srt' ? srt : undefined }
-  }, { project: p.dir, doneTitle: `Exported ${outAbs.split('/').pop()}` })
+  }, { project: p.dir, doneTitle: `Exported ${outAbs.split('/').pop()}` }).then(r => { done(true); return r }, e => { done(false); throw e })
 }
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`
@@ -320,11 +326,12 @@ function wire() {
   ipcMain.handle('update:check', () => updates?.check())
   ipcMain.handle('update:install', () => updates?.install())
   ipcMain.handle('app:notices', () => shell.openPath(app.isPackaged ? join(process.resourcesPath, 'THIRD_PARTY_NOTICES.md') : join(import.meta.dirname, '../../THIRD_PARTY_NOTICES.md')))
-  ipcMain.handle('telemetry:state', () => ({ enabled: !!getConfig().telemetry?.enabled, available: !!__MANUL_TELEMETRY_URL__ }))
-  ipcMain.handle('telemetry:set', (_e, enabled: boolean) => {
-    setConfig({ telemetry: { enabled: enabled === true && !!__MANUL_TELEMETRY_URL__ } })
-    telemetry.setEnabled(!!getConfig().telemetry?.enabled)
-    return { enabled: !!getConfig().telemetry?.enabled, available: !!__MANUL_TELEMETRY_URL__ }
+  ipcMain.handle('telemetry:state', () => telemetryState())
+  ipcMain.handle('telemetry:set', (_e, choice: { usage: boolean; crashes: boolean }) => {
+    const usage = choice?.usage === true && telemetry.available
+    setConfig({ telemetry: { usage, crashes: choice?.crashes === true && !!CRASH_DSN, asked: true } })
+    telemetry.setEnabled(usage)
+    return telemetryState()
   })
   ipcMain.handle('tools:status', () => toolStatus())
   ipcMain.handle('tools:list', () => Tools.listTools())
@@ -376,6 +383,7 @@ function wire() {
   })
   ipcMain.handle('project:create', async (_e, file: string) => {
     const p = await openProject((await Projects.createFromFile(file)).dir)
+    telemetry.track('project created', {})
     await checkpoint(p, `Imported ${file.split('/').pop()}`)
     ensureProxy(p, p.versions[0].path)
     autoTranscribe(p, p.versions[0].path)
@@ -404,6 +412,7 @@ function wire() {
     const v = p.versions.find(x => x.id === p.proposal)
     if (accept) Projects.accept(p, p.proposal)
     else p.versions = p.versions.filter(x => x.id !== p.proposal)
+    telemetry.track('version decided', { accepted: accept })
     p.proposal = undefined
     if (v && !accept) p.notes.forEach(n => { if (n.status === 'resolved' && n.reply) n.reply += ` (rejected: ${v.title})` })
     await checkpoint(p, `${accept ? 'Accepted' : 'Rejected'} “${v?.title}”`)
@@ -420,7 +429,7 @@ function wire() {
     const suffix = { original: '', landscape: '-16x9', vertical: '-9x16', square: '-1x1' }[req.preset]
     const r = await dialog.showSaveDialog(win!, { title: 'Export', defaultPath: join(app.getPath('videos'), `${p.title}${suffix}.mp4`), filters: [{ name: 'MP4 video', extensions: ['mp4'] }] })
     if (r.canceled || !r.filePath) return null
-    return exportFilm(p, req, r.filePath)
+    return exportFilm(p, req, r.filePath, 'user')
   })
   ipcMain.handle('export:reveal', (_e, file: string) => shell.showItemInFolder(file))
   ipcMain.handle('mix:speech', async (_e, dir: string, versionId?: string) => {
@@ -496,6 +505,28 @@ function wire() {
   ipcMain.handle('agent:attach', async (_e, dir: string) => { await openProject(dir) })
 }
 
+// ---------------------------------------------------------------- crash reports and usage statistics (both opt-in)
+function telemetryState(): TelemetryState {
+  const c = getConfig().telemetry
+  return { usage: !!c?.usage, crashes: !!c?.crashes, asked: !!c?.asked, available: { usage: telemetry.available, crashes: !!CRASH_DSN } }
+}
+
+/** One 'agent run' per agent turn: the model, which of Manul's tools it called, how it ended. Never what was said. */
+const runs = new Map<string, { started: number; tools: string[]; failed: boolean }>()
+function agentRuns(dir: string, e: BaseEvent) {
+  const r = runs.get(dir)
+  if (e.type === 'RUN_STARTED') runs.set(dir, { started: Date.now(), tools: [], failed: false })
+  else if (r && e.type === 'TOOL_CALL_START') r.tools.push(String((e as { toolCallName?: string }).toolCallName))
+  else if (r && e.type === 'RUN_ERROR') r.failed = true
+  else if (r && e.type === 'RUN_FINISHED') {
+    runs.delete(dir)
+    void agent?.model(dir).then(m => telemetry.track('agent run', {
+      provider: m?.provider ?? '', model: m?.modelId ?? '', tools: [...new Set(r.tools)], toolCalls: r.tools.length,
+      ok: !r.failed, seconds: (Date.now() - r.started) / 1000,
+    })).catch(() => {})
+  }
+}
+
 // ---------------------------------------------------------------- window
 // The app icon. Packaged builds get it from build/ through electron-builder; in development set it by hand.
 const ICON = join(import.meta.dirname, '../../build/icon.png')
@@ -522,12 +553,15 @@ app.whenReady().then(async () => {
   setClipProtocol(serveMedia)
   loadKeys()
   telemetry = new UsageTelemetry({
-    file: join(app.getPath('userData'), 'usage.json'), endpoint: __MANUL_TELEMETRY_URL__,
-    enabled: () => !!getConfig().telemetry?.enabled,
+    file: join(app.getPath('userData'), 'usage.json'), endpoint: __MANUL_TELEMETRY_URL__, token: __MANUL_POSTHOG_TOKEN__,
+    enabled: () => !!getConfig().telemetry?.usage,
     focused: () => !!win?.isFocused() && !win.isMinimized(),
     idleSeconds: () => powerMonitor.getSystemIdleTime(),
+    context: { app_version: app.getVersion(), os: process.platform, arch: process.arch },
   })
   telemetry.start()
+  telemetry.track('app opened', {})
+  Tools.setOnInstalled((tool, ok) => telemetry.track('tool installed', { tool, ok }))
   memory = new Memory(join(app.getPath('userData'), 'memory'))
   const resources = app.isPackaged ? process.resourcesPath : join(import.meta.dirname, '../../resources')
   skills = new Skills({
@@ -555,7 +589,7 @@ app.whenReady().then(async () => {
       dbPath: join(app.getPath('userData'), 'agent.sqlite'),
       memory,
       skills,
-      onEvent: (dir, e) => send('agui', dir, e),
+      onEvent: (dir, e) => { agentRuns(dir, e); send('agui', dir, e) },
       bridge: {
         project: dir => open.get(dir),
         async proposeVersion(dir, abs, title) {
@@ -594,7 +628,7 @@ app.whenReady().then(async () => {
           const p = projectOf(dir)
           await mkdir(join(p.dir, 'exports'), { recursive: true })
           const suffix = { original: '', landscape: '-16x9', vertical: '-9x16', square: '-1x1' }[req.preset]
-          return exportFilm(p, req, join(p.dir, 'exports', `${p.title}${suffix}.mp4`))
+          return exportFilm(p, req, join(p.dir, 'exports', `${p.title}${suffix}.mp4`), 'agent')
         },
         setMix: (dir, mix) => applyMix(projectOf(dir), mix),
         async importMedia(dir, abs) {

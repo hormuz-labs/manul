@@ -2,6 +2,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { BaseEvent } from '@ag-ui/core'
 import type { Anchor, BrowserMode, BrowserState, ChromeBsk, ConsentRequest, Job, KeyInfo, OnDemandTool, Project, RecentProject, ToolStatus, Transcript, WhisperConfig, WhisperStatus } from '../shared/types'
+import type { TelemetryState } from '../shared/telemetry'
 
 type SkillState = { skills: { id: string; name: string; description: string; path: string; source: 'bundled' | 'user' }[]; enabled: string[]; profile: { id: string; name: string }; profiles: { id: string; name: string }[] }
 
@@ -18,8 +19,8 @@ const on = <T extends unknown[]>(ch: string) => (fn: (...args: T) => void) => {
 const api = {
   info: () => ipcRenderer.invoke('app:info') as Promise<{ version: string; platform: string; projectsRoot: string }>,
   telemetry: {
-    state: () => ipcRenderer.invoke('telemetry:state') as Promise<{ enabled: boolean; available: boolean }>,
-    set: (enabled: boolean) => ipcRenderer.invoke('telemetry:set', enabled) as Promise<{ enabled: boolean; available: boolean }>,
+    state: () => ipcRenderer.invoke('telemetry:state') as Promise<TelemetryState>,
+    set: (choice: { usage: boolean; crashes: boolean }) => ipcRenderer.invoke('telemetry:set', choice) as Promise<TelemetryState>,
   },
   pathForFile: (f: File) => webUtils.getPathForFile(f),
   tools: {
