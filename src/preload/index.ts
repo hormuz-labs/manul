@@ -111,7 +111,9 @@ const api = {
     open: (dir: string) => ipcRenderer.invoke('project:open', dir) as Promise<Project>,
     close: (dir: string) => ipcRenderer.invoke('project:close', dir),
     reveal: (dir: string) => ipcRenderer.invoke('project:reveal', dir),
-    import: (dir: string, file: string) => ipcRenderer.invoke('project:import', dir, file) as Promise<string>,
+    /** Any file, a folder or a .zip into the project; the new paths in media/. */
+    import: (dir: string, file: string) => ipcRenderer.invoke('project:import', dir, file) as Promise<string[]>,
+    pickFiles: () => ipcRenderer.invoke('project:pickFiles') as Promise<string[]>,
     decide: (dir: string, accept: boolean) => ipcRenderer.invoke('project:decide', dir, accept) as Promise<Project>,
     setCurrent: (dir: string, id: string) => ipcRenderer.invoke('project:current', dir, id) as Promise<Project>,
     onChange: on<[Project]>('project'),
@@ -119,7 +121,7 @@ const api = {
   agent: {
     ready: () => ipcRenderer.invoke('agent:ready') as Promise<boolean>,
     attach: (dir: string) => ipcRenderer.invoke('agent:attach', dir),
-    send: (dir: string, msg: { text: string; anchor?: Anchor; still?: string }) => ipcRenderer.invoke('agent:send', dir, msg),
+    send: (dir: string, msg: { text: string; anchor?: Anchor; still?: string; files?: string[] }) => ipcRenderer.invoke('agent:send', dir, msg),
     stop: (dir: string) => ipcRenderer.invoke('agent:stop', dir),
     newConversation: (dir: string) => ipcRenderer.invoke('agent:newConversation', dir) as Promise<Project>,
     switchConversation: (dir: string, id: string) => ipcRenderer.invoke('agent:switch', dir, id) as Promise<Project>,

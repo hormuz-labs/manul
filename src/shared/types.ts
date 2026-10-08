@@ -48,6 +48,19 @@ export type MediaInfo = {
   pixfmt?: string
 }
 
+/** What a file the user added is, so the agent knows how to use it. */
+export type FileKind = 'video' | 'audio' | 'image' | 'subtitles' | 'text' | 'font' | 'lut' | 'other'
+
+export type FileInfo = {
+  kind: FileKind
+  size: number
+  addedAt: number
+  /** One line on what is in it (cues and span, size, font family…), for the user and the agent. */
+  summary: string
+  /** Fonts: the family name (ASS Fontname, what libass matches) and style. */
+  font?: { family: string; style: string }
+}
+
 export type Project = {
   id: string
   title: string
@@ -60,6 +73,8 @@ export type Project = {
   proposal?: string
   notes: Note[]
   media: Record<string, MediaInfo>
+  /** Every file the user (or the agent) added, under media/: what each is. */
+  files?: Record<string, FileInfo>
   /** What the film is made of (media segments and motion clips); rendering it makes a version. */
   timeline?: Timeline
   /** Motion clips by id. */

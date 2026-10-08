@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Film, KeyRound, Loader2, Package, X } from 'lucide-react'
+import { extOf, kindByName } from '../../../shared/file-kinds'
+import { FileIcon } from './FilesPanel'
 import { JobsTray } from '@/components/JobsTray'
 import { Button } from '@/components/ui/button'
 import { cn, mediaUrl } from '@/lib/utils'
@@ -7,8 +9,10 @@ import type { Project, RecentProject } from '../../../shared/types'
 
 const IDEAS = ['Cut the ums and long pauses', 'Make a 60-second vertical for Shorts', 'Add a fade in and fade out', 'Trim to the best 30 seconds']
 
-export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOpen: (p: Project, prompt?: string) => void; onKeys: () => void; onTools: () => void; ready: boolean; tabbed?: boolean }) {
+export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOpen: (p: Project, prompt?: string, files?: string[]) => void; onKeys: () => void; onTools: () => void; ready: boolean; tabbed?: boolean }) {
   const [file, setFile] = useState<string | null>(null)
+  // other files dropped with the video (subtitles, music, logos…): added to the project, attached to the request
+  const [extras, setExtras] = useState<string[]>([])
   const [prompt, setPrompt] = useState('')
   const [over, setOver] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -19,12 +23,22 @@ export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOp
   useEffect(() => { window.manul.project.recent().then(setRecent) }, [])
 
   const choose = (path: string) => { setFile(path); setError(null); setTimeout(() => input.current?.focus(), 0) }
+  /** Dropped files: the first video starts the project (unless one is chosen already); the rest come along. */
+  const dropped = (paths: string[]) => {
+    const video = file ? null : paths.find(f => kindByName(f) === 'video')
+    if (!file && !video) { setError('Start with a video. Subtitles, music, logos and other files can come with it.'); return }
+    if (video) choose(video)
+    setExtras(x => [...new Set([...x, ...paths.filter(f => f !== video && f !== file)])])
+  }
   const go = async () => {
     if (!file || busy) return
     setBusy(true)
     setError(null)
     try {
-      onOpen(await window.manul.project.create(file), prompt.trim() || undefined)
+      const p = await window.manul.project.create(file)
+      const files: string[] = []
+      for (const f of extras) files.push(...(await window.manul.project.import(p.dir, f)))
+      onOpen(p, prompt.trim() || undefined, files)
     } catch (e) {
       setError((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
       setBusy(false)
@@ -36,7 +50,7 @@ export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOp
       className="flex h-full flex-col"
       onDragOver={e => { e.preventDefault(); setOver(true) }}
       onDragLeave={e => { if (e.currentTarget === e.target) setOver(false) }}
-      onDrop={e => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files[0]; if (f) choose(window.manul.pathForFile(f)) }}
+      onDrop={e => { e.preventDefault(); setOver(false); dropped(Array.from(e.dataTransfer.files).map(f => window.manul.pathForFile(f)).filter(Boolean)) }}
     >
       <div className={cn('flex h-11 shrink-0 items-center justify-end gap-1 px-3', !tabbed && 'drag')}>
         <JobsTray />
@@ -64,7 +78,19 @@ export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOp
               <Film className="mb-1 size-6" />
               <span className="font-medium text-fg">Drop a video here</span>
               <span className="text-xs">or click to choose · mp4, mov, webm, mkv</span>
+              <span className="text-xs text-faint">subtitles, music or a logo can come with it</span>
             </button>
+          )}
+          {extras.length > 0 && (
+            <div className="mb-1 flex flex-wrap gap-1 px-1">
+              {extras.map(f => (
+                <span key={f} className="inline-flex max-w-full items-center gap-1 rounded bg-hover px-1.5 py-0.5 text-[11px] text-dim" title={f}>
+                  <FileIcon kind={extOf(f) ? kindByName(f) ?? 'other' : 'folder'} className="size-3" />
+                  <span className="truncate">{f.split('/').pop()}</span>
+                  <button className="text-faint hover:text-fg" onClick={() => setExtras(x => x.filter(y => y !== f))} aria-label={`Remove ${f.split('/').pop()}`}><X className="size-3" /></button>
+                </span>
+              ))}
+            </div>
           )}
           <div className="flex items-end gap-2">
             <textarea

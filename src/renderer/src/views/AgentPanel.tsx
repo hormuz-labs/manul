@@ -12,6 +12,8 @@ import { Conversations } from '@/components/Conversations'
 import type { Project } from '../../../shared/types'
 import { cn, timecode } from '@/lib/utils'
 import type { Anchor } from '../../../shared/types'
+import { splitAttached } from '../../../shared/attached'
+import { chipGroups, FileIcon, kindOf } from './FilesPanel'
 
 type Call = { id: string; name: string; args: Record<string, any> }
 
@@ -201,15 +203,22 @@ function StepGroup({ ms, results, busy }: { ms: Message[]; results: ReturnType<t
 const NOTE = /^\[note \S+ ([^\]]*)\] /
 const EDITOR = /^\[editor\] /
 
-function Item({ m, results, busy, onAnswer, laterUser }: { m: Message; results: ReturnType<typeof resultsOf>; busy: boolean; onAnswer: (s: string) => void; laterUser: boolean }) {
+function Item({ m, project, results, busy, onAnswer, laterUser }: { m: Message; project: Project; results: ReturnType<typeof resultsOf>; busy: boolean; onAnswer: (s: string) => void; laterUser: boolean }) {
   if (m.role === 'user') {
     const text = String(m.content ?? '')
     if (EDITOR.test(text)) return <div className="text-center text-[11px] text-faint">{text.replace(EDITOR, '')}</div>
     const note = NOTE.exec(text)
+    const msg = splitAttached(text.replace(NOTE, ''))
     return (
       <div className="ml-6 rounded-xl bg-raised px-3 py-2" data-selectable>
         {note && <div className="mb-1 inline-flex items-center gap-1 rounded bg-note/15 px-1.5 py-0.5 text-[10.5px] text-note"><MessageSquareText className="size-3" />{note[1].replace(/^@ /, '').replace(/, box [\d.,]+/, ' · box').replace(/, clip (\S+) element (\S+)/, ' · $1 · $2')}</div>}
-        <div className="whitespace-pre-wrap">{text.replace(NOTE, '')}</div>
+        {msg.text && <div className="whitespace-pre-wrap">{msg.text}</div>}
+        {msg.files.length > 0 && (
+          <div className={cn('flex flex-wrap gap-1', msg.text && 'mt-1.5')}>
+            {chipGroups(msg.files).map(g => <FileChip key={g.rels[0]} label={g.label} kind={g.rels.length > 1 ? 'folder' : kindOf(project, g.rels[0])} title={g.rels.join('\n')} />)}
+            {msg.more > 0 && <span className="px-1 text-[11px] text-faint">+{msg.more} more</span>}
+          </div>
+        )}
       </div>
     )
   }
@@ -229,13 +238,27 @@ function Item({ m, results, busy, onAnswer, laterUser }: { m: Message; results: 
   return null
 }
 
-export function AgentPanel({ project, projectInfo, model, agent, anchor, onClearAnchor, onSend, onStop, ready, onKeys, inputRef }: {
+/** An attached file (or a folder's worth) in the input or a sent message. */
+function FileChip({ label, kind, title, onRemove }: { label: string; kind: Parameters<typeof FileIcon>[0]['kind']; title?: string; onRemove?(): void }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1 rounded bg-hover px-1.5 py-0.5 text-[11px] text-dim" title={title}>
+      <FileIcon kind={kind} className="size-3" />
+      <span className="truncate">{label}</span>
+      {onRemove && <button className="text-faint hover:text-fg" onClick={onRemove} aria-label={`Remove ${label}`}><X className="size-3" /></button>}
+    </span>
+  )
+}
+
+export function AgentPanel({ project, projectInfo, model, agent, anchor, onClearAnchor, attached = [], onDetach, onSend, onStop, ready, onKeys, inputRef }: {
   project: string
   projectInfo: Project
   model?: { provider: string; modelId: string }
   agent: AgentState
   anchor?: Anchor
   onClearAnchor(): void
+  /** Files attached to the next message (paths in media/). */
+  attached?: string[]
+  onDetach?(rels: string[]): void
   onSend(text: string): void
   onStop(): void
   ready: boolean
@@ -250,7 +273,7 @@ export function AgentPanel({ project, projectInfo, model, agent, anchor, onClear
 
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' }) }, [agent.messages.length, agent.streaming?.text.length, Object.keys(agent.pending).length, consents.length])
 
-  const submit = () => { const t = text.trim(); if (!t) return; onSend(t); setText('') }
+  const submit = () => { const t = text.trim(); if (!t && !attached.length) return; onSend(t); setText('') }
   const anchorLabel = anchor && (anchor.clip?.element ? `${anchor.clip.id} · ${anchor.clip.element}`
     : `${timecode(anchor.t0)}${anchor.t1 != null ? `–${timecode(anchor.t1)}` : ''}${anchor.box ? ' · box' : ''}`)
 
@@ -277,7 +300,7 @@ export function AgentPanel({ project, projectInfo, model, agent, anchor, onClear
         )}
         {foldSteps(shown).map(b => b.kind === 'steps'
           ? <StepGroup key={b.ms[0].id} ms={b.ms} results={results} busy={agent.busy} />
-          : <Item key={b.m.id} m={b.m} results={results} busy={agent.busy} onAnswer={onSend} laterUser={shown.slice(b.i + 1).some(x => x.role === 'user')} />)}
+          : <Item key={b.m.id} m={b.m} project={projectInfo} results={results} busy={agent.busy} onAnswer={onSend} laterUser={shown.slice(b.i + 1).some(x => x.role === 'user')} />)}
         {Object.entries(agent.pending).map(([id, p]) => <ToolCard key={id} call={{ id, name: p.name, args: parse(p.args) }} state="streaming" />)}
         {agent.streaming?.text && <div className="whitespace-pre-wrap leading-relaxed text-fg/95">{agent.streaming.text}</div>}
         {consents.map(c => <ConsentCard key={c.id} c={c} />)}
@@ -291,6 +314,15 @@ export function AgentPanel({ project, projectInfo, model, agent, anchor, onClear
           <button onClick={onKeys} className="w-full rounded-xl border border-dashed border-amber/50 px-3 py-3 text-amber hover:bg-amber-soft">Add an API key to start editing</button>
         ) : (
           <div className={cn('rounded-xl bg-raised ring-1 focus-within:ring-line-strong', anchor ? 'ring-amber/40' : 'ring-transparent')}>
+            {attached.length > 0 && (
+              <div className="flex flex-wrap gap-1 px-2.5 pt-2">
+                {chipGroups(attached).map(g => (
+                  <FileChip key={g.rels[0]} label={g.label} kind={g.rels.length > 1 ? 'folder' : kindOf(projectInfo, g.rels[0])}
+                    title={g.rels.map(r => `${r}${projectInfo.files?.[r] ? ` — ${projectInfo.files[r].summary}` : ''}`).join('\n')}
+                    onRemove={() => onDetach?.(g.rels)} />
+                ))}
+              </div>
+            )}
             {anchor && (
               <div className="flex items-center gap-1.5 px-2.5 pt-2">
                 <span className="inline-flex items-center gap-1 rounded bg-amber-soft px-1.5 py-0.5 text-[11px] text-amber"><MessageSquareText className="size-3" />Note at {anchorLabel}</span>
@@ -307,13 +339,13 @@ export function AgentPanel({ project, projectInfo, model, agent, anchor, onClear
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
                   if (e.key === 'Escape') { (e.target as HTMLTextAreaElement).blur(); onClearAnchor() }
                 }}
-                placeholder={anchor ? 'What should change here?' : agent.busy ? 'Steer the edit…' : 'Ask for an edit…'}
+                placeholder={anchor ? 'What should change here?' : attached.length ? 'What should Manul do with these?' : agent.busy ? 'Steer the edit…' : 'Ask for an edit…'}
                 className="max-h-36 min-h-8 flex-1 resize-none bg-transparent px-1.5 py-1.5 outline-none placeholder:text-faint [field-sizing:content]"
               />
-              {agent.busy && !text ? (
+              {agent.busy && !text && !attached.length ? (
                 <Button size="iconSm" variant="secondary" className="rounded-full" onClick={onStop} title="Stop"><Square className="size-3 fill-current" /></Button>
               ) : (
-                <Button size="iconSm" variant="primary" className="rounded-full" disabled={!text.trim()} onClick={submit}><ArrowUp /></Button>
+                <Button size="iconSm" variant="primary" className="rounded-full" disabled={!text.trim() && !attached.length} onClick={submit}><ArrowUp /></Button>
               )}
             </div>
           </div>

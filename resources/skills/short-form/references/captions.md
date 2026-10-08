@@ -32,6 +32,9 @@ Dialogue: 0,0:00:00.90,0:00:01.30,Caption,,0,0,0,,NOBODY TOLD {\c&H00D7FF&}ME{\c
 - For 1920×1080 (horizontal) set PlayResX 1920, PlayResY 1080, Fontsize ~64, Caption MarginV ~90.
 
 ## 2. Building the events from the transcript
+- When the user gave subtitles (.srt/.vtt), use their words (a person checked them) and the transcript's word times
+  for the highlight timing; retime them to the cut first (video-editing/references/inputs.md).
+- A font the user gave goes in `Fontname` (its family, from project_state) with `fontsdir=fonts`.
 - Group the words into chunks of 1–3 words (break at punctuation and natural phrases; never split a name or number).
 - For each word in a chunk, one Dialogue line from that word's start to the next word's start (the last word of a chunk:
   to its end + 0.15 s, or the next chunk's start if sooner), showing the whole chunk with that word coloured.

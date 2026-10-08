@@ -124,6 +124,10 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 <td><b>One film, every shape</b><br>16:9 for YouTube, 9:16 for Shorts, Reels and TikTok, 1:1 for feeds, with captions burned in or as a file</td>
 </tr>
 <tr>
+<td width="56" align="center"><img src="docs/icons/paperclip.svg" width="36" alt=""></td>
+<td><b>Your files, put to use</b><br>Drop in subtitles, music, your logo, fonts and LUTs, or a whole folder or zip of them. Manul says what each one is, and the edit uses them</td>
+</tr>
+<tr>
 <td width="56" align="center"><img src="docs/icons/globe.svg" width="36" alt=""></td>
 <td><b>Its own browser</b><br>It looks up references and finds footage in a browser of its own, never yours, unless you switch that on</td>
 </tr>

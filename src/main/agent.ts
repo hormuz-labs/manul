@@ -29,6 +29,8 @@ import { analyze, contactSheet, report, sheetFrames } from './analysis'
 import { analyzeMusic, musicReport } from './music'
 import { analyzeSpeakers, speakersReport, withSentences } from './speakers'
 import { findSubjects, shotSubjects, subjectsReport, track } from './subjects'
+import { fileLine } from './files'
+import { ATTACHED } from '../shared/attached'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { duration as timelineDuration } from '../shared/timeline'
@@ -52,8 +54,8 @@ export type Bridge = {
   insertClip(dir: string, id: string, at: number, title: string): Promise<string>
   rerenderTimeline(dir: string, title: string): Promise<string>
   setMix(dir: string, mix: { filmDb: number; music?: { src: string; db: number; duckDb: number } }): Promise<string>
-  /** Copy a file (e.g. a download) into media/ and add it to the project. */
-  importMedia(dir: string, absPath: string): Promise<string>
+  /** Copy a file, folder or .zip (e.g. a download) into media/ and add it to the project; a line per new file. */
+  importFiles(dir: string, absPath: string): Promise<string[]>
   exportFilm(dir: string, req: { preset: 'original' | 'landscape' | 'vertical' | 'square'; fit?: 'pad' | 'crop'; captions: 'none' | 'burn' | 'srt'; captionColor?: string }): Promise<{ file: string; srt?: string }>
 }
 
@@ -119,6 +121,10 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenc
       `and offer the fixes you'd make as ask_user with multiple: true — one option per fix, its description saying what changes and where ` +
       `(e.g. "Stabilise shots 2 and 4 — strong handheld shake"). Apply the chosen ones together in one render. Precise requests ("cut the first 5 s") need no questions.\n` +
       `- Edit with the ffmpeg tool (bundled; also on PATH for bash). Read the current version, write new files to renders/. Never overwrite media/.\n` +
+      `- Files the user gives you (more footage, music, voice-over, logos, photos, subtitles, fonts, LUTs) are in media/ and listed ` +
+      `in project_state under files, each with what it is; a message lists the ones attached to it under "${ATTACHED}". Use them when the request ` +
+      `touches them, and say so. Subtitles: read them for the words and times, and burn, restyle or retime them (video-editing skill, ` +
+      `references/inputs.md). If a file's use isn't clear, ask.\n` +
       `- For anything about speech (cut ums or pauses, remove a sentence, find a moment, captions) read the transcript tool first and cut on word times. ` +
       `Each word's start and end are cut points already placed in the quiet around it: cut exactly on them (to drop words a–b, cut from a's start to b's end). ` +
       `To cut many pieces, build one ffmpeg command with trim/atrim + concat (or select/aselect) from the word times.\n` +
@@ -131,20 +137,21 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenc
       `then render_clip and rerender_timeline.\n` +
       `- Skills: read video-editing before any edit, and the skill for the kind of video (talking-head, short-form, promos-and-montages, ` +
       `tutorials, cleanup-and-repair, motion-design, music-generation) — see the skills list.\n` +
-      `- Fonts for text you draw with ffmpeg: ${FONTS_DIR} (Inter-Regular.ttf, Inter-Bold.ttf; drawtext fontfile=…, subtitles fontsdir=…).\n` +
+      `- Fonts for text you draw with ffmpeg: ${FONTS_DIR} (Inter-Regular.ttf, Inter-Bold.ttf; drawtext fontfile=…, subtitles fontsdir=…). ` +
+      `Fonts the user added are in the project's fonts/ folder with Inter: then use fontsdir=fonts (never fontsdir=media).\n` +
       `- Prefer one well-built ffmpeg command over many small ones. Keep codecs sensible: libx264 -crf 18 -preset veryfast, aac 192k, -movflags +faststart.\n` +
       `- When you need a decision from the user, call ask_user with 2–5 options and stop.\n` +
       `API keys the user saved in Manul are already in your shell's environment (e.g. $ELEVENLABS_API_KEY, $GEMINI_API_KEY): use them in commands as they are; ` +
       `never print, echo, measure or log a key or any part of it, and never look for keys elsewhere (other shells, files).\n` +
       `Your files and shell are fenced to the project folder (plus temp folders and Manul's bundled tools, skills, models and fonts, ` +
-      `read-only); anything else is refused, so don't look elsewhere. Files the user adds are already copied into media/.\n` +
+      `read-only); anything else is refused, so don't look elsewhere. Files the user adds are already copied into media/ (never look for the originals).\n` +
       `Stay inside the project folder. Never inspect, run or search Manul's own program files, other folders or system processes; ` +
       `if a tool fails, read its error and fix your input instead of investigating the app.\n` +
       `Write replies in short plain Markdown. Say what you did, not how.\n\n` + MOTION_POINTER, { tag: false })],
     tools: [
       defineTool({
         name: 'project_state',
-        description: 'The project: versions (which one is current, which is proposed), notes with their anchors, and media details (duration, size, fps, audio).',
+        description: 'The project: versions (which one is current, which is proposed), notes with their anchors, the files the user added (what each is), and media details (duration, size, fps, audio).',
         parameters: Type.Object({}),
         execute: async (_args: Any, api: Any) => {
           const p = proj(api)
@@ -159,6 +166,7 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenc
             clips: Object.values(p.clips || {}).map(c => ({ id: c.id, title: c.title, duration: c.duration })),
             versions: p.versions.map(v => ({ id: v.id, title: v.title, path: v.path, by: v.by })),
             notes: p.notes.filter(n => n.status === 'open').map(n => ({ id: n.id, at: `${fmt(n.anchor.t0)}${n.anchor.t1 != null ? `–${fmt(n.anchor.t1)}` : ''}`, box: n.anchor.box, text: n.text })),
+            files: Object.keys(p.files || {}).map(rel => fileLine(rel, p.files!)),
             media: p.media,
           })
         },
@@ -472,7 +480,8 @@ export function browserExtension(bridge: Bridge, dirOf: (convId: string) => stri
     tools: [
       defineTool({
         name: 'import_media',
-        description: 'Add a file in the project folder (e.g. one you downloaded to downloads/) to the project\'s media, so it can be used in the edit. Returns its path in media/.',
+        description: 'Add a file in the project folder (e.g. one you downloaded to downloads/) to the project\'s media, so it can be used in the edit. ' +
+          'A folder or .zip adds every file in it. Returns each new path in media/ and what the file is.',
         parameters: Type.Object({ path: Type.String({ description: 'relative to the project folder, e.g. downloads/music.mp3' }) }),
         execute: async (args: Any, api: Any) => {
           const dir = dirOf(api.conversationId)
@@ -480,7 +489,7 @@ export function browserExtension(bridge: Bridge, dirOf: (convId: string) => stri
           const abs = isAbsolute(args.path) ? args.path : resolve(dir, args.path)
           if (!abs.startsWith(dir + '/')) throw new Error('The file must be inside the project folder (download it to downloads/ first).')
           if (!existsSync(abs)) throw new Error(`No file at ${args.path}.`)
-          return text(`Added as ${await bridge.importMedia(dir, abs)}`)
+          return text(`Added:\n${(await bridge.importFiles(dir, abs)).join('\n')}`)
         },
       }),
     ],

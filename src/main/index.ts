@@ -23,10 +23,12 @@ import { Browser } from './browser'
 import { agentEnv, browserPrompt, BskDaemon, BSK_BIN, chromeBsk, extensionStorage, findUserBsk, privateHome } from './bsk'
 import { homedir } from 'node:os'
 import * as Projects from './projects'
+import * as Files from './files'
 import { addOverlay, composeArgs, duration as timelineDuration, insertAt } from '../shared/timeline'
 import { moveElement, prepareClipHtml } from '../shared/clip-html'
 import { captionCues, exportArgs, toSrt, type ExportOptions } from '../shared/export'
 import { needsProxy, proxyArgs } from '../shared/proxy'
+import { joinAttached } from '../shared/attached'
 import { duckEnvelope, mixArgs, mixCommands, regionsOnTimeline, type Mix } from '../shared/mix'
 import { spawn } from 'node:child_process'
 import { FFMPEG } from './media'
@@ -115,6 +117,8 @@ async function openProject(dir: string) {
   const p = open.get(dir) || (await Projects.load(dir))
   open.set(dir, p)
   for (const rel of Object.keys(p.media)) ensureProxy(p, rel) // older projects, or a copy that was deleted
+  // files added or removed in Finder (and projects from before the file list) show up in the list and to the agent
+  Projects.syncFiles(p).then(changed => { if (changed) return publish(p) }).catch(e => console.warn('files', e))
   if (agent) {
     const conv = await agent.open(dir, p.conversation)
     if (conv !== p.conversation || !p.conversations?.some(c => c.id === conv)) { useConversation(p, conv); await Projects.save(p) }
@@ -391,7 +395,23 @@ function wire() {
   ipcMain.handle('browser:mode', () => browserMode())
   ipcMain.handle('browser:set-mode', (_e, mode: BrowserMode) => { setConfig({ browser: { mode: mode === 'chrome' ? 'chrome' : 'manul' } }); return browserMode() })
   ipcMain.handle('browser:chrome', () => chromeBsk({ userHome: homedir(), bundled: BSK_BIN }))
-  ipcMain.handle('project:import', async (_e, dir: string, file: string) => { const p = projectOf(dir); const rel = await Projects.importMedia(p, file); send('project', p); ensureProxy(p, rel); autoTranscribe(p, rel); return rel })
+  // any file, a folder or a .zip; returns the new paths in media/
+  ipcMain.handle('project:import', async (_e, dir: string, file: string) => {
+    const p = projectOf(dir)
+    const rels = await Projects.addFiles(p, file)
+    send('project', p)
+    for (const rel of rels) { ensureProxy(p, rel); autoTranscribe(p, rel) }
+    return rels
+  })
+  ipcMain.handle('project:pickFiles', async () => {
+    const r = await dialog.showOpenDialog(win!, {
+      title: 'Add files',
+      buttonLabel: 'Add',
+      // macOS can pick files and folders in one dialog; elsewhere asking for both shows only folders
+      properties: ['openFile', 'multiSelections', ...(process.platform === 'darwin' ? ['openDirectory' as const] : [])],
+    })
+    return r.canceled ? [] : r.filePaths
+  })
   ipcMain.handle('project:decide', async (_e, dir: string, accept: boolean) => {
     const p = projectOf(dir)
     if (!p.proposal) return p
@@ -434,19 +454,21 @@ function wire() {
   })
 
   // A message to the agent, optionally anchored (time / range / box) with a frame still (JPEG data URL).
-  ipcMain.handle('agent:send', async (_e, dir: string, msg: { text: string; anchor?: Anchor; still?: string }) => {
+  // Files the user attached (paths in media/) follow the text, each with what it is.
+  ipcMain.handle('agent:send', async (_e, dir: string, msg: { text: string; anchor?: Anchor; still?: string; files?: string[] }) => {
     const p = projectOf(dir)
-    let content: string | Record<string, unknown>[] = msg.text
+    const body = joinAttached(msg.text, Files.attachedLines(msg.files || [], p.files || {}))
+    let content: string | Record<string, unknown>[] = body
     if (msg.anchor) {
       const jpeg = msg.still ? Buffer.from(msg.still.split(',')[1], 'base64') : undefined
       const n = await Projects.addNote(p, { anchor: msg.anchor, text: msg.text }, jpeg)
       await checkpoint(p, `Note: ${msg.text.slice(0, 60)}`)
-      content = [{ type: 'text', text: `[note ${n.id} ${describe(msg.anchor)}] ${msg.text}` }]
+      content = [{ type: 'text', text: `[note ${n.id} ${describe(msg.anchor)}] ${body}` }]
       if (jpeg) content.push({ type: 'image', data: jpeg.toString('base64'), mimeType: 'image/jpeg' })
     }
     // a new conversation is named after its first message
     const rec = p.conversations?.find(c => c.id === p.conversation)
-    if (rec && rec.title === 'New conversation') { rec.title = msg.text.replace(/\s+/g, ' ').trim().slice(0, 48) || rec.title; await publish(p) }
+    if (rec && rec.title === 'New conversation') { rec.title = (msg.text || (msg.files || []).map(f => f.split('/').pop()).join(', ')).replace(/\s+/g, ' ').trim().slice(0, 48) || rec.title; await publish(p) }
     await agent!.send(dir, content)
   })
   ipcMain.handle('clip:save', (_e, dir: string, id: string, title: string, html: string, dur: number, overlay?: boolean) => saveClip(projectOf(dir), id, title, html, dur, !!overlay))
@@ -581,12 +603,12 @@ app.whenReady().then(async () => {
           return exportFilm(p, req, join(p.dir, 'exports', `${p.title}${suffix}.mp4`))
         },
         setMix: (dir, mix) => applyMix(projectOf(dir), mix),
-        async importMedia(dir, abs) {
+        async importFiles(dir, abs) {
           const p = projectOf(dir)
-          const rel = await Projects.importMedia(p, abs)
-          await checkpoint(p, `Added ${rel}`)
-          ensureProxy(p, rel); autoTranscribe(p, rel)
-          return rel
+          const rels = await Projects.addFiles(p, abs)
+          await checkpoint(p, `Added ${rels.length === 1 ? rels[0] : `${rels.length} files`}`)
+          for (const rel of rels) { ensureProxy(p, rel); autoTranscribe(p, rel) }
+          return Files.attachedLines(rels, p.files || {})
         },
         rerenderTimeline: (dir, title) => { const p = projectOf(dir); return proposeTimeline(p, p.timeline!, title) },
       },

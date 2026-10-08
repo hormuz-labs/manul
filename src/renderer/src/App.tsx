@@ -14,7 +14,7 @@ import type { Project } from '../../shared/types'
 
 export function App() {
   const [tabs, setTabs] = useState<Tabs>({ open: [], active: null })
-  const [projects, setProjects] = useState<Record<string, { p: Project; prompt?: string }>>({})
+  const [projects, setProjects] = useState<Record<string, { p: Project; prompt?: string; files?: string[] }>>({})
   const restored = useRef(false)
   const [settings, setSettings] = useState<Section | null>(null)
   const [ready, setReady] = useState(false)
@@ -43,8 +43,8 @@ export function App() {
   // the shown project's agent conversation is the one events and sends go to
   useEffect(() => { if (tabs.active) window.manul.agent.attach(tabs.active) }, [tabs.active])
 
-  const openProject = useCallback((p: Project, prompt?: string) => {
-    setProjects(x => ({ ...x, [p.dir]: { p, prompt } }))
+  const openProject = useCallback((p: Project, prompt?: string, files?: string[]) => {
+    setProjects(x => ({ ...x, [p.dir]: { p, prompt, files } }))
     setTabs(t => openTab(t, p.dir))
   }, [])
   const close = useCallback((dir: string) => {
@@ -82,7 +82,7 @@ export function App() {
         <div className="relative min-h-0 flex-1">
           {tabs.open.map(d => projects[d] && (
             <div key={d} className={cn('absolute inset-0', d !== tabs.active && 'invisible')}>
-              <ProjectView initial={projects[d].p} firstPrompt={projects[d].prompt} ready={ready} active={d === tabs.active} tabbed
+              <ProjectView initial={projects[d].p} firstPrompt={projects[d].prompt} firstFiles={projects[d].files} ready={ready} active={d === tabs.active} tabbed
                 onKeys={() => setSettings('keys')} onTools={() => setSettings('tools')} onHome={() => setTabs(t => ({ ...t, active: null }))} />
             </div>
           ))}

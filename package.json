@@ -18,7 +18,7 @@
     "postinstall": "node scripts/fetch-ffmpeg.mjs && node scripts/fetch-bsk.mjs && node scripts/fetch-models.mjs && node scripts/copy-libs.mjs",
     "fetch:ffmpeg": "node scripts/fetch-ffmpeg.mjs",
     "fetch:bsk": "node scripts/fetch-bsk.mjs",
-    "test:e2e": "electron-vite build && node test/e2e/filmstrip.e2e.mjs && node test/e2e/clips.e2e.mjs && node test/e2e/export.e2e.mjs && node test/e2e/menu.e2e.mjs && node test/e2e/proxy.e2e.mjs && node test/e2e/tabs.e2e.mjs && node test/e2e/mix.e2e.mjs && node test/e2e/browser.e2e.mjs && node test/e2e/conversations.e2e.mjs && node test/e2e/tools.e2e.mjs && node test/e2e/providers.e2e.mjs",
+    "test:e2e": "electron-vite build && node test/e2e/filmstrip.e2e.mjs && node test/e2e/clips.e2e.mjs && node test/e2e/export.e2e.mjs && node test/e2e/menu.e2e.mjs && node test/e2e/proxy.e2e.mjs && node test/e2e/tabs.e2e.mjs && node test/e2e/mix.e2e.mjs && node test/e2e/files.e2e.mjs && node test/e2e/browser.e2e.mjs && node test/e2e/conversations.e2e.mjs && node test/e2e/tools.e2e.mjs && node test/e2e/providers.e2e.mjs",
     "package": "electron-vite build && electron-builder",
     "package:dir": "electron-vite build && electron-builder --dir"
   },
@@ -33,6 +33,7 @@
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/yauzl": "^3.4.0",
     "@vitejs/plugin-react": "^5.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -58,7 +59,8 @@
     "@earendil-works/pi-durable": "^1.0.4",
     "electron-updater": "^6.8.9",
     "isomorphic-git": "^1.43.0",
-    "js-yaml": "^4.3.2"
+    "js-yaml": "^4.3.2",
+    "yauzl": "^3.4.0"
   },
   "author": {
     "name": "Hormuz Labs",

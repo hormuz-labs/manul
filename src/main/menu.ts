@@ -13,7 +13,7 @@ export function buildMenu(win: () => BrowserWindow | null) {
     ] } as MenuItemConstructorOptions] : []),
     { label: 'File', submenu: [
       cmd('home', 'New Project', 'CmdOrCtrl+N'),
-      cmd('media', 'Add Media…', 'CmdOrCtrl+I'),
+      cmd('media', 'Add Files…', 'CmdOrCtrl+I'),
       cmd('export', 'Export…', 'CmdOrCtrl+E'),
       { type: 'separator' },
       cmd('reveal', 'Show Project in Finder'),

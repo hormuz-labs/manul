@@ -1,6 +1,6 @@
 // The Screen view: the film, the scrubber with notes, and the agent beside it.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, AudioLines, Globe, Loader2, Upload, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, Plus, SquareDashed, X } from 'lucide-react'
+import { ArrowLeft, AudioLines, Globe, Loader2, Upload, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, SquareDashed, X } from 'lucide-react'
 import { JobsTray } from '@/components/JobsTray'
 import { HistoryButton } from '@/components/HistoryButton'
 import { useCommands } from '@/lib/commands'
@@ -16,6 +16,7 @@ import { TimelineStrip } from './TimelineStrip'
 import { ClipEditor } from './ClipEditor'
 import { ExportDialog } from './ExportDialog'
 import { MixPanel } from './MixPanel'
+import { FilesPanel } from './FilesPanel'
 import { useLiveMix } from '@/lib/liveMix'
 import type { Mix } from '../../../shared/mix'
 import { needsProxy } from '../../../shared/proxy'
@@ -23,7 +24,7 @@ import { Scrubber } from './Scrubber'
 import { Stage, type StageHandle } from './Stage'
 import type { Anchor, Box, Project } from '../../../shared/types'
 
-export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, ready, active = true, tabbed = false }: { initial: Project; firstPrompt?: string; onHome(): void; onKeys(): void; onTools(): void; ready: boolean; active?: boolean; tabbed?: boolean }) {
+export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, onTools, ready, active = true, tabbed = false }: { initial: Project; firstPrompt?: string; firstFiles?: string[]; onHome(): void; onKeys(): void; onTools(): void; ready: boolean; active?: boolean; tabbed?: boolean }) {
   const [p, setP] = useState(initial)
   const agent = useAgent(p.dir)
   const stage = useRef<StageHandle>(null)
@@ -32,6 +33,9 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   const [duration, setDuration] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [anchor, setAnchor] = useState<Anchor | undefined>()
+  // files attached to the next message (paths in media/): ones just added, or picked from the Files list
+  const [attached, setAttached] = useState<string[]>(firstFiles || [])
+  const attach = (rels: string[]) => setAttached(a => [...new Set([...a, ...rels])])
   const [drawing, setDrawing] = useState(false)
   const [compare, setCompare] = useState<'after' | 'before'>('after')
   const [over, setOver] = useState(false)
@@ -54,10 +58,12 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   const send = useCallback(async (text: string) => {
     const a = anchor
     const still = a ? stage.current?.still(a.box) : undefined
+    const files = attached
     setAnchor(undefined)
     setDrawing(false)
-    await window.manul.agent.send(p.dir, { text, anchor: a, still }).catch(e => alert((e as Error).message))
-  }, [anchor, p.dir])
+    setAttached([])
+    await window.manul.agent.send(p.dir, { text, anchor: a, still, files }).catch(e => alert((e as Error).message))
+  }, [anchor, attached, p.dir])
 
   // the request typed on the start screen goes out once the project is open
   useEffect(() => {
@@ -85,12 +91,18 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
   })
 
   const mod = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+'
-  const addMedia = async () => { const f = await window.manul.project.pick(); if (f) await window.manul.project.import(p.dir, f) }
+  /** Copy files, folders or .zips into the project and attach them to the next message. */
+  const addFiles = async (paths: string[]) => {
+    for (const f of paths) {
+      try { attach(await window.manul.project.import(p.dir, f)) } catch (e) { alert((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')) }
+    }
+  }
+  const pickFiles = async () => addFiles(await window.manul.project.pickFiles())
   // a background tab stops playing and leaves the menu, palette and keys to the tab on screen
   useEffect(() => { if (!active) stage.current?.video?.pause() }, [active])
   useCommands(!active ? [] : [
     { id: 'export', title: 'Export…', keywords: 'save render mp4 vertical shorts captions srt', shortcut: `${mod}E`, run: () => setExporting(true) },
-    { id: 'media', title: 'Add media…', keywords: 'import footage image audio', shortcut: `${mod}I`, run: addMedia },
+    { id: 'media', title: 'Add files…', keywords: 'import media footage image audio music logo subtitles srt vtt font lut folder zip', shortcut: `${mod}I`, run: pickFiles },
     { id: 'reveal', title: 'Show project in Finder', keywords: 'folder files', run: () => window.manul.project.reveal(p.dir) },
     { id: 'transcript', title: 'Show or hide the transcript', keywords: 'words text', shortcut: 'T', run: () => setShowTranscript(x => !x) },
     { id: 'history', title: 'History', keywords: 'undo restore versions', run: () => setHistoryOpen(true) },
@@ -122,9 +134,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
       onDragLeave={e => { if (e.currentTarget === e.target) setOver(false) }}
       onDrop={async e => {
         e.preventDefault(); setOver(false)
-        for (const f of Array.from(e.dataTransfer.files)) {
-          await window.manul.project.import(p.dir, window.manul.pathForFile(f))
-        }
+        await addFiles(Array.from(e.dataTransfer.files).map(f => window.manul.pathForFile(f)).filter(Boolean))
       }}
     >
       <ExportDialog dir={p.dir} open={exporting} onOpenChange={setExporting} />
@@ -271,12 +281,7 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             <Tip label={<>Draw a box on the picture <Kbd>B</Kbd></>}>
               <Button size="sm" variant={drawing ? 'secondary' : 'ghost'} onClick={() => { stage.current?.video?.pause(); setDrawing(d => !d) }}><SquareDashed />Box</Button>
             </Tip>
-            <Tip label="Add footage, images or audio (or drop files anywhere)">
-              <Button size="sm" variant="ghost" onClick={async () => {
-                const f = await window.manul.project.pick()
-                if (f) await window.manul.project.import(p.dir, f)
-              }}><Plus />Media</Button>
-            </Tip>
+            <FilesPanel project={p} attached={attached} onAttach={attach} onAdd={pickFiles} />
           </div>
         </div>
 
@@ -289,6 +294,8 @@ export function ProjectView({ initial, firstPrompt, onHome, onKeys, onTools, rea
             agent={agent}
             anchor={anchor}
             onClearAnchor={() => { setAnchor(undefined); setDrawing(false) }}
+            attached={attached}
+            onDetach={rels => setAttached(a => a.filter(r => !rels.includes(r)))}
             onSend={send}
             onStop={() => window.manul.agent.stop(p.dir)}
             ready={ready}

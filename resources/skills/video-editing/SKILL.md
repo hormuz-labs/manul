@@ -18,9 +18,13 @@ Deeper material, read when the step needs it:
 - references/ffmpeg.md — tested commands (keep ranges, J/L cuts, 9:16 crops, speed ramps, photos, music edits, loudness);
   stabilising, grading and sound repair commands are in the cleanup-and-repair skill.
 - references/checks.md — what to verify on a render before proposing it.
+- references/inputs.md — using the files the user gave you: subtitles (burn, restyle, retime after a cut), fonts, LUTs,
+  logos, music, more footage. **Read it whenever a request involves a file the user added.**
 
 ## 1. Workflow (follow in order)
-1. **Measure the material** (never guess it): `analyze_video` on every source — shots and cut times, shake and camera
+1. **Know what you were given**: `project_state` lists every file the user added (footage, music, subtitles, fonts,
+   logos, LUTs) with what it is; a message lists its attachments under `[attached files]` (references/inputs.md).
+   **Measure the material** (never guess it): `analyze_video` on every source — shots and cut times, shake and camera
    motion per shot, exposure, contrast, colour cast, black/frozen frames, loudness, silences, and one frame per shot.
    `transcript` for speech, `speakers` for who speaks when, `find_subjects` for where faces and objects are (and crops
    that follow them), `analyze_music` for any music. `look` only for what those can't say (what a shot means, where

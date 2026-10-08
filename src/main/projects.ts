@@ -1,15 +1,17 @@
 // Projects live in ~/Movies/Manul/<name>/ :
 //   project.json   versions, notes, media info (the source of truth the UI and the agent share)
-//   media/         imported files (copied, so the project is self-contained)
+//   media/         imported files (copied, so the project is self-contained): footage, music, subtitles, documents…
 //   renders/       the agent's outputs
 //   notes/         frame stills attached to notes
+//   fonts/         fonts the user added (copies, with Manul's Inter), the folder subtitles take fonts from
 import { app } from 'electron'
 import { execFile } from 'node:child_process'
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, relative } from 'node:path'
 import { promisify } from 'node:util'
-import { FFMPEG, probe } from './media'
+import { FFMPEG, FONTS_DIR, probe } from './media'
+import * as Files from './files'
 import { fromMedia } from '../shared/timeline'
 import type { MediaInfo, Note, Project, RecentProject, Version } from '../shared/types'
 
@@ -69,23 +71,56 @@ export async function createFromFile(file: string): Promise<Project> {
 
   const rel = join('media', basename(file))
   await copyFile(file, join(dir, rel))
-  const info = await probe(join(dir, rel))
+  const { info: about, media: info } = await Files.inspect(dir, rel, probe)
+  if (!info) {
+    await rm(dir, { recursive: true, force: true })
+    throw new Error(`${basename(file)} isn't a video Manul can play (${about.summary}). Start from a video; other files can be added to it.`)
+  }
   const v: Version = { id: id(), path: rel, title: 'Original', createdAt: Date.now(), by: 'import' }
-  const p: Project = { id: id(), title, dir, createdAt: Date.now(), versions: [v], current: v.id, notes: [], media: { [rel]: info }, timeline: timelineOf(rel, info) }
+  const p: Project = { id: id(), title, dir, createdAt: Date.now(), versions: [v], current: v.id, notes: [], media: { [rel]: info }, files: { [rel]: about }, timeline: timelineOf(rel, info) }
   await run(FFMPEG, ['-y', '-ss', String(Math.min(1, info.duration / 2)), '-i', join(dir, rel), '-frames:v', '1', '-vf', 'scale=480:-2', join(dir, 'thumb.jpg')]).catch(() => {})
   await save(p)
   touchRecent(p)
   return p
 }
 
-/** Bring another file (footage, image, audio) into an existing project's media folder. */
-export async function importMedia(p: Project, file: string) {
-  let rel = join('media', basename(file))
-  for (let n = 2; existsSync(join(p.dir, rel)); n++) rel = join('media', `${basename(file, extname(file))}-${n}${extname(file)}`)
-  await copyFile(file, join(p.dir, rel))
-  p.media[rel] = await probe(join(p.dir, rel)).catch(() => ({ duration: 0, width: 0, height: 0, fps: 0, hasAudio: false, codec: 'unknown' }))
+/** Record what a file in media/ is (and its probe, for footage, audio and images). */
+async function register(p: Project, rel: string) {
+  const r = await Files.inspect(p.dir, rel, probe)
+  p.files = { ...p.files, [rel]: r.info }
+  if (r.media) p.media[rel] = r.media
+  if (r.info.font) await projectFont(p, rel)
+}
+
+/** Subtitles (libass) load every file in their fonts folder, so they can't take fonts from media/ beside the footage:
+ *  a font the user adds is also copied into the project's fonts/, with Manul's Inter beside it. */
+async function projectFont(p: Project, rel: string) {
+  const dir = join(p.dir, 'fonts')
+  await mkdir(dir, { recursive: true })
+  for (const f of readdirSync(FONTS_DIR).filter(f => /\.(ttf|otf)$/i.test(f))) if (!existsSync(join(dir, f))) await copyFile(join(FONTS_DIR, f), join(dir, f))
+  if (!existsSync(join(dir, basename(rel)))) await copyFile(join(p.dir, rel), join(dir, basename(rel)))
+}
+
+/** Bring files into a project: a file of any kind, a folder (all its files) or a .zip (its contents). Returns their
+ *  paths in media/. */
+export async function addFiles(p: Project, src: string): Promise<string[]> {
+  const rels = await Files.copyIn(p.dir, src)
+  for (const rel of rels) await register(p, rel)
   await save(p)
-  return rel
+  return rels
+}
+
+/** Bring one file into the project; its path in media/. */
+export const importMedia = async (p: Project, file: string) => (await addFiles(p, file))[0]
+
+/** Bring project.json's file list in line with media/ (files added or removed in Finder, projects made before the
+ *  list existed). True when it changed. */
+export async function syncFiles(p: Project): Promise<boolean> {
+  const onDisk = new Set((await Files.walk(join(p.dir, 'media')).catch(() => [] as string[])).map(f => join('media', f)))
+  let changed = false
+  for (const rel of Object.keys(p.files || {})) if (!onDisk.has(rel) && !existsSync(join(p.dir, rel))) { delete p.files![rel]; changed = true } // (or added while listing)
+  for (const rel of onDisk) if (!p.files?.[rel]) { await register(p, rel).catch(e => console.warn('file', rel, e)); changed = true }
+  return changed
 }
 
 export async function addVersion(p: Project, absPath: string, title: string, by: Version['by'], timeline?: Version['timeline'], dry?: string) {
