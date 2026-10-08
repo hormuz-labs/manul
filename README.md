@@ -109,7 +109,11 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 <table>
 <tr>
 <td width="56" align="center"><img src="docs/icons/scissors.svg" width="36" alt=""></td>
-<td><b>Word-accurate cuts</b><br>Every spoken word is transcribed with its timing, so "cut the ums" or "drop the second take" lands on the exact word</td>
+<td><b>Word-accurate cuts</b><br>Every spoken word is transcribed with its timing, and each cut point is moved into the quiet between words, so "cut the ums" or "drop the second take" lands on the exact word</td>
+</tr>
+<tr>
+<td width="56" align="center"><img src="docs/icons/scan-eye.svg" width="36" alt=""></td>
+<td><b>It watches the whole film first</b><br>Before it edits, Manul measures your footage on your computer: who speaks when, every shot, camera shake, exposure, frozen and black frames, where the faces and objects are, loudness and pauses, and the music's tempo, bars and drops. So "keep only Ravi's answers", "lose the shaky bits" and "cut on the beat after the drop" all mean something exact</td>
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/square-split-horizontal.svg" width="36" alt=""></td>
@@ -117,7 +121,7 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/type.svg" width="36" alt=""></td>
-<td><b>Titles it designs</b><br>Title cards, lower thirds, callouts and animated text, timed to your film and editable by hand</td>
+<td><b>Titles it designs</b><br>Title cards, lower thirds, callouts, charts and animated text, timed to your film. Drag, resize or retype any word on the picture afterwards, or click one and ask for a change to just that</td>
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/audio-waveform.svg" width="36" alt=""></td>
@@ -125,11 +129,15 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/ratio.svg" width="36" alt=""></td>
-<td><b>One film, every shape</b><br>16:9 for YouTube, 9:16 for Shorts, Reels and TikTok, 1:1 for feeds, with captions burned in or as a file</td>
+<td><b>One film, every shape</b><br>16:9 for YouTube, 9:16 for Shorts, Reels and TikTok, 1:1 for feeds. The crop follows whoever is in frame, and captions go in burned or as a file</td>
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/paperclip.svg" width="36" alt=""></td>
 <td><b>Your files, put to use</b><br>Drop in subtitles, music, your logo, fonts and LUTs, or a whole folder or zip of them. Manul says what each one is, and the edit uses them</td>
+</tr>
+<tr>
+<td width="56" align="center"><img src="docs/icons/at-sign.svg" width="36" alt=""></td>
+<td><b>Point at anything by name</b><br>Type @ in your message and pick a file, a version you kept or a title Manul made: "put @logo.png bottom right and @song.mp3 under the intro"</td>
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/globe.svg" width="36" alt=""></td>
@@ -137,11 +145,11 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/brain.svg" width="36" alt=""></td>
-<td><b>A memory for taste</b><br>Say "captions are always yellow" once and every project after that knows it</td>
+<td><b>A memory for taste, and the craft</b><br>Say "captions are always yellow" once and every project after that knows it. It also knows how each kind of film is cut: talking heads, tutorials, Shorts and Reels, promos and montages, motion graphics, cleanup and repair</td>
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/layers-2.svg" width="36" alt=""></td>
-<td><b>Tabs and any model</b><br>Several films open at once, each with its own conversation. Claude, Gemini or GPT, picked per project</td>
+<td><b>Tabs and any model</b><br>Several films open at once, each with its own conversation. Claude, Gemini or GPT, or any OpenAI- or Anthropic-compatible endpoint, picked per project</td>
 </tr>
 </table>
 
@@ -197,7 +205,7 @@ Want to hack on it? Run it from source with **[CONTRIBUTING.md](CONTRIBUTING.md)
 <table>
 <tr>
 <td width="72"><b>Now</b></td>
-<td>Directing by talking and pointing, titles, music, every export shape</td>
+<td>Directing by talking and pointing, editing by hand on the timeline, titles, music, every export shape</td>
 <td width="40" align="center"><img src="docs/icons/circle-dot.svg" width="20" alt=""></td>
 </tr>
 <tr>

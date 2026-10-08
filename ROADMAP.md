@@ -103,7 +103,7 @@ pro editors can take a Manul rough cut into their own editor.
 | Agent runtime | **pi-durable** (pinned) + **pi-ai** for models | Conversations and tool calls are saved to SQLite before they're shown, so a crash or quit resumes mid-run |
 | Agent ↔ UI | **AG-UI protocol** (`@ag-ui/core`, `@ag-ui/client`) over Electron IPC | Standard events for tool calls, shared state (JSON Patch), interrupts, plan/activity, subagents. Later the same protocol works over HTTP for a cloud agent, mobile and review links |
 | Motion / generated footage | **HTML + GSAP** clips (`clip.html`), paused timelines seeked on Manul's clock, rendered offscreen frame by frame → ffmpeg | The agent makes footage it can edit; frame-exact scrub and export; GSAP is free incl. plugins (clear the no-code clause, §7) |
-| Skills | Plain `SKILL.md` folders grouped into **profiles** | Readable, diffable, editable by the agent, updatable over the air |
+| Skills | Plain `SKILL.md` folders grouped into **profiles** | Readable, diffable, editable by the agent; they ship inside the app and update with it |
 | Memory | One fact per file, plus an index fed into the prompt | Survives across projects |
 | Media tools | **Bundled:** ffmpeg, ffprobe (static, per platform). **On demand:** demucs, whisper models, yt-dlp, rubberband… | Small install; heavy tools only when needed, with a size prompt first |
 | Python tools | Isolated Python environments managed by **uv**, inside Manul's support folder | Never touch the system Python |
@@ -126,7 +126,7 @@ pro editors can take a Manul rough cut into their own editor.
 
 ### Updates
 
-1. **Skills, prompts, profiles, tool lists and feature switches:** over the air from a signed list we publish, with no app release.
+1. **Skills, prompts and profiles:** inside the app, updated with each release, so the skills always match the tools they describe.
 2. **Tools:** updated one at a time, checked against their version, without restarting.
 3. **App:** `electron-updater` for direct downloads, a Homebrew cask that updates itself (`auto_updates true`), and apt from our
    own package repository.
@@ -187,7 +187,7 @@ pro editors can take a Manul rough cut into their own editor.
       (all done: conversations, model picker, skills + profiles, memory, history, move elements in clips, project tabs,
       live mix with music ducking, preview copies, native menu, ⌘K)
 - ✅ Export: MP4 presets (16:9, 9:16, 1:1), captions burned in or as sidecar files
-- ✅ Over-the-air updates for skills (Ed25519-signed feed, no rollbacks, user copies win)
+- ✅ Skills bundled with the app, one per kind of video (the over-the-air feed was dropped: skills now always match the app's tools)
 - 🚧 macOS (signed + notarized) and Linux builds; Homebrew cask; apt repository (pipeline ready, see RELEASING.md; needs the accounts and secrets)
 - ⬜ driver.js first-run tour
 
