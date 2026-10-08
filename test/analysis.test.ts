@@ -70,12 +70,13 @@ describe('measuring a real file', () => {
   const vidstab = () => execFileSync(FFMPEG, ['-hide_banner', '-filters']).toString().includes(' vidstabdetect ')
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), 'manul-analysis-'))
-    // 2 s steady test card, a hard cut, 2 s of the same card shaken by a jittering crop; a tone, then silence
+    // 2 s of a still test card (testsrc2's own movement would read as shake), a hard cut, 2 s of another card shaken
+    // by a jittering crop; a tone, then silence
     execFileSync(FFMPEG, ['-y', '-loglevel', 'error',
       '-f', 'lavfi', '-i', 'testsrc2=s=640x360:r=25:d=2',
       '-f', 'lavfi', '-i', 'smptebars=s=704x396:r=25:d=2',
       '-f', 'lavfi', '-i', 'sine=f=440:d=2.5', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono:d=1.5',
-      '-filter_complex', "[1:v]crop=640:360:x='32+24*sin(n*2.1)':y='18+14*cos(n*2.9)'[shaky];[0:v][shaky]concat=n=2:v=1:a=0[v];[2:a]aresample=48000[t];[t][3:a]concat=n=2:v=0:a=1[a]",
+      '-filter_complex', "[0:v]trim=end_frame=1,loop=loop=49:size=1,setpts=N/25/TB[still];[1:v]crop=640:360:x='32+24*sin(n*2.1)':y='18+14*cos(n*2.9)'[shaky];[still][shaky]concat=n=2:v=1:a=0[v];[2:a]aresample=48000[t];[t][3:a]concat=n=2:v=0:a=1[a]",
       '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', join(dir, 'clip.mp4')])
   })
   afterAll(async () => { await rm(dir, { recursive: true, force: true }) })
