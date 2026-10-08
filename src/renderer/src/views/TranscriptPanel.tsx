@@ -2,6 +2,9 @@
 // (it becomes the anchor of the next request, e.g. "cut this"). Fillers are marked so "cut the ums" is visible.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AudioLines, Loader2, PanelLeftClose, Search } from 'lucide-react'
+import { speakerOfSegments, type Speakers } from '../../../shared/speakers'
+import { SpeakerChip, SpeakersPanel } from './SpeakersPanel'
+import { SubtitlesView } from './SubtitlesView'
 import { Button } from '@/components/ui/button'
 import { useJobs } from '@/components/JobsTray'
 import { flatWords, isFiller, rangeOfSelection, wordIndexAt } from '@/lib/transcript'
@@ -20,8 +23,18 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
   const [query, setQuery] = useState('')
   const dragging = useRef<number | null>(null)
   const list = useRef<HTMLDivElement>(null)
-  const jobs = useJobs().filter(j => j.kind === 'transcribe' && j.project === project.dir && j.status === 'running')
+  const allJobs = useJobs()
+  const jobs = allJobs.filter(j => j.kind === 'transcribe' && j.project === project.dir && j.status === 'running')
+  const finding = allJobs.find(j => j.kind === 'speakers' && j.project === project.dir && j.status === 'running' && j.title.endsWith(media.split('/').pop()!))
   const known = project.transcripts?.[media]
+  // who speaks when (worked out in the background once there is a transcript) and the names given
+  const [sp, setSp] = useState<Speakers | null>(null)
+  const [naming, setNaming] = useState(false)
+  const names = project.speakerNames?.[media] || {}
+  // the transcript, or the subtitles that go with the video (when the project has any)
+  const hasSubs = Object.values(project.files || {}).some(f => f.kind === 'subtitles')
+  const [view, setView] = useState<'transcript' | 'subtitles'>('transcript')
+  useEffect(() => { if (!hasSubs) setView('transcript') }, [hasSubs])
 
   // load (and make, when an engine is ready) the transcript of the media on screen
   useEffect(() => {
@@ -32,6 +45,18 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
       .catch(e => { if (live) { setError(clean(e)); setState('error') } })
     return () => { live = false }
   }, [project.dir, media, known])
+
+  useEffect(() => {
+    let live = true
+    setSp(null)
+    if (!t?.segments.length) return
+    // make it now if it was never made (projects transcribed before speakers existed); it runs as a job
+    window.manul.speakers.get(project.dir, media, true).then(r => { if (live) setSp(r) }).catch(() => {})
+    return () => { live = false }
+  }, [project.dir, media, t, project.speakers?.[media]])
+  const who = useMemo(() => (t && sp ? speakerOfSegments(t.segments, sp.turns) : []), [t, sp])
+  // a speaker chip above each sentence where the speaker changes
+  const turnStarts = useMemo(() => { let last: string | undefined; return who.map(w => { const start = !!w && w !== last; if (w) last = w; return start }) }, [who])
 
   const words = useMemo(() => (t ? flatWords(t) : []), [t])
   const current = wordIndexAt(words, time)
@@ -59,17 +84,40 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
     <div className="flex h-full flex-col">
       <div className="flex h-11 shrink-0 items-center gap-2 px-3" data-panel-header>
         <AudioLines className="size-4 text-dim" />
-        <span className="font-medium">Transcript</span>
+        {hasSubs ? (
+          <div className="inline-flex rounded-md border border-line bg-bg p-0.5" role="tablist">
+            {(['transcript', 'subtitles'] as const).map(k => (
+              <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)} className={cn('rounded px-2 py-0.5 text-xs capitalize', view === k ? 'bg-raised text-fg' : 'text-dim')}>{k}</button>
+            ))}
+          </div>
+        ) : <span className="font-medium">Transcript</span>}
         <span className="flex-1" />
-        {state === 'ready' && fillers > 0 && <span className="rounded bg-amber-soft px-1.5 py-0.5 text-[10.5px] text-amber" title="Filler words (um, uh…)">{fillers} fillers</span>}
+        {view === 'transcript' && sp && t && <SpeakersPanel dir={project.dir} media={media} sp={sp} names={names} transcript={t} open={naming} onOpenChange={setNaming} onSeek={onSeek} />}
+        {view === 'transcript' && state === 'ready' && fillers > 0 && <span className="rounded bg-amber-soft px-1.5 py-0.5 text-[10.5px] text-amber" title="Filler words (um, uh…)">{fillers} fillers</span>}
         {onCollapse && <Button size="iconSm" variant="ghost" onClick={onCollapse} title="Collapse the transcript (T)" aria-label="Collapse the transcript"><PanelLeftClose /></Button>}
       </div>
 
-      {state === 'ready' && t && t.segments.length === 0 && (
+      {view === 'transcript' && finding && (
+        <div className="mx-3 mb-1 flex items-center gap-2 text-[11px] text-faint">
+          <Loader2 className="size-3 animate-spin" />Finding who speaks{finding.progress != null ? `… ${Math.round(finding.progress * 100)}%` : '…'}
+        </div>
+      )}
+
+      {view === 'subtitles' && (
+        <>
+          <div className="mx-3 mb-1 flex items-center gap-2 rounded-md bg-raised px-2.5 py-1">
+            <Search className="size-3.5 text-faint" />
+            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find in subtitles" className="h-6 flex-1 bg-transparent text-xs outline-none placeholder:text-faint" />
+          </div>
+          <SubtitlesView project={project} media={media} time={time} query={query} onSeek={onSeek} onRange={onRange} />
+        </>
+      )}
+
+      {view === 'transcript' && state === 'ready' && t && t.segments.length === 0 && (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-dim">{t.language === 'none' ? 'This video has no sound.' : 'No speech found.'}</div>
       )}
 
-      {state === 'ready' && t && t.segments.length > 0 && (
+      {view === 'transcript' && state === 'ready' && t && t.segments.length > 0 && (
         <>
           <div className="mx-3 mb-1 flex items-center gap-2 rounded-md bg-raised px-2.5 py-1">
             <Search className="size-3.5 text-faint" />
@@ -84,7 +132,9 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
             }}
           >
             {t.segments.map((s, si) => (
-              <div key={si} className="group flex gap-2">
+              <div key={si}>
+              {turnStarts[si] && <SpeakerChip id={who[si]!} names={names} onClick={() => setNaming(true)} />}
+              <div className="group flex gap-2">
                 <button className="mt-[3px] w-9 shrink-0 text-right text-[10.5px] text-faint tabular hover:text-fg" onClick={() => onSeek(s.s)}>{timecode(s.s, false)}</button>
                 <p className="flex-1 text-[13px]">
                   {words.filter(w => w.seg === si).map(w => (
@@ -105,27 +155,28 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
                   ))}
                 </p>
               </div>
+              </div>
             ))}
             <div className="pt-2 text-[10.5px] text-faint">{t.model} · {t.language}</div>
           </div>
         </>
       )}
 
-      {(state === 'loading' || jobs.length > 0) && state !== 'ready' && (
+      {view === 'transcript' && (state === 'loading' || jobs.length > 0) && state !== 'ready' && (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-dim">
           <Loader2 className="size-5 animate-spin text-amber" />
           <span>{jobs[0]?.progress != null ? `Transcribing… ${Math.round(jobs[0].progress * 100)}%` : 'Transcribing…'}</span>
         </div>
       )}
 
-      {state === 'none' && jobs.length === 0 && (
+      {view === 'transcript' && state === 'none' && jobs.length === 0 && (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <p className="text-dim">See every word, cut by text, and let Manul find moments by what is said.</p>
           <Button variant="primary" size="md" onClick={make}><AudioLines />Transcribe</Button>
         </div>
       )}
 
-      {state === 'error' && (
+      {view === 'transcript' && state === 'error' && (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <p className="text-xs text-bad" data-selectable>{error}</p>
           <Button size="sm" onClick={make}>Try again</Button>

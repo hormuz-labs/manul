@@ -3,6 +3,11 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { BaseEvent } from '@ag-ui/core'
 import type { Anchor, BrowserMode, BrowserState, ChromeBsk, ConsentRequest, Job, KeyInfo, OnDemandTool, Project, RecentProject, ToolStatus, Transcript, WhisperConfig, WhisperStatus } from '../shared/types'
 import type { CustomProvider, CustomProviderInfo } from '../shared/providers'
+import type { Speakers } from '../shared/speakers'
+import type { Cue } from '../shared/subtitles'
+import type { SubtitleLink } from '../shared/types'
+
+export type SubtitlesState = { link?: SubtitleLink; cues: Cue[]; candidates: string[] }
 type ProvidersState = { providers: CustomProviderInfo[]; omp: boolean }
 
 type SkillState = { skills: { id: string; name: string; description: string; path: string }[]; enabled: string[]; profile: { id: string; name: string }; profiles: { id: string; name: string }[] }
@@ -51,6 +56,17 @@ const api = {
   },
   transcript: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('transcript:get', dir, mediaRel, make) as Promise<Transcript | null>,
   thumbnails: (dir: string, src: string, count: number, start?: number, end?: number) => ipcRenderer.invoke('media:thumbnails', dir, src, count, start, end) as Promise<string[]>,
+  /** Who speaks when in a media file (make: work it out as a background job if not done yet). */
+  speakers: {
+    get: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('speakers:get', dir, mediaRel, make) as Promise<Speakers | null>,
+    name: (dir: string, mediaRel: string, names: Record<string, string>) => ipcRenderer.invoke('speakers:name', dir, mediaRel, names) as Promise<Record<string, string>>,
+  },
+  /** The subtitles that go with a media file, their lines, and the subtitle files there are to choose from. */
+  subtitles: {
+    get: (dir: string, mediaRel: string) => ipcRenderer.invoke('subtitles:get', dir, mediaRel) as Promise<SubtitlesState>,
+    link: (dir: string, mediaRel: string, file: string | null) => ipcRenderer.invoke('subtitles:link', dir, mediaRel, file) as Promise<SubtitlesState>,
+    shift: (dir: string, mediaRel: string) => ipcRenderer.invoke('subtitles:shift', dir, mediaRel) as Promise<SubtitlesState>,
+  },
   export: {
     run: (dir: string, req: { preset: 'original' | 'landscape' | 'vertical' | 'square'; fit?: 'pad' | 'crop'; captions: 'none' | 'burn' | 'srt'; captionColor?: string }) =>
       ipcRenderer.invoke('export:run', dir, req) as Promise<{ file: string; srt?: string } | null>,

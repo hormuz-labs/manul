@@ -7,6 +7,7 @@ import { FFMPEG, FONTS_DIR, probe } from '../src/main/media'
 import * as Files from '../src/main/files'
 import { kindByName } from '../src/shared/file-kinds'
 import { joinAttached, splitAttached } from '../src/shared/attached'
+import { parseSubtitles } from '../src/shared/subtitles'
 import { chipGroups } from '../src/renderer/src/views/FilesPanel'
 import type { FileInfo } from '../src/shared/types'
 
@@ -54,15 +55,15 @@ describe('what a file is', () => {
   })
 
   it('parses SRT, WebVTT, ASS and SBV cues', () => {
-    expect(Files.parseSubtitles('1\r\n00:00:01,000 --> 00:00:02,500\r\n{\\an8}<i>Hello</i>\r\nthere\r\n\r\n2\r\n01:00:00,000 --> 01:00:01,000\r\nLate\r\n', 'srt'))
+    expect(parseSubtitles('1\r\n00:00:01,000 --> 00:00:02,500\r\n{\\an8}<i>Hello</i>\r\nthere\r\n\r\n2\r\n01:00:00,000 --> 01:00:01,000\r\nLate\r\n', 'srt'))
       .toEqual([{ s: 1, e: 2.5, text: 'Hello\nthere' }, { s: 3600, e: 3601, text: 'Late' }])
-    expect(Files.parseSubtitles('WEBVTT\n\nNOTE made by hand\n\nintro\n00:01.000 --> 00:02.000 align:start\n<v Ana>Hi &amp; welcome</v>\n\n00:00:03.000 --> 00:00:04.250\nNext', 'vtt'))
+    expect(parseSubtitles('WEBVTT\n\nNOTE made by hand\n\nintro\n00:01.000 --> 00:02.000 align:start\n<v Ana>Hi &amp; welcome</v>\n\n00:00:03.000 --> 00:00:04.250\nNext', 'vtt'))
       .toEqual([{ s: 1, e: 2, text: 'Hi & welcome' }, { s: 3, e: 4.25, text: 'Next' }])
     const ass = '[Script Info]\nTitle: x\n\n[V4+ Styles]\nFormat: Name, Fontname\nStyle: Default,Arial\n\n[Events]\n' +
       'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n' +
       'Dialogue: 0,0:00:01.50,0:00:03.00,Default,,0,0,0,,{\\b1}Well,{\\b0} hello\\Nworld\nComment: 0,0:00:04.00,0:00:05.00,Default,,0,0,0,,ignored\n'
-    expect(Files.parseSubtitles(ass, 'ass')).toEqual([{ s: 1.5, e: 3, text: 'Well, hello\nworld' }])
-    expect(Files.parseSubtitles('0:00:00.500,0:00:01.000\nOne\n\n0:00:01.200,0:00:02.000\nTwo\n', 'sbv')).toEqual([{ s: 0.5, e: 1, text: 'One' }, { s: 1.2, e: 2, text: 'Two' }])
+    expect(parseSubtitles(ass, 'ass')).toEqual([{ s: 1.5, e: 3, text: 'Well, hello\nworld' }])
+    expect(parseSubtitles('0:00:00.500,0:00:01.000\nOne\n\n0:00:01.200,0:00:02.000\nTwo\n', 'sbv')).toEqual([{ s: 0.5, e: 1, text: 'One' }, { s: 1.2, e: 2, text: 'Two' }])
   })
 
   it('says which video subtitles go with', () => {

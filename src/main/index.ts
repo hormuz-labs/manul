@@ -29,9 +29,13 @@ import { moveElement, prepareClipHtml } from '../shared/clip-html'
 import { captionCues, exportArgs, toSrt, type ExportOptions } from '../shared/export'
 import { needsProxy, proxyArgs } from '../shared/proxy'
 import { joinAttached } from '../shared/attached'
+import { extOf } from '../shared/file-kinds'
+import { matchSubtitles, parseSubtitles, shiftSubtitles } from '../shared/subtitles'
+import type { Speakers as SpeakersResult } from '../shared/speakers'
+import * as Speakers from './speakers'
 import { duckEnvelope, mixArgs, mixCommands, regionsOnTimeline, type Mix } from '../shared/mix'
 import { spawn } from 'node:child_process'
-import { FFMPEG } from './media'
+import { FFMPEG, probe } from './media'
 import { execFile } from 'node:child_process'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import type { Anchor, BrowserMode, ClipInfo, ConsentRequest, Project, Transcript } from '../shared/types'
@@ -151,12 +155,83 @@ async function transcriptOf(p: Project, mediaRel: string, opts: { ask: boolean }
   const job = Whisper.transcribe(join(p.dir, mediaRel), join(p.dir, out), `Transcribing ${mediaRel.split('/').pop()}`, p.dir)
     .then(async t => {
       p.transcripts = { ...p.transcripts, [mediaRel]: out }
+      if (p.subtitles?.[mediaRel]) await checkSubtitles(p, mediaRel, t)
       await publish(p)
+      // then who speaks when, in the background (local and free, so it never asks)
+      if (t.segments.length) speakersOf(p, mediaRel, { make: true }).catch(e => console.warn('speakers failed', e))
       return t
     })
     .finally(() => inflight.delete(key))
   inflight.set(key, job)
   return job
+}
+
+// ---------------------------------------------------------------- who speaks when
+const diarizing = new Map<string, Promise<SpeakersResult>>()
+
+/** The voices in a media file: made already, or (make) worked out as a background job. With count, diarize for exactly
+ *  that many people (the agent knows; more accurate) and make that the one shown. */
+async function speakersOf(p: Project, mediaRel: string, o: { make: boolean; count?: number }): Promise<SpeakersResult | null> {
+  const abs = join(p.dir, mediaRel)
+  if (!o.count) {
+    const have = await Speakers.cachedSpeakers(p.dir, abs, p.speakers?.[mediaRel] && join(p.dir, p.speakers[mediaRel]))
+    if (have) return have.result
+    if (!o.make) return null
+  }
+  const key = `${p.dir}|${mediaRel}|${o.count || 0}`
+  const busy = diarizing.get(key)
+  if (busy) return busy
+  const name = mediaRel.split('/').pop()
+  const job = asJob(`Finding who speaks in ${name}`, 'speakers', j => Speakers.analyzeSpeakers(p.dir, abs, { speakers: o.count, onProgress: x => j.progress(x) }),
+    { project: p.dir, doneTitle: `Found who speaks in ${name}` })
+    .then(async ({ result, file }) => {
+      p.speakers = { ...p.speakers, [mediaRel]: file.slice(p.dir.length + 1) }
+      await publish(p)
+      return result
+    })
+    .finally(() => diarizing.delete(key))
+  diarizing.set(key, job)
+  return job
+}
+
+/** Name voices (id → name; an empty name clears it). The same name on two voices makes them one person. */
+async function nameSpeakers(p: Project, mediaRel: string, names: Record<string, string>) {
+  const now = { ...p.speakerNames?.[mediaRel] }
+  for (const [id, n] of Object.entries(names)) { if (n.trim()) now[id] = n.trim(); else delete now[id] }
+  p.speakerNames = { ...p.speakerNames, [mediaRel]: now }
+  await checkpoint(p, `Named speakers in ${mediaRel.split('/').pop()}`)
+  return now
+}
+
+// ---------------------------------------------------------------- subtitles for a video
+/** The subtitles that go with a media file: the ones chosen, else ones named after it (chosen from then on). */
+function subtitlesLink(p: Project, mediaRel: string) {
+  const link = p.subtitles?.[mediaRel]
+  if (link && p.files?.[link.file]) return link
+  const byName = Object.keys(p.files || {}).find(f => p.files![f].kind === 'subtitles' && Files.subtitlesFor(f, p.files!) === mediaRel)
+  if (!byName) return undefined
+  p.subtitles = { ...p.subtitles, [mediaRel]: { file: byName } }
+  return p.subtitles[mediaRel]
+}
+
+/** Do the linked subtitles match what's said (and how far off are their times)? Needs the transcript. */
+async function checkSubtitles(p: Project, mediaRel: string, t?: Transcript | null) {
+  const link = p.subtitles?.[mediaRel]
+  if (!link) return
+  t ??= await transcriptOf(p, mediaRel, { ask: false }).catch(() => null)
+  const cues = parseSubtitles(await readFile(join(p.dir, link.file), 'utf8'), extOf(link.file))
+  const m = t ? matchSubtitles(cues, t.segments.flatMap(s => s.words)) : null
+  p.subtitles = { ...p.subtitles, [mediaRel]: { file: link.file, ...(m || {}) } }
+}
+
+async function subtitlesState(p: Project, mediaRel: string) {
+  const before = JSON.stringify(p.subtitles?.[mediaRel])
+  const link = subtitlesLink(p, mediaRel)
+  if (link && link.match === undefined && p.transcripts?.[mediaRel]) await checkSubtitles(p, mediaRel)
+  if (JSON.stringify(p.subtitles?.[mediaRel]) !== before) await publish(p)
+  const now = p.subtitles?.[mediaRel]
+  const cues = now ? parseSubtitles(await readFile(join(p.dir, now.file), 'utf8').catch(() => ''), extOf(now.file)) : []
+  return { link: now, cues, candidates: Object.keys(p.files || {}).filter(f => p.files![f].kind === 'subtitles').sort() }
 }
 
 /** Heavy or hard-to-decode footage gets a light preview copy in proxies/ (the player uses it; renders never do). */
@@ -342,6 +417,32 @@ function wire() {
     return r.canceled ? null : r.filePaths[0]
   })
   ipcMain.handle('transcript:get', async (_e, dir: string, mediaRel: string, make: boolean) => transcriptOf(projectOf(dir), mediaRel, { ask: make }))
+  ipcMain.handle('speakers:get', (_e, dir: string, mediaRel: string, make: boolean) => speakersOf(projectOf(dir), mediaRel, { make }))
+  ipcMain.handle('speakers:name', (_e, dir: string, mediaRel: string, names: Record<string, string>) => nameSpeakers(projectOf(dir), mediaRel, names))
+  ipcMain.handle('subtitles:get', (_e, dir: string, mediaRel: string) => subtitlesState(projectOf(dir), mediaRel))
+  ipcMain.handle('subtitles:link', async (_e, dir: string, mediaRel: string, file: string | null) => {
+    const p = projectOf(dir)
+    if (file && p.files?.[file]?.kind !== 'subtitles') throw new Error(`${file} isn't a subtitle file in this project.`)
+    const rest = { ...p.subtitles }
+    delete rest[mediaRel]
+    p.subtitles = file ? { ...rest, [mediaRel]: { file } } : rest
+    if (file) await checkSubtitles(p, mediaRel)
+    await checkpoint(p, file ? `Subtitles for ${mediaRel.split('/').pop()}: ${file.split('/').pop()}` : `No subtitles for ${mediaRel.split('/').pop()}`)
+    return subtitlesState(p, mediaRel)
+  })
+  // move the linked subtitles' times so they line up with the speech (rewrites the project's copy in media/)
+  ipcMain.handle('subtitles:shift', async (_e, dir: string, mediaRel: string) => {
+    const p = projectOf(dir)
+    const link = p.subtitles?.[mediaRel]
+    if (!link?.offset) return subtitlesState(p, mediaRel)
+    const file = join(p.dir, link.file)
+    await writeFile(file, shiftSubtitles(await readFile(file, 'utf8'), extOf(link.file), -link.offset))
+    const info = await Files.inspect(p.dir, link.file, probe)
+    p.files = { ...p.files, [link.file]: { ...info.info, addedAt: p.files?.[link.file]?.addedAt ?? Date.now() } }
+    await checkSubtitles(p, mediaRel)
+    await checkpoint(p, `Moved ${link.file.split('/').pop()} ${Math.abs(link.offset)} s ${link.offset > 0 ? 'earlier' : 'later'}`)
+    return subtitlesState(p, mediaRel)
+  })
   ipcMain.handle('media:thumbnails', (_e, dir: string, src: string, count: number, start?: number, end?: number) => {
     const p = projectOf(dir)
     const info = p.media[src]
@@ -457,7 +558,7 @@ function wire() {
   // Files the user attached (paths in media/) follow the text, each with what it is.
   ipcMain.handle('agent:send', async (_e, dir: string, msg: { text: string; anchor?: Anchor; still?: string; files?: string[] }) => {
     const p = projectOf(dir)
-    const body = joinAttached(msg.text, Files.attachedLines(msg.files || [], p.files || {}))
+    const body = joinAttached(msg.text, Files.attachedLines(msg.files || [], p.files || {}, 30, p.subtitles))
     let content: string | Record<string, unknown>[] = body
     if (msg.anchor) {
       const jpeg = msg.still ? Buffer.from(msg.still.split(',')[1], 'base64') : undefined
@@ -580,6 +681,12 @@ app.whenReady().then(async () => {
         },
         seek: (dir, t) => send('seek', dir, t),
         transcript: (dir, mediaRel) => transcriptOf(projectOf(dir), mediaRel, { ask: true }),
+        speakers: async (dir, mediaRel, count) => {
+          const p = projectOf(dir)
+          const result = (await speakersOf(p, mediaRel, { make: true, count }))!
+          return { result, file: p.speakers![mediaRel], names: p.speakerNames?.[mediaRel] || {} }
+        },
+        nameSpeakers: (dir, mediaRel, names) => nameSpeakers(projectOf(dir), mediaRel, names),
         saveClip: (dir, id, title, html, dur, overlay) => saveClip(projectOf(dir), id, title, html, dur, overlay),
         async overlayClip(dir, id, at, dur, title) {
           const p = projectOf(dir)
@@ -608,7 +715,7 @@ app.whenReady().then(async () => {
           const rels = await Projects.addFiles(p, abs)
           await checkpoint(p, `Added ${rels.length === 1 ? rels[0] : `${rels.length} files`}`)
           for (const rel of rels) { ensureProxy(p, rel); autoTranscribe(p, rel) }
-          return Files.attachedLines(rels, p.files || {})
+          return Files.attachedLines(rels, p.files || {}, 30, p.subtitles)
         },
         rerenderTimeline: (dir, title) => { const p = projectOf(dir); return proposeTimeline(p, p.timeline!, title) },
       },

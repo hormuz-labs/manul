@@ -24,9 +24,10 @@ try {
     await app.evaluate(({ ipcMain }, f) => { ipcMain.removeHandler('project:pick'); ipcMain.handle('project:pick', () => f) }, join(tmp, `${name}.mp4`))
     await win.click('text=Drop a video here')
     await win.locator('button:has(svg.lucide-arrow-up)').click()
-    await win.waitForSelector(`[title$="/${name}"]`)
+    await win.waitForSelector(`[data-project-title="${name}"]`)
   }
   await openFile('alpha')
+  assert.equal(await win.locator('[draggable="true"][title]').count(), 0, 'one project: no tab bar, its name is in its own title bar')
   await win.evaluate(() => { const v = [...document.querySelectorAll('video')].find(v => v.checkVisibility({ visibilityProperty: true })); v.currentTime = 2 })
   await menu(app, 'New Project')
   await win.waitForSelector('text=What are we making?')

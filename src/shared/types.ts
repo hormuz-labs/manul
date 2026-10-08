@@ -48,6 +48,10 @@ export type MediaInfo = {
   pixfmt?: string
 }
 
+/** Subtitles chosen for a video: the file, and (once there is a transcript) the share of its lines heard in the
+ *  speech and how far its times are off (seconds; positive = the subtitles come late). */
+export type SubtitleLink = { file: string; match?: number; offset?: number }
+
 /** What a file the user added is, so the agent knows how to use it. */
 export type FileKind = 'video' | 'audio' | 'image' | 'subtitles' | 'text' | 'font' | 'lut' | 'other'
 
@@ -83,6 +87,12 @@ export type Project = {
   proxies?: Record<string, string>
   /** media path → transcript path (both project-relative) */
   transcripts?: Record<string, string>
+  /** media path → its diarization (who speaks when), project-relative */
+  speakers?: Record<string, string>
+  /** media path → the names given to its voices (A → "Tony"); the same name on two voices makes them one person */
+  speakerNames?: Record<string, Record<string, string>>
+  /** media path → the subtitles that go with it, and how well they match what's said */
+  subtitles?: Record<string, SubtitleLink>
   /** The model the user picked for this project (else the best available). */
   model?: { provider: string; modelId: string }
   /** The project's durable agent conversation on screen. */
@@ -117,7 +127,7 @@ export type Job = {
   title: string
   /** Shown once it finished, e.g. "Installed Whisper". */
   doneTitle?: string
-  kind: 'download' | 'install' | 'transcribe' | 'render' | 'import'
+  kind: 'download' | 'install' | 'transcribe' | 'speakers' | 'render' | 'import'
   project?: string
   status: 'running' | 'done' | 'failed'
   /** 0–1, or null when there is no estimate */

@@ -72,23 +72,25 @@ export function App() {
   ], [close])
 
   const titles = Object.fromEntries(Object.entries(projects).map(([d, x]) => [d, x.p.title]))
+  // tabs only once there's a choice: one open project already has its name in its own title bar
+  const tabbed = tabs.open.length > 1 || (tabs.open.length === 1 && tabs.active === null)
   return (
     <TooltipProvider>
       <div className="flex h-full flex-col">
-        {tabs.open.length > 0 && (
+        {tabbed && (
           <TabBar open={tabs.open} active={tabs.active} titles={titles}
             onSelect={d => setTabs(t => ({ ...t, active: d }))} onClose={close} onMove={(d, to) => setTabs(t => moveTab(t, d, to))} />
         )}
         <div className="relative min-h-0 flex-1">
           {tabs.open.map(d => projects[d] && (
             <div key={d} className={cn('absolute inset-0', d !== tabs.active && 'invisible')}>
-              <ProjectView initial={projects[d].p} firstPrompt={projects[d].prompt} firstFiles={projects[d].files} ready={ready} active={d === tabs.active} tabbed
+              <ProjectView initial={projects[d].p} firstPrompt={projects[d].prompt} firstFiles={projects[d].files} ready={ready} active={d === tabs.active} tabbed={tabbed}
                 onKeys={() => setSettings('keys')} onTools={() => setSettings('tools')} onHome={() => setTabs(t => ({ ...t, active: null }))} />
             </div>
           ))}
           {tabs.active === null && (
             <div className="absolute inset-0">
-              <Start ready={ready} tabbed={tabs.open.length > 0} onKeys={() => setSettings('keys')} onTools={() => setSettings('tools')} onOpen={openProject} />
+              <Start ready={ready} tabbed={tabbed} onKeys={() => setSettings('keys')} onTools={() => setSettings('tools')} onOpen={openProject} />
             </div>
           )}
         </div>

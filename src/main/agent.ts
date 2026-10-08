@@ -27,7 +27,8 @@ import { FencedEnv, fencedArgv, fenceFor, realish, type Fence } from './fence'
 import { homedir } from 'node:os'
 import { analyze, contactSheet, report, sheetFrames } from './analysis'
 import { analyzeMusic, musicReport } from './music'
-import { analyzeSpeakers, speakersReport, withSentences } from './speakers'
+import { cachedSpeakers, speakersReport, withSentences } from './speakers'
+import { nameOf, speakerOfSegments, type SpeakerNames, type Speakers } from '../shared/speakers'
 import { findSubjects, shotSubjects, subjectsReport, track } from './subjects'
 import { fileLine } from './files'
 import { ATTACHED } from '../shared/attached'
@@ -48,6 +49,10 @@ export type Bridge = {
   seek(dir: string, t: number): void
   /** Makes the transcript if needed (may ask the user to download speech recognition). */
   transcript(dir: string, mediaRel: string): Promise<Transcript | null>
+  /** Who speaks when (made if needed; with count, for exactly that many people), its file and the names given. */
+  speakers(dir: string, mediaRel: string, count?: number): Promise<{ result: Speakers; file: string; names: SpeakerNames }>
+  /** Name voices (id → name, "" clears); the same name on two voices makes them one person. */
+  nameSpeakers(dir: string, mediaRel: string, names: SpeakerNames): Promise<SpeakerNames>
   saveClip(dir: string, id: string, title: string, html: string, dur: number, overlay: boolean): Promise<ClipInfo & { frames: number }>
   overlayClip(dir: string, id: string, at: number, dur: number | undefined, title: string): Promise<string>
   bakeClip(dir: string, id: string): Promise<ClipInfo & { frames: number }>
@@ -166,7 +171,7 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenc
             clips: Object.values(p.clips || {}).map(c => ({ id: c.id, title: c.title, duration: c.duration })),
             versions: p.versions.map(v => ({ id: v.id, title: v.title, path: v.path, by: v.by })),
             notes: p.notes.filter(n => n.status === 'open').map(n => ({ id: n.id, at: `${fmt(n.anchor.t0)}${n.anchor.t1 != null ? `–${fmt(n.anchor.t1)}` : ''}`, box: n.anchor.box, text: n.text })),
-            files: Object.keys(p.files || {}).map(rel => fileLine(rel, p.files!)),
+            files: Object.keys(p.files || {}).map(rel => fileLine(rel, p.files!, p.subtitles)),
             media: p.media,
           })
         },
@@ -218,10 +223,28 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenc
         execute: async (args: Any, api: Any) => {
           const p = proj(api)
           const rel = args.media || p.versions.find(v => v.id === p.current)!.path
-          let { result, file } = await analyzeSpeakers(p.dir, inProject(p, rel), { speakers: args.speakers, signal: api.signal })
+          inProject(p, rel)
+          let { result, file, names } = await bridge.speakers(p.dir, rel, args.speakers)
           const t = await bridge.transcript(p.dir, rel).catch(() => null)
           if (t) result = withSentences(result, t)
-          return text(speakersReport(result, rel, file.slice(p.dir.length + 1)))
+          return text(speakersReport(result, rel, file, 120, names))
+        },
+      }),
+      defineTool({
+        name: 'name_speakers',
+        description: 'Name the voices speakers found (e.g. {"A": "Tony Stark", "C": "Ultron"}), once you know who is who (people addressing each other ' +
+          'in the transcript, faces with look). The user sees the names in the transcript. Give two voices the same name when they are one person ' +
+          '(diarization splits a person when the sound changes, most of all in films); an empty name clears one. Only name people you are sure of.',
+        parameters: Type.Object({
+          media: Type.Optional(Type.String({ description: 'project-relative path; default the current version' })),
+          names: Type.Record(Type.String(), Type.String(), { description: 'voice letter → name' }),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const rel = args.media || p.versions.find(v => v.id === p.current)!.path
+          inProject(p, rel)
+          const now = await bridge.nameSpeakers(p.dir, rel, args.names || {})
+          return text(`Names for ${rel}: ${Object.entries(now).map(([id, n]) => `${id} = ${n}`).join(', ') || 'none'}`)
         },
       }),
       defineTool({
@@ -314,10 +337,14 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenc
           const t = await bridge.transcript(p.dir, media)
           if (!t) return text('No transcript: speech recognition is not installed.')
           const q = args.search?.toLowerCase()
-          const segs = t.segments.filter(s => (args.t0 == null || s.e >= args.t0) && (args.t1 == null || s.s <= args.t1) && (!q || s.text.toLowerCase().includes(q)))
+          // who says each sentence, when speakers has been worked out already (never waits for it)
+          const sp = await cachedSpeakers(p.dir, join(p.dir, media), p.speakers?.[media] && join(p.dir, p.speakers[media]))
+          const who = sp ? speakerOfSegments(t.segments, sp.result.turns) : []
+          const names = p.speakerNames?.[media] || {}
+          const segs = t.segments.map((s, i) => ({ ...s, who: who[i] })).filter(s => (args.t0 == null || s.e >= args.t0) && (args.t1 == null || s.s <= args.t1) && (!q || s.text.toLowerCase().includes(q)))
           const n = (x: number) => x.toFixed(2)
-          return text(`${media} · ${t.language} · ${t.model} · ${t.segments.length} sentences\n` +
-            segs.map(s => `${n(s.s)}–${n(s.e)}  ${s.text}\n  ${s.words.map(w => `${w.w}@${n(w.s)}-${n(w.e)}`).join(' ')}`).join('\n'))
+          return text(`${media} · ${t.language} · ${t.model} · ${t.segments.length} sentences${sp ? ' · [speaker] before each sentence' : ''}\n` +
+            segs.map(s => `${n(s.s)}–${n(s.e)}  ${s.who ? `[${nameOf(s.who, names)}] ` : ''}${s.text}\n  ${s.words.map(w => `${w.w}@${n(w.s)}-${n(w.e)}`).join(' ')}`).join('\n'))
         },
       }),
       defineTool({

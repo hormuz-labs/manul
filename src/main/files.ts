@@ -8,7 +8,8 @@ import { basename, dirname, extname, join, sep } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import yauzl from 'yauzl'
 import { extOf, kindByName } from '../shared/file-kinds'
-import type { FileInfo, FileKind, MediaInfo } from '../shared/types'
+import { parseSubtitles, type Cue } from '../shared/subtitles'
+import type { FileInfo, FileKind, MediaInfo, SubtitleLink } from '../shared/types'
 
 const clock = (t: number) => {
   const s = Math.round(t), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = String(s % 60).padStart(2, '0')
@@ -37,48 +38,6 @@ export function decodeText(buf: Buffer): { text: string; encoding: string } {
 }
 
 // ---------------------------------------------------------------- subtitles
-export type Cue = { s: number; e: number; text: string }
-
-const TIME = /(?:(\d+):)?(\d{1,2}):(\d{2})[,.](\d{1,3})/
-const seconds = (s: string) => {
-  const m = TIME.exec(s)
-  return m ? Number(m[1] || 0) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(`0.${m[4]}`) : NaN
-}
-/** A cue's words: no styling tags ({\an8}, <i>, <v Name>), ASS line breaks as new lines. */
-const plain = (s: string) => s.replace(/\{[^}]*\}/g, '').replace(/<[^>]+>/g, '').replace(/\\[Nn]/g, '\n').replace(/\\h/g, ' ')
-  .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').trim()
-
-/** The cues of an SRT, WebVTT, SBV or ASS/SSA file, in time order. */
-export function parseSubtitles(text: string, format: string): Cue[] {
-  const src = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n')
-  const cues: Cue[] = []
-  const push = (s: number, e: number, t: string) => { if (e >= s && t) cues.push({ s, e, text: t }) }
-  if (format === 'ass' || format === 'ssa') {
-    let fields: string[] | null = null, events = false
-    for (const raw of src.split('\n')) {
-      const l = raw.trim()
-      if (l.startsWith('[')) { events = l.toLowerCase() === '[events]'; continue }
-      if (!events) continue
-      if (/^format\s*:/i.test(l)) fields = l.slice(l.indexOf(':') + 1).split(',').map(f => f.trim().toLowerCase())
-      else if (/^dialogue\s*:/i.test(l)) {
-        const f = fields || ['layer', 'start', 'end', 'style', 'name', 'marginl', 'marginr', 'marginv', 'effect', 'text']
-        const parts = l.slice(l.indexOf(':') + 1).split(',') // the text is the last field and may hold commas
-        push(seconds(parts[f.indexOf('start')] || ''), seconds(parts[f.indexOf('end')] || ''), plain(parts.slice(f.length - 1).join(',')))
-      }
-    }
-  } else {
-    const timing = format === 'sbv' ? /^\s*\d+:\d{2}:\d{2}\.\d+\s*,\s*\d+:\d{2}:\d{2}\.\d+/ : /-->/
-    for (const block of src.split(/\n[ \t]*\n/)) {
-      const lines = block.split('\n')
-      const at = lines.findIndex(l => timing.test(l))
-      if (at < 0) continue // the WEBVTT header, NOTE and STYLE blocks
-      const [a, b] = format === 'sbv' ? lines[at].split(',') : lines[at].split('-->')
-      push(seconds(a), seconds(b ?? ''), plain(lines.slice(at + 1).join('\n')))
-    }
-  }
-  return cues.sort((x, y) => x.s - y.s)
-}
-
 export function subtitlesSummary(cues: Cue[], format: string) {
   if (!cues.length) return `${format.toUpperCase()} subtitles with no cues Manul could read`
   const end = Math.max(...cues.map(c => c.e))
@@ -287,18 +246,28 @@ export async function copyIn(projectDir: string, src: string): Promise<string[]>
 }
 
 // ---------------------------------------------------------------- telling the agent
+/** How subtitles relate to a video: chosen for it (and whether they match its speech), or named after it. */
+function subtitlesNote(rel: string, files: Record<string, FileInfo>, links: Record<string, SubtitleLink>) {
+  const linked = Object.entries(links).find(([, l]) => l.file === rel)
+  if (!linked) { const by = subtitlesFor(rel, files); return by ? `; goes with ${by}` : '' }
+  const [media, l] = linked
+  if (l.match === undefined) return `; subtitles for ${media}`
+  if (l.match < 0.2) return `; chosen for ${media} but they don't match its speech (another video, or a translation)`
+  return `; subtitles for ${media}, ${Math.round(l.match * 100)} % of lines heard in its speech${l.offset ? `, ${Math.abs(l.offset)} s ${l.offset > 0 ? 'late' : 'early'}` : ''}`
+}
+
 /** A file as the agent sees it: its path, what it is, and how to use it (the video subtitles go with, a font's name). */
-export function fileLine(rel: string, files: Record<string, FileInfo>) {
+export function fileLine(rel: string, files: Record<string, FileInfo>, links: Record<string, SubtitleLink> = {}) {
   const f = files[rel]
   if (!f) return rel
-  const target = f.kind === 'subtitles' ? subtitlesFor(rel, files) : undefined
+  const target = f.kind === 'subtitles' ? subtitlesNote(rel, files, links) : ''
   const font = f.font ? `; Fontname=${f.font.family}${/bold/i.test(f.font.style) ? ' with Bold=1' : ''}, also in fonts/ (fontsdir=fonts)` : ''
-  return `${rel} — ${f.summary}${target ? `; goes with ${target}` : ''}${font}`
+  return `${rel} — ${f.summary}${target}${font}`
 }
 
 /** The lines for files attached to a message: at most `max`, then a count (project_state lists them all). */
-export function attachedLines(rels: string[], files: Record<string, FileInfo>, max = 30) {
-  const lines = rels.slice(0, max).map(r => fileLine(r, files))
+export function attachedLines(rels: string[], files: Record<string, FileInfo>, max = 30, links: Record<string, SubtitleLink> = {}) {
+  const lines = rels.slice(0, max).map(r => fileLine(r, files, links))
   if (rels.length > max) lines.push(`…and ${rels.length - max} more (project_state lists every file)`)
   return lines
 }

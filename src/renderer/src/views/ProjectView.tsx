@@ -141,7 +141,7 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
       {/* title bar */}
       <div className={cn('drag flex h-11 shrink-0 items-center gap-2 bg-bg pr-2', tabbed ? 'pl-2' : 'pl-20')}>
         <Button className="no-drag" size="iconSm" variant="ghost" onClick={onHome} title="All projects"><ArrowLeft /></Button>
-        <span className="truncate font-medium">{p.title}</span>
+        <span className="truncate font-medium" data-project-title={p.title}>{p.title}</span>
         <select
           className="no-drag h-7 rounded-md border border-line bg-raised px-1.5 text-xs text-dim outline-none"
           value={p.current}

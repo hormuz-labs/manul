@@ -44,7 +44,7 @@ try {
   await app.evaluate(({ ipcMain }, f) => { ipcMain.removeHandler('project:pick'); ipcMain.handle('project:pick', () => f) }, join(tmp, 'film.mp4'))
   await win.click('text=Drop a video here')
   await win.locator('button:has(svg.lucide-arrow-up)').click()
-  await win.waitForSelector('[title$="/film"]')
+  await win.waitForSelector('[data-project-title="film"]')
 
   // 1. the private daemon: Manul's home, not bsk's default port, and the extension inside Manul connected to it
   const info = JSON.parse(readFileSync(join(home, 'daemon.json'), 'utf8'))
