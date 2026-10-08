@@ -401,6 +401,7 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
             anchor={anchor}
             onClearAnchor={() => { setAnchor(undefined); setDrawing(false) }}
             attached={attached}
+            onAttach={attach}
             onDetach={rels => setAttached(a => a.filter(r => !rels.includes(r)))}
             onSend={send}
             onStop={() => window.manul.agent.stop(p.dir)}

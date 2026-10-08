@@ -148,7 +148,8 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenc
       `(e.g. "Stabilise shots 2 and 4 — strong handheld shake"). Apply the chosen ones together in one render. Precise requests ("cut the first 5 s") need no questions.\n` +
       `- Edit with the ffmpeg tool (bundled; also on PATH for bash). Read the current version, write new files to renders/. Never overwrite media/.\n` +
       `- Files the user gives you (more footage, music, voice-over, logos, photos, subtitles, fonts, LUTs) are in media/ and listed ` +
-      `in project_state under files, each with what it is; a message lists the ones attached to it under "${ATTACHED}". Use them when the request ` +
+      `in project_state under files, each with what it is; a message lists the ones attached to it under "${ATTACHED}" (files, and also ` +
+      `versions of the film and motion clips the user pointed at; "@name" in the message means the attached one of that name). Use them when the request ` +
       `touches them, and say so. Subtitles: read them for the words and times, and burn, restyle or retime them (video-editing skill, ` +
       `references/inputs.md). If a file's use isn't clear, ask.\n` +
       `- For anything about speech (cut ums or pauses, remove a sentence, find a moment, captions) read the transcript tool first and cut on word times. ` +

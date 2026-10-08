@@ -9,7 +9,7 @@ import { pipeline } from 'node:stream/promises'
 import yauzl from 'yauzl'
 import { extOf, kindByName } from '../shared/file-kinds'
 import { parseSubtitles, type Cue } from '../shared/subtitles'
-import type { FileInfo, FileKind, MediaInfo, SubtitleLink } from '../shared/types'
+import type { FileInfo, FileKind, MediaInfo, Project, SubtitleLink } from '../shared/types'
 
 const clock = (t: number) => {
   const s = Math.round(t), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = String(s % 60).padStart(2, '0')
@@ -263,6 +263,31 @@ export function fileLine(rel: string, files: Record<string, FileInfo>, links: Re
   const target = f.kind === 'subtitles' ? subtitlesNote(rel, files, links) : ''
   const font = f.font ? `; Fontname=${f.font.family}${/bold/i.test(f.font.style) ? ' with Bold=1' : ''}, also in fonts/ (fontsdir=fonts)` : ''
   return `${rel} — ${f.summary}${target}${font}`
+}
+
+/**
+ * Anything in the project the user can point the agent at, as the agent sees it: a file (media/…), a version of the
+ * film (its render's path, numbered v1, v2… as the version list numbers them) or a motion clip (clips/<id>).
+ */
+export function refLine(rel: string, p: Pick<Project, 'files' | 'subtitles' | 'versions' | 'proposal' | 'current' | 'media' | 'clips'>) {
+  if (p.files?.[rel]) return fileLine(rel, p.files, p.subtitles)
+  const versions = p.versions.filter(v => v.id !== p.proposal)
+  const k = versions.findIndex(v => v.path === rel)
+  if (k >= 0) {
+    const v = versions[k], d = p.media[rel]?.duration
+    return `${rel} — version v${k + 1} of the film, “${v.title}”${d ? `, ${clock(d)}` : ''}${v.id === p.current ? ' (the one on screen)' : ''}`
+  }
+  const id = /^clips\/([^/]+)$/.exec(rel)?.[1]
+  const c = id ? p.clips?.[id] : undefined
+  if (c) return `${rel} — motion clip ${id}, “${c.title}”, ${c.duration} s${c.overlay ? ', laid over the footage' : ''} (clip.html in that folder)`
+  return rel
+}
+
+/** The lines for what's attached to a message (files, versions, clips): at most `max`, then a count. */
+export function refLines(rels: string[], p: Parameters<typeof refLine>[1], max = 30) {
+  const lines = rels.slice(0, max).map(r => refLine(r, p))
+  if (rels.length > max) lines.push(`…and ${rels.length - max} more (project_state lists everything)`)
+  return lines
 }
 
 /** The lines for files attached to a message: at most `max`, then a count (project_state lists them all). */

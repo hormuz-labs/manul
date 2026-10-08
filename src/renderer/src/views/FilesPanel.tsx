@@ -1,18 +1,18 @@
 // The files the user added to the project (footage, music, subtitles, fonts, LUTs…), what Manul made of each, adding
 // more and deleting them: the side panel's Files tab. Clicking one attaches it to the next message, so the agent knows
 // to use it; dragging footage or music onto the timeline (subtitles onto the video) puts it in the film.
-import { Captions, File, Film, Folder, Image as ImageIcon, Music, Palette, Plus, ScrollText, Trash2, Type } from 'lucide-react'
+import { Captions, File, Film, Folder, Image as ImageIcon, Music, Palette, Plus, ScrollText, Sparkles, Trash2, Type } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn, mediaUrl, timecode } from '@/lib/utils'
 import { kindByName } from '../../../shared/file-kinds'
 import type { FileKind, Project } from '../../../shared/types'
 
-const ICON: Record<FileKind | 'folder', typeof File> = {
-  folder: Folder, video: Film, audio: Music, image: ImageIcon, subtitles: Captions, text: ScrollText, font: Type, lut: Palette, other: File,
+const ICON: Record<FileKind | 'folder' | 'clip', typeof File> = {
+  folder: Folder, clip: Sparkles, video: Film, audio: Music, image: ImageIcon, subtitles: Captions, text: ScrollText, font: Type, lut: Palette, other: File,
 }
 
-export function FileIcon({ kind, className }: { kind: FileKind | 'folder'; className?: string }) {
+export function FileIcon({ kind, className }: { kind: FileKind | 'folder' | 'clip'; className?: string }) {
   const I = ICON[kind]
   return <I className={cn('size-3.5 shrink-0', className)} />
 }

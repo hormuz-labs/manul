@@ -1,6 +1,6 @@
 // The agent panel: not a chat log. The user's requests, the agent's short replies, one card per tool call
 // (rendered by tool), question cards, and the input, anchored to whatever is selected on the film.
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { Message } from '@ag-ui/core'
 import { ArrowUp, AudioLines, Check, ChevronRight, Sparkles, Clapperboard, Crosshair, Eye, FileSearch, Images, Loader2, MessageSquareText, ScanFace, ScanSearch, Users, Square, Terminal, TriangleAlert, Wrench, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,8 @@ import type { Project } from '../../../shared/types'
 import { cn, timecode } from '@/lib/utils'
 import type { Anchor } from '../../../shared/types'
 import { splitAttached } from '../../../shared/attached'
-import { chipGroups, FileIcon, kindOf } from './FilesPanel'
+import { chipGroups, FileIcon } from './FilesPanel'
+import { insertMention, matches, mentionables, mentionAt, refChip, type Mention } from '@/lib/mentions'
 
 type Call = { id: string; name: string; args: Record<string, any> }
 
@@ -215,7 +216,7 @@ function Item({ m, project, results, busy, onAnswer, laterUser }: { m: Message; 
         {msg.text && <div className="whitespace-pre-wrap">{msg.text}</div>}
         {msg.files.length > 0 && (
           <div className={cn('flex flex-wrap gap-1', msg.text && 'mt-1.5')}>
-            {chipGroups(msg.files).map(g => <FileChip key={g.rels[0]} label={g.label} kind={g.rels.length > 1 ? 'folder' : kindOf(project, g.rels[0])} title={g.rels.join('\n')} />)}
+            {chipGroups(msg.files).map(g => <FileChip key={g.rels[0]} {...chipOf(project, g)} title={g.rels.join('\n')} />)}
             {msg.more > 0 && <span className="px-1 text-[11px] text-faint">+{msg.more} more</span>}
           </div>
         )}
@@ -249,15 +250,42 @@ function FileChip({ label, kind, title, onRemove }: { label: string; kind: Param
   )
 }
 
-export function AgentPanel({ project, projectInfo, model, agent, anchor, onClearAnchor, attached = [], onDetach, onSend, onStop, ready, onKeys, inputRef }: {
+/** A chip's name and icon: a folder's worth, or one file, version or clip. */
+const chipOf = (p: Project, g: { label: string; rels: string[] }) => (g.rels.length > 1 ? { label: g.label, kind: 'folder' as const } : refChip(p, g.rels[0]))
+
+/** The list that opens on @ in the message box: what in the project matches the word typed after it. */
+function MentionList({ items, query, pick, onPick, onHover }: { items: Mention[]; query: string; pick: number; onPick(m: Mention): void; onHover(i: number): void }) {
+  const list = useRef<HTMLDivElement>(null)
+  useEffect(() => { list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }) }, [pick])
+  return (
+    <div ref={list} role="listbox" aria-label="Files, versions and clips" data-mentions
+      className="absolute inset-x-0 bottom-full z-50 mb-1 max-h-64 overflow-y-auto rounded-card border border-line bg-panel p-1 shadow-2xl shadow-black/50">
+      {items.length === 0 && <div className="px-2 py-1.5 text-xs text-faint">Nothing in the project called “{query}”</div>}
+      {items.map((m, i) => (
+        <div key={m.id} role="option" aria-selected={i === pick} title={m.id}
+          onMouseDown={e => { e.preventDefault(); onPick(m) }} onMouseEnter={() => onHover(i)}
+          className={cn('flex cursor-default items-center gap-2 rounded px-2 py-1', i === pick && 'bg-hover')}>
+          <FileIcon kind={m.kind} className="text-dim" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate">{m.title}</span>
+            <span className="block truncate text-[11px] text-faint">{m.detail}</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function AgentPanel({ project, projectInfo, model, agent, anchor, onClearAnchor, attached = [], onAttach, onDetach, onSend, onStop, ready, onKeys, inputRef }: {
   project: string
   projectInfo: Project
   model?: { provider: string; modelId: string }
   agent: AgentState
   anchor?: Anchor
   onClearAnchor(): void
-  /** Files attached to the next message (paths in media/). */
+  /** What's attached to the next message: files (paths in media/), versions (their renders), motion clips (clips/<id>). */
   attached?: string[]
+  onAttach?(rels: string[]): void
   onDetach?(rels: string[]): void
   onSend(text: string): void
   onStop(): void
@@ -274,6 +302,28 @@ export function AgentPanel({ project, projectInfo, model, agent, anchor, onClear
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' }) }, [agent.messages.length, agent.streaming?.text.length, Object.keys(agent.pending).length, consents.length])
 
   const submit = () => { const t = text.trim(); if (!t && !attached.length) return; onSend(t); setText('') }
+  // @ in the message box: a list of the project's files, versions and clips; picking one attaches it
+  const [caret, setCaret] = useState(0)
+  const [dismissed, setDismissed] = useState<number | null>(null)
+  const [pick, setPick] = useState(0)
+  const at = mentionAt(text, caret)
+  const mentioning = at && at.start !== dismissed ? at : null
+  const found = mentioning ? matches(mentionables(projectInfo), mentioning.query).slice(0, 50) : []
+  useEffect(() => setPick(0), [mentioning?.query])
+  // the caret goes after the picked name as the text changes (later, keys typed meanwhile would land before it)
+  const placeCaret = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    if (placeCaret.current == null) return
+    inputRef.current?.setSelectionRange(placeCaret.current, placeCaret.current)
+    placeCaret.current = null
+  }, [text, inputRef])
+  const choose = (m: Mention) => {
+    const next = insertMention(text, mentioning!, m)
+    placeCaret.current = next.caret
+    setText(next.text)
+    setCaret(next.caret)
+    onAttach?.([m.id])
+  }
   const anchorLabel = anchor && (anchor.clip?.element ? `${anchor.clip.id} · ${anchor.clip.element}`
     : `${timecode(anchor.t0)}${anchor.t1 != null ? `–${timecode(anchor.t1)}` : ''}${anchor.box ? ' · box' : ''}`)
 
@@ -295,6 +345,7 @@ export function AgentPanel({ project, projectInfo, model, agent, anchor, onClear
               <p><Kbd>N</Kbd> note at the playhead · drag the scrubber for a range</p>
               <p><Kbd>B</Kbd> draw a box on the picture</p>
               <p><Kbd>Space</Kbd> play / pause</p>
+              <p><Kbd>@</Kbd> in your message: point at a file, version or clip</p>
             </div>
           </div>
         )}
@@ -317,7 +368,7 @@ export function AgentPanel({ project, projectInfo, model, agent, anchor, onClear
             {attached.length > 0 && (
               <div className="flex flex-wrap gap-1 px-2.5 pt-2">
                 {chipGroups(attached).map(g => (
-                  <FileChip key={g.rels[0]} label={g.label} kind={g.rels.length > 1 ? 'folder' : kindOf(projectInfo, g.rels[0])}
+                  <FileChip key={g.rels[0]} {...chipOf(projectInfo, g)}
                     title={g.rels.map(r => `${r}${projectInfo.files?.[r] ? ` — ${projectInfo.files[r].summary}` : ''}`).join('\n')}
                     onRemove={() => onDetach?.(g.rels)} />
                 ))}
@@ -329,13 +380,24 @@ export function AgentPanel({ project, projectInfo, model, agent, anchor, onClear
                 <button className="text-faint hover:text-fg" onClick={onClearAnchor}><X className="size-3" /></button>
               </div>
             )}
-            <div className="flex items-end gap-1.5 p-1.5">
+            <div className="relative flex items-end gap-1.5 p-1.5">
+              {mentioning && <MentionList items={found} query={mentioning.query} pick={pick} onPick={choose} onHover={setPick} />}
               <textarea
                 ref={inputRef}
                 rows={1}
                 value={text}
-                onChange={e => setText(e.target.value)}
+                aria-autocomplete="list"
+                aria-expanded={!!mentioning}
+                onChange={e => { setText(e.target.value); setCaret(e.target.selectionStart) }}
+                onSelect={e => setCaret(e.currentTarget.selectionStart)}
+                onBlur={() => setDismissed(at?.start ?? null)}
+                onFocus={() => setDismissed(null)}
                 onKeyDown={e => {
+                  if (mentioning) {
+                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setPick(i => (found.length ? (i + (e.key === 'ArrowDown' ? 1 : found.length - 1)) % found.length : 0)); return }
+                    if ((e.key === 'Enter' || e.key === 'Tab') && found[pick]) { e.preventDefault(); choose(found[pick]); return }
+                    if (e.key === 'Escape') { e.preventDefault(); setDismissed(mentioning.start); return }
+                  }
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
                   if (e.key === 'Escape') { (e.target as HTMLTextAreaElement).blur(); onClearAnchor() }
                 }}

@@ -651,10 +651,10 @@ function wire() {
   })
 
   // A message to the agent, optionally anchored (time / range / box) with a frame still (JPEG data URL).
-  // Files the user attached (paths in media/) follow the text, each with what it is.
+  // What the user attached (files in media/, versions of the film, motion clips) follows the text, each with what it is.
   ipcMain.handle('agent:send', async (_e, dir: string, msg: { text: string; anchor?: Anchor; still?: string; files?: string[] }) => {
     const p = projectOf(dir)
-    const body = joinAttached(msg.text, Files.attachedLines(msg.files || [], p.files || {}, 30, p.subtitles))
+    const body = joinAttached(msg.text, Files.refLines(msg.files || [], p))
     let content: string | Record<string, unknown>[] = body
     if (msg.anchor) {
       const jpeg = msg.still ? Buffer.from(msg.still.split(',')[1], 'base64') : undefined
