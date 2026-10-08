@@ -124,6 +124,10 @@ export function plan(id: string): Def[] {
 
 const installing = new Map<string, Promise<void>>()
 
+/** Told when an install ends, for usage statistics. */
+export let onInstalled: (id: string, ok: boolean) => void = () => {}
+export const setOnInstalled = (fn: typeof onInstalled) => { onInstalled = fn }
+
 export function install(id: string): Promise<void> {
   const busy = installing.get(id)
   if (busy) return busy
@@ -135,7 +139,7 @@ export function install(id: string): Promise<void> {
       writeFileSync(stamp(d.id), JSON.stringify({ version, at: Date.now() }))
     }
     if (isInstalled('uv')) await sh(uvBin(), ['cache', 'clean'], pyEnv()).catch(() => {}) // wheels are installed; the cache only takes space
-  })().finally(() => installing.delete(id))
+  })().then(() => onInstalled(id, true), e => { onInstalled(id, false); throw e }).finally(() => installing.delete(id))
   installing.set(id, p)
   return p
 }

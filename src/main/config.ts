@@ -10,6 +10,8 @@ export type Config = {
   tabs?: { open: string[]; active: string | null }
   /** which browser the agent's bsk drives (default: Manul's own) */
   browser?: { mode: BrowserMode }
+  /** the first-run answers: both opt-in, both off unless ticked (see src/shared/telemetry.ts) */
+  telemetry?: { usage: boolean; crashes: boolean; asked: boolean }
 }
 
 const file = () => join(app.getPath('userData'), 'config.json')

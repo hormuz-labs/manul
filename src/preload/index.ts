@@ -7,6 +7,7 @@ import type { Speakers } from '../shared/speakers'
 import type { Cue } from '../shared/subtitles'
 import type { Edit } from '../shared/timeline'
 import type { SubtitleLink } from '../shared/types'
+import type { TelemetryState } from '../shared/telemetry'
 
 export type SubtitlesState = { link?: SubtitleLink; cues: Cue[]; candidates: string[] }
 /** How many edits can be undone (back) and redone (forward). */
@@ -27,6 +28,10 @@ const on = <T extends unknown[]>(ch: string) => (fn: (...args: T) => void) => {
 
 const api = {
   info: () => ipcRenderer.invoke('app:info') as Promise<{ version: string; platform: string; projectsRoot: string }>,
+  telemetry: {
+    state: () => ipcRenderer.invoke('telemetry:state') as Promise<TelemetryState>,
+    set: (choice: { usage: boolean; crashes: boolean }) => ipcRenderer.invoke('telemetry:set', choice) as Promise<TelemetryState>,
+  },
   pathForFile: (f: File) => webUtils.getPathForFile(f),
   tools: {
     bundled: () => ipcRenderer.invoke('tools:status') as Promise<ToolStatus[]>,

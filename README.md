@@ -198,6 +198,8 @@ It's free to use, and the source is open to read under the [Functional Source Li
 paid work with it — just don't build a competing product from it. Every release becomes Apache-2.0 two years after it
 ships. Bring a Claude, Gemini or OpenAI key (it's kept in your system's keychain), or wait for the single **Manul key**, coming soon.
 
+On first run Manul asks whether to send crash reports and usage statistics. Both boxes start unticked, and you can change them anytime in Settings → About. It never sends your footage, file or project names, prompts, transcripts or keys. [Exactly what is sent](telemetry/README.md).
+
 Want to hack on it? Run it from source with **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 ## Where it's going

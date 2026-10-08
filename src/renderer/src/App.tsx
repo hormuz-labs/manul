@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useAgent } from '@/lib/agui'
 import { ConsentStack } from '@/components/ConsentStack'
+import { TelemetryConsent } from '@/components/TelemetryConsent'
 import { CommandPalette } from '@/components/CommandPalette'
 import { TabBar } from '@/components/TabBar'
 import { runCommand, useCommands } from '@/lib/commands'
@@ -101,6 +102,7 @@ export function App() {
         </div>
       </div>
       <ConsentStack except={tabs.active ?? undefined} />
+      <TelemetryConsent />
       <CommandPalette open={palette} onOpenChange={setPalette}
         onAsk={tabs.active ? q => window.manul.agent.send(tabs.active!, { text: q }).catch(e => setNotice(String(e.message))) : undefined} />
       <SettingsDialog section={settings} onSection={setSettings} onClose={() => { setSettings(null); check() }} />
