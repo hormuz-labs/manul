@@ -37,13 +37,13 @@ describe('bundled ffmpeg', () => {
 })
 
 describe('pinned builds', async () => {
-  const { BUILDS, VERSION } = await import('../scripts/fetch-ffmpeg.mjs')
+  const { BUILDS, RELEASE, VERSION } = await import('../scripts/fetch-ffmpeg.mjs')
   it('covers every platform Manul ships for, with SHA-256 for both tools', () => {
     expect(Object.keys(BUILDS).sort()).toEqual(['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'])
-    for (const b of Object.values(BUILDS) as { path: string; ffmpeg: string; ffprobe: string }[]) {
+    for (const b of Object.values(BUILDS) as { ffmpeg: string; ffprobe: string }[]) {
       expect(b.ffmpeg).toMatch(/^[0-9a-f]{64}$/)
       expect(b.ffprobe).toMatch(/^[0-9a-f]{64}$/)
-      expect(b.path.endsWith(`_${VERSION}`)).toBe(true)
     }
+    expect(RELEASE.startsWith(`ffmpeg-${VERSION}-`)).toBe(true) // our own build of this FFmpeg version
   })
 })
