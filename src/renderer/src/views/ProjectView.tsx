@@ -1,6 +1,6 @@
 // The Screen view: the film, the scrubber with notes, and the agent beside it.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, AudioLines, Globe, Loader2, Upload, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, SquareDashed, X } from 'lucide-react'
+import { ArrowLeft, Globe, Loader2, Upload, Check, FolderOpen, KeyRound, MessageSquarePlus, Package, Pause, Play, SquareDashed, X } from 'lucide-react'
 import { JobsTray } from '@/components/JobsTray'
 import { HistoryButton } from '@/components/HistoryButton'
 import { useCommands } from '@/lib/commands'
@@ -11,12 +11,12 @@ import { useAgent } from '@/lib/agui'
 import { cn, mediaUrl, timecode } from '@/lib/utils'
 import { AgentPanel } from './AgentPanel'
 import { BrowserPanel } from './BrowserPanel'
-import { TranscriptPanel } from './TranscriptPanel'
+import { SidePanel, type SideTab } from './SidePanel'
 import { TimelineStrip } from './TimelineStrip'
 import { ClipEditor } from './ClipEditor'
 import { ExportDialog } from './ExportDialog'
 import { MixPanel } from './MixPanel'
-import { FilesPanel } from './FilesPanel'
+import { DRAG_FILE, dragKind } from './FilesPanel'
 import { useLiveMix } from '@/lib/liveMix'
 import type { Mix } from '../../../shared/mix'
 import { needsProxy } from '../../../shared/proxy'
@@ -44,8 +44,13 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const [regions, setRegions] = useState<[number, number][]>([])
   const [editing, setEditing] = useState<{ itemId: string; clip: string; start: number } | null>(null)
+  // the side panel (Transcript · Subtitles · Files): open or a rail, and which tab
   const [showTranscript, setShowTranscript] = useState(() => localStorage.getItem('manul.transcript') !== '0')
   useEffect(() => { try { localStorage.setItem('manul.transcript', showTranscript ? '1' : '0') } catch { /* private mode */ } }, [showTranscript])
+  const [side, setSide] = useState<SideTab>(() => (['transcript', 'subtitles', 'files'].includes(localStorage.getItem('manul.side') || '') ? localStorage.getItem('manul.side') as SideTab : 'transcript'))
+  useEffect(() => { try { localStorage.setItem('manul.side', side) } catch { /* private mode */ } }, [side])
+  const showSide = (tab: SideTab) => { setSide(tab); setShowTranscript(true) }
+  const [dropping, setDropping] = useState<string | null>(null)
   const sentFirst = useRef(false)
   const [browsing, setBrowsing] = useState(false)
   // the agent opened or focused a browser window: show it (in the project on screen)
@@ -104,7 +109,10 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
     { id: 'export', title: 'Export…', keywords: 'save render mp4 vertical shorts captions srt', shortcut: `${mod}E`, run: () => setExporting(true) },
     { id: 'media', title: 'Add files…', keywords: 'import media footage image audio music logo subtitles srt vtt font lut folder zip', shortcut: `${mod}I`, run: pickFiles },
     { id: 'reveal', title: 'Show project in Finder', keywords: 'folder files', run: () => window.manul.project.reveal(p.dir) },
-    { id: 'transcript', title: 'Show or hide the transcript', keywords: 'words text', shortcut: 'T', run: () => setShowTranscript(x => !x) },
+    { id: 'transcript', title: 'Show or hide the side panel', keywords: 'transcript words text subtitles files', shortcut: 'T', run: () => setShowTranscript(x => !x) },
+    { id: 'side.transcript', title: 'Show the transcript', keywords: 'words speakers', run: () => showSide('transcript') },
+    { id: 'side.subtitles', title: 'Show the subtitles', keywords: 'srt vtt captions', run: () => showSide('subtitles') },
+    { id: 'side.files', title: 'Show the files', keywords: 'media footage music delete', run: () => showSide('files') },
     { id: 'history', title: 'History', keywords: 'undo restore versions', run: () => setHistoryOpen(true) },
     { id: 'note', title: 'Add a note at the playhead', shortcut: 'N', run: () => noteHere() },
     { id: 'box', title: 'Draw a box on the picture', shortcut: 'B', run: () => { stage.current?.video?.pause(); setDrawing(true) } },
@@ -126,6 +134,16 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
   useLiveMix(videoEl, p.dir, mix, regions)
   const playable = onScreen.dry || onScreen.path
   const decide = async (accept: boolean) => setP(await window.manul.project.decide(p.dir, accept))
+  /** A file dragged from the Files tab: footage goes into the film at t (as a proposal), music under it (heard live,
+   *  Apply in Mix keeps it), subtitles with the video on screen. */
+  const dropFile = async (rel: string, t?: number) => {
+    const kind = p.files?.[rel]?.kind
+    try {
+      if (kind === 'video' && t != null) await window.manul.timeline.insertMedia(p.dir, onScreen.id, rel, t)
+      else if (kind === 'audio') setMix(m => ({ ...m, music: { src: rel, db: m.music?.db ?? -14, duckDb: m.music?.duckDb ?? 10 } }))
+      else if (kind === 'subtitles') { await window.manul.subtitles.link(p.dir, onScreen.path, rel); showSide('subtitles') }
+    } catch (err) { alert((err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')) }
+  }
 
   return (
     <div
@@ -161,31 +179,34 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {showTranscript ? (
-          <div className="w-[300px] shrink-0 bg-panel">
-            <TranscriptPanel
-              project={p}
-              media={onScreen.path}
-              time={time}
-              onSeek={seek}
-              onCollapse={() => setShowTranscript(false)}
-              onRange={r => { stage.current?.video?.pause(); setAnchor({ ...r, box: anchor?.box }); input.current?.focus() }}
-            />
-          </div>
-        ) : (
-          /* collapsed: a slim rail that opens it again */
-          <button
-            onClick={() => setShowTranscript(true)}
-            title="Show the transcript (T)"
-            aria-label="Show the transcript"
-            className="group flex w-10 shrink-0 flex-col items-center gap-3 bg-panel pt-3 text-dim hover:bg-hover hover:text-fg"
-          >
-            <AudioLines className="size-4" />
-            <span className="text-[11px] tracking-wide [writing-mode:vertical-rl]">Transcript</span>
-          </button>
-        )}
+        <SidePanel
+          project={p}
+          media={onScreen.path}
+          time={time}
+          open={showTranscript}
+          onOpen={setShowTranscript}
+          tab={side}
+          onTab={setSide}
+          onSeek={seek}
+          onRange={r => { stage.current?.video?.pause(); setAnchor({ ...r, box: anchor?.box }); input.current?.focus() }}
+          attached={attached}
+          onAttach={attach}
+          onAdd={pickFiles}
+          onRemoved={rels => setAttached(a => a.filter(r => !rels.includes(r)))}
+        />
         {/* the film */}
-        <div className={cn('relative flex min-w-0 flex-1 flex-col gap-2 bg-canvas p-3', over && 'bg-amber-soft')}>
+        <div
+          className={cn('relative flex min-w-0 flex-1 flex-col gap-2 bg-canvas p-3', over && 'bg-amber-soft')}
+          // from the Files tab: subtitles go with the video on screen, music under the film (footage goes on the timeline)
+          onDragOver={e => { const k = dragKind(e.dataTransfer.types); if (k === 'subtitles' || k === 'audio') { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDropping(k) } }}
+          onDragLeave={e => { if (e.currentTarget === e.target) setDropping(null) }}
+          onDrop={e => { const rel = e.dataTransfer.getData(DRAG_FILE); setDropping(null); if (rel) { e.preventDefault(); dropFile(rel) } }}
+        >
+          {dropping && (
+            <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-amber bg-amber-soft text-[13px] font-medium text-amber">
+              {dropping === 'subtitles' ? 'Drop: use these subtitles for this video' : 'Drop: make this the film’s music'}
+            </div>
+          )}
           <BrowserPanel visible={browsing && active} onClose={() => setBrowsing(false)} />
           {proposal && (
             <div className="flex items-center gap-2 rounded-lg border border-amber/30 bg-amber-soft px-3 py-1.5">
@@ -258,6 +279,7 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
             />
           )}
           <Scrubber
+            onDropFile={(rel, t) => dropFile(rel, t)}
             media={{ dir: p.dir, src: onScreen.path, revision: onScreen.createdAt, fps: p.media[onScreen.path]?.fps || 30 }}
             duration={duration}
             time={time}
@@ -281,7 +303,6 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
             <Tip label={<>Draw a box on the picture <Kbd>B</Kbd></>}>
               <Button size="sm" variant={drawing ? 'secondary' : 'ghost'} onClick={() => { stage.current?.video?.pause(); setDrawing(d => !d) }}><SquareDashed />Box</Button>
             </Tip>
-            <FilesPanel project={p} attached={attached} onAttach={attach} onAdd={pickFiles} onRemoved={rels => setAttached(a => a.filter(r => !rels.includes(r)))} />
           </div>
         </div>
 

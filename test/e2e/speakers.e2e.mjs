@@ -54,7 +54,7 @@ try {
   const t = JSON.parse(readFileSync(join(dir, project.transcripts['media/talk.mp4']), 'utf8'))
   writeFileSync(join(tmp, 'talk.srt'), t.segments.map((s, i) => `${i + 1}\n${stamp(s.s + 2)} --> ${stamp(s.e + 2)}\n${s.text.trim()}\n`).join('\n'))
   await win.evaluate(([d, f]) => window.manul.project.import(d, f), [dir, join(tmp, 'talk.srt')])
-  await win.click('button[role="tab"]:has-text("subtitles")')
+  await win.click('button[role="tab"]:has-text("Subtitles")')
   await win.waitForSelector('text=They match, but come 2 s late.')
   if (shots) await win.screenshot({ path: join(shots, 'subtitles-late.png') })
   await win.click('button:has-text("Fix the timing")')

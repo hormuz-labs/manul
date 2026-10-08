@@ -56,6 +56,10 @@ const api = {
   },
   transcript: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('transcript:get', dir, mediaRel, make) as Promise<Transcript | null>,
   thumbnails: (dir: string, src: string, count: number, start?: number, end?: number) => ipcRenderer.invoke('media:thumbnails', dir, src, count, start, end) as Promise<string[]>,
+  timeline: {
+    /** Put footage into the film at t (seconds, on the version shown): rendered and proposed as a new version. */
+    insertMedia: (dir: string, versionId: string, rel: string, at: number) => ipcRenderer.invoke('timeline:insertMedia', dir, versionId, rel, at) as Promise<string>,
+  },
   /** Who speaks when in a media file (make: work it out as a background job if not done yet). */
   speakers: {
     get: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('speakers:get', dir, mediaRel, make) as Promise<Speakers | null>,

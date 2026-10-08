@@ -325,7 +325,7 @@ async function applyMix(p: Project, mix: Mix) {
 const describeMix = (m: Mix) => m.music ? `Mix: music ${m.music.src.split('/').pop()} at ${m.music.db} dB, ducked ${m.music.duckDb} dB` : `Mix: film audio ${m.filmDb >= 0 ? '+' : ''}${m.filmDb} dB`
 
 /** Render a timeline into renders/ and propose it as a version (or, for the user's own edits, make it current). */
-async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'agent' | 'user' = 'agent') {
+async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'agent' | 'user' = 'agent', propose = by === 'agent') {
   const n = p.versions.length + 1
   const mixed = !!tl.mix && (!!tl.mix.music || tl.mix.filmDb !== 0)
   const final = join('renders', `timeline-${n}.mp4`)
@@ -343,11 +343,11 @@ async function proposeTimeline(p: Project, tl: Timeline, title: string, by: 'age
     execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { cwd: p.dir, maxBuffer: 1 << 24 }, (err, _o, stderr) => (err ? fail(new Error(stderr.slice(-1500) || err.message)) : ok()))
   }), { project: p.dir, doneTitle: `Rendered “${title}”` })
   if (mixed) await asJob('Mixing', 'render', () => mixInto(p, tl, out, final), { project: p.dir, doneTitle: 'Mixed' })
-  if (by === 'agent' && p.proposal) p.versions = p.versions.filter(v => v.id !== p.proposal)
+  if (propose && p.proposal) p.versions = p.versions.filter(v => v.id !== p.proposal)
   const v = await Projects.addVersion(p, join(p.dir, final), title, by, tl, mixed ? join(p.dir, out) : undefined)
-  if (by === 'user') Projects.accept(p, v.id)
-  else p.proposal = v.id
-  await checkpoint(p, by === 'user' ? title : `Proposed “${title}”`)
+  if (propose) p.proposal = v.id
+  else Projects.accept(p, v.id)
+  await checkpoint(p, propose ? `Proposed “${title}”` : title)
   return v.id
 }
 
@@ -583,6 +583,18 @@ function wire() {
   ipcMain.handle('clip:overlay', (_e, dir: string, id: string, at: number, title: string) => {
     const p = projectOf(dir)
     return proposeTimeline(p, addOverlay(p.timeline!, { clip: id, start: at, dur: p.clips![id].duration }), title)
+  })
+  // footage dragged from the Files tab onto the timeline: in at that point of the version on screen, as a proposal
+  ipcMain.handle('timeline:insertMedia', async (_e, dir: string, versionId: string, rel: string, at: number) => {
+    const p = projectOf(dir)
+    const v = p.versions.find(x => x.id === versionId)
+    const info = p.media[rel]
+    if (!v) throw new Error('That version is gone.')
+    if (!info?.width || !(info.duration > 0)) throw new Error(`${rel.split('/').pop()} isn't footage that can go in the film.`)
+    const base = v.timeline ?? (v.id === p.current ? p.timeline : undefined) ?? Projects.timelineOf(v.path, p.media[v.path])
+    const tl = insertAt(structuredClone(base), at, { kind: 'media', src: rel, in: 0, out: Math.round(info.duration * 1000) / 1000 }).timeline
+    const clock = `${Math.floor(at / 60)}:${String(Math.floor(at % 60)).padStart(2, '0')}`
+    return proposeTimeline(p, tl, `Inserted ${rel.split('/').pop()} at ${clock}`, 'user', true)
   })
   ipcMain.handle('clip:insert', async (_e, dir: string, id: string, at: number, title: string) => {
     const p = projectOf(dir)

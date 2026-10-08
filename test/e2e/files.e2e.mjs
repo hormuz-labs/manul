@@ -1,5 +1,7 @@
-// Files besides the film: Files → Add brings in subtitles, a note and a folder; the list says what each is; they ride
-// on the next message as chips, and the sent message shows them. Run after npm run build. The agent gets a fake key, so
+// Files besides the film: the side panel's Files tab → Add brings in subtitles, a note and a folder; the list says what
+// each is; they ride on the next message as chips, and the sent message shows them. Dragged from the list, footage goes
+// into the film where it's dropped on the timeline (a proposal), music under it, subtitles with the video. Deleting
+// sends files to the Trash, never the ones the film uses. Run after npm run build. The agent gets a fake key, so
 // the message fails at the model (no real call is ever paid for); what's checked is what the user sees.
 // MANUL_E2E_SHOTS=<folder> saves screenshots there.
 import { _electron as electron } from 'playwright-core'
@@ -19,6 +21,8 @@ writeFileSync(join(tmp, 'notes.md'), 'Colours: keep it warm.\n')
 mkdirSync(join(tmp, 'Brand Kit'))
 writeFileSync(join(tmp, 'Brand Kit', 'colours.txt'), 'Orange #F2A541\n')
 copyFileSync(join(root, 'resources', 'fonts', 'Inter-Bold.ttf'), join(tmp, 'Brand Kit', 'Brand-Bold.ttf'))
+execFileSync(join(BIN, 'ffmpeg'), ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x240:r=30:d=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(tmp, 'b.mp4')])
+execFileSync(join(BIN, 'ffmpeg'), ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=duration=3', join(tmp, 'song.mp3')])
 
 // no real keys reach the app: a fake one makes the agent "ready" without ever reaching a paid model
 const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/_API_KEY$|_TOKEN$/.test(k)))
@@ -36,8 +40,8 @@ try {
   // Files → Add (the dialog answered with three things: subtitles, a note, a folder)
   await app.evaluate(({ ipcMain }, fs) => { ipcMain.removeHandler('project:pickFiles'); ipcMain.handle('project:pickFiles', () => fs) },
     [join(tmp, 'film.srt'), join(tmp, 'notes.md'), join(tmp, 'Brand Kit')])
-  await win.click('button:has-text("Files")')
-  await win.click('button:has-text("Add")')
+  await win.click('button[role="tab"]:has-text("Files")')
+  await win.click('button:text-is("Add")')
   const composer = win.locator('textarea[placeholder="What should Manul do with these?"]')
   await composer.waitFor()
   for (const chip of ['film.srt', 'notes.md', 'Brand Kit/colours.txt', 'Brand Kit/Brand-Bold.ttf']) await win.locator(`span:has(> span.truncate:text-is("${chip}"))`).first().waitFor()
@@ -66,9 +70,44 @@ try {
   assert.equal(await win.locator('textarea[placeholder="What should Manul do with these?"]').count(), 0, 'the input has no chips after sending')
   if (shots) await win.screenshot({ path: join(shots, 'files-sent.png') })
 
-  // delete from the Files list (the Trash is stubbed: nothing of the test lands in yours)
+  // drag from the Files tab (HTML drag events, as the list makes them)
+  for (const f of ['b.mp4', 'song.mp3']) await win.evaluate(([d, f]) => window.manul.project.import(d, f), [dir, join(tmp, f)])
+  const dragged = await win.evaluate(() => {
+    const row = [...document.querySelectorAll('button[draggable="true"]')].find(b => b.textContent.includes('b.mp4'))
+    const dt = new DataTransfer()
+    row.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }))
+    return [dt.getData('manul/file'), [...dt.types].sort()]
+  })
+  assert.deepEqual(dragged, ['media/b.mp4', ['manul/file', 'manul/kind-video']])
+  const drop = (rel, kind, selector, x = 0.5) => win.evaluate(([rel, kind, selector, x]) => {
+    const el = [...document.querySelectorAll(selector)].find(e => e.checkVisibility())
+    const r = el.getBoundingClientRect(), dt = new DataTransfer()
+    dt.setData('manul/file', rel); dt.setData(`manul/kind-${kind}`, '1')
+    const o = { dataTransfer: dt, bubbles: true, cancelable: true, clientX: r.left + r.width * x, clientY: r.top + r.height / 2 }
+    el.dispatchEvent(new DragEvent('dragover', o)); el.dispatchEvent(new DragEvent('drop', o))
+  }, [rel, kind, selector, x])
+  // footage at the middle of the timeline: a proposal with it inserted at 0:02
+  await drop('media/b.mp4', 'video', '[data-testid="timeline-scrubber"]')
+  await win.waitForSelector('text=Inserted b.mp4 at 0:02', { timeout: 60_000 })
+  let now = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'))
+  const proposed = now.versions.find(v => v.id === now.proposal)
+  assert.deepEqual(proposed.timeline.items.map(i => [i.src, i.in, i.out]), [['media/film.mp4', 0, 2], ['media/b.mp4', 0, 2], ['media/film.mp4', 2, 4]])
+  assert.ok(Math.abs(now.media[proposed.path].duration - 6) < 0.1, `the proposal is 6 s (${now.media[proposed.path].duration})`)
+  if (shots) await win.screenshot({ path: join(shots, 'files-inserted.png') })
+  await win.click('button:has-text("Accept")')
+  // music onto the video: it plays under the film (Mix shows a change to apply)
+  await drop('media/song.mp3', 'audio', 'video')
+  await win.locator('button:has-text("Mix") span.rounded-full').waitFor()
+  // subtitles onto the video: they go with it, and the Subtitles tab opens
+  await drop('media/film.srt', 'subtitles', 'video')
+  await win.waitForSelector('button[role="tab"][aria-selected="true"]:has-text("Subtitles")')
+  now = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'))
+  assert.equal(now.subtitles[now.versions.find(v => v.id === now.current).path].file, 'media/film.srt')
+  if (shots) await win.screenshot({ path: join(shots, 'files-subtitles-tab.png') })
+
+  // delete from the Files tab (the Trash is stubbed: nothing of the test lands in yours)
   await app.evaluate(({ shell }) => { globalThis.__trashed = []; shell.trashItem = async p => { globalThis.__trashed.push(p) } })
-  await win.click('button:has-text("Files")')
+  await win.click('button[role="tab"]:has-text("Files")')
   const srtRow = win.locator('li:has(span.truncate:text-is("film.srt"))')
   await srtRow.hover()
   await srtRow.locator('button[aria-label="Delete film.srt"]').click()
@@ -90,7 +129,7 @@ try {
   const trashed = await app.evaluate(() => globalThis.__trashed)
   assert.deepEqual(trashed.map(t => t.slice(dir.length + 1)), ['media/film.srt', 'media/Brand Kit'])
   const after = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'))
-  assert.deepEqual(Object.keys(after.files).sort(), ['media/film.mp4', 'media/notes.md'])
+  assert.deepEqual(Object.keys(after.files).sort(), ['media/b.mp4', 'media/film.mp4', 'media/notes.md', 'media/song.mp3'])
   console.log('files e2e: ok')
 } finally {
   await app.close()

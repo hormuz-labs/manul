@@ -35,7 +35,7 @@ function touchRecent(p: Project) {
 }
 
 /** A timeline that is just this media file, in its own size and frame rate (even sizes, sane rate). */
-const timelineOf = (src: string, info: MediaInfo) => fromMedia(src, info.duration, {
+export const timelineOf = (src: string, info: MediaInfo) => fromMedia(src, info.duration, {
   width: Math.max(2, Math.round((info.width || 1920) / 2) * 2),
   height: Math.max(2, Math.round((info.height || 1080) / 2) * 2),
   fps: info.fps > 0 && info.fps <= 120 ? Math.round(info.fps * 100) / 100 : 30,

@@ -26,7 +26,9 @@ function Voice({ dir, media, sp, id, names, transcript, onSeek, onName }: {
   const turn = longestTurn(sp, id)
   const [frame, setFrame] = useState<string | null>(null)
   const [draft, setDraft] = useState(names[id] || '')
-  useEffect(() => { setDraft(names[id] || '') }, [names, id])
+  // only this voice's own name resets what's typed (saving another voice's name must not wipe it)
+  const saved = names[id] || ''
+  useEffect(() => { setDraft(saved) }, [saved, id])
   useEffect(() => {
     if (!turn) return
     const mid = (turn.s + turn.e) / 2
@@ -75,7 +77,7 @@ export function SpeakersPanel({ dir, media, sp, names, transcript, open, onOpenC
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
       <Popover.Trigger asChild>
-        <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[11px]" title="Who speaks: name the voices"><Users />{everyone.length}</Button>
+        <Button size="sm" variant="ghost" className="h-6 shrink-0 whitespace-nowrap px-1.5 text-[11px]" title="Who speaks: name the voices"><Users />{everyone.length}</Button>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content side="right" align="start" sideOffset={8} className="z-50 flex max-h-[75vh] w-[420px] flex-col rounded-card border border-line bg-panel shadow-2xl shadow-black/50">

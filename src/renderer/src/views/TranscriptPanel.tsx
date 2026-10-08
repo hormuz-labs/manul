@@ -1,10 +1,9 @@
 // What is said, word by word, in sync with the film. Click a word to jump there; drag across words to select a range
 // (it becomes the anchor of the next request, e.g. "cut this"). Fillers are marked so "cut the ums" is visible.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AudioLines, Loader2, PanelLeftClose, Search } from 'lucide-react'
+import { AudioLines, Loader2, Search } from 'lucide-react'
 import { speakerOfSegments, type Speakers } from '../../../shared/speakers'
 import { SpeakerChip, SpeakersPanel } from './SpeakersPanel'
-import { SubtitlesView } from './SubtitlesView'
 import { Button } from '@/components/ui/button'
 import { useJobs } from '@/components/JobsTray'
 import { flatWords, isFiller, rangeOfSelection, wordIndexAt } from '@/lib/transcript'
@@ -13,9 +12,10 @@ import type { Project, Transcript } from '../../../shared/types'
 
 const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '').slice(0, 300)
 
-type Props = { project: Project; media: string; time: number; onSeek(t: number): void; onRange(r: { t0: number; t1: number }): void; onCollapse?(): void }
+type Props = { project: Project; media: string; time: number; onSeek(t: number): void; onRange(r: { t0: number; t1: number }): void }
 
-export function TranscriptPanel({ project, media, time, onSeek, onRange, onCollapse }: Props) {
+/** The side panel's Transcript tab. */
+export function TranscriptPanel({ project, media, time, onSeek, onRange }: Props) {
   const [t, setT] = useState<Transcript | null>(null)
   const [state, setState] = useState<'loading' | 'none' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -31,10 +31,6 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
   const [sp, setSp] = useState<Speakers | null>(null)
   const [naming, setNaming] = useState(false)
   const names = project.speakerNames?.[media] || {}
-  // the transcript, or the subtitles that go with the video (when the project has any)
-  const hasSubs = Object.values(project.files || {}).some(f => f.kind === 'subtitles')
-  const [view, setView] = useState<'transcript' | 'subtitles'>('transcript')
-  useEffect(() => { if (!hasSubs) setView('transcript') }, [hasSubs])
 
   // load (and make, when an engine is ready) the transcript of the media on screen
   useEffect(() => {
@@ -81,47 +77,26 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
   const lo = sel ? Math.min(sel.a, sel.b) : -1, hi = sel ? Math.max(sel.a, sel.b) : -1
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-2 px-3" data-panel-header>
-        <AudioLines className="size-4 text-dim" />
-        {hasSubs ? (
-          <div className="inline-flex rounded-md border border-line bg-bg p-0.5" role="tablist">
-            {(['transcript', 'subtitles'] as const).map(k => (
-              <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)} className={cn('rounded px-2 py-0.5 text-xs capitalize', view === k ? 'bg-raised text-fg' : 'text-dim')}>{k}</button>
-            ))}
-          </div>
-        ) : <span className="font-medium">Transcript</span>}
-        <span className="flex-1" />
-        {view === 'transcript' && sp && t && <SpeakersPanel dir={project.dir} media={media} sp={sp} names={names} transcript={t} open={naming} onOpenChange={setNaming} onSeek={onSeek} />}
-        {view === 'transcript' && state === 'ready' && fillers > 0 && <span className="rounded bg-amber-soft px-1.5 py-0.5 text-[10.5px] text-amber" title="Filler words (um, uh…)">{fillers} fillers</span>}
-        {onCollapse && <Button size="iconSm" variant="ghost" onClick={onCollapse} title="Collapse the transcript (T)" aria-label="Collapse the transcript"><PanelLeftClose /></Button>}
-      </div>
-
-      {view === 'transcript' && finding && (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {finding && (
         <div className="mx-3 mb-1 flex items-center gap-2 text-[11px] text-faint">
           <Loader2 className="size-3 animate-spin" />Finding who speaks{finding.progress != null ? `… ${Math.round(finding.progress * 100)}%` : '…'}
         </div>
       )}
 
-      {view === 'subtitles' && (
-        <>
-          <div className="mx-3 mb-1 flex items-center gap-2 rounded-md bg-raised px-2.5 py-1">
-            <Search className="size-3.5 text-faint" />
-            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find in subtitles" className="h-6 flex-1 bg-transparent text-xs outline-none placeholder:text-faint" />
-          </div>
-          <SubtitlesView project={project} media={media} time={time} query={query} onSeek={onSeek} onRange={onRange} />
-        </>
-      )}
-
-      {view === 'transcript' && state === 'ready' && t && t.segments.length === 0 && (
+      {state === 'ready' && t && t.segments.length === 0 && (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-dim">{t.language === 'none' ? 'This video has no sound.' : 'No speech found.'}</div>
       )}
 
-      {view === 'transcript' && state === 'ready' && t && t.segments.length > 0 && (
+      {state === 'ready' && t && t.segments.length > 0 && (
         <>
-          <div className="mx-3 mb-1 flex items-center gap-2 rounded-md bg-raised px-2.5 py-1">
-            <Search className="size-3.5 text-faint" />
-            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find in transcript" className="h-6 flex-1 bg-transparent text-xs outline-none placeholder:text-faint" />
+          <div className="mx-3 mb-1 flex items-center gap-1.5">
+            <div className="flex flex-1 items-center gap-2 rounded-md bg-raised px-2.5 py-1">
+              <Search className="size-3.5 text-faint" />
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find in transcript" className="h-6 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-faint" />
+            </div>
+            {sp && <SpeakersPanel dir={project.dir} media={media} sp={sp} names={names} transcript={t} open={naming} onOpenChange={setNaming} onSeek={onSeek} />}
+            {fillers > 0 && <span className="shrink-0 whitespace-nowrap rounded bg-amber-soft px-1.5 py-0.5 text-[10.5px] text-amber" title="Filler words (um, uh…)">{fillers} filler{fillers === 1 ? '' : 's'}</span>}
           </div>
           <div
             ref={list}
@@ -162,21 +137,21 @@ export function TranscriptPanel({ project, media, time, onSeek, onRange, onColla
         </>
       )}
 
-      {view === 'transcript' && (state === 'loading' || jobs.length > 0) && state !== 'ready' && (
+      {(state === 'loading' || jobs.length > 0) && state !== 'ready' && (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-dim">
           <Loader2 className="size-5 animate-spin text-amber" />
           <span>{jobs[0]?.progress != null ? `Transcribing… ${Math.round(jobs[0].progress * 100)}%` : 'Transcribing…'}</span>
         </div>
       )}
 
-      {view === 'transcript' && state === 'none' && jobs.length === 0 && (
+      {state === 'none' && jobs.length === 0 && (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <p className="text-dim">See every word, cut by text, and let Manul find moments by what is said.</p>
           <Button variant="primary" size="md" onClick={make}><AudioLines />Transcribe</Button>
         </div>
       )}
 
-      {view === 'transcript' && state === 'error' && (
+      {state === 'error' && (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <p className="text-xs text-bad" data-selectable>{error}</p>
           <Button size="sm" onClick={make}>Try again</Button>

@@ -6,6 +6,7 @@ import { Tip } from '@/components/ui/tooltip'
 import type { Note } from '../../../shared/types'
 import { Filmstrip } from './Filmstrip'
 import { frameZoom } from '@/lib/timelineScale'
+import { DRAG_FILE, dragKind } from './FilesPanel'
 
 type Props = {
   media: { dir: string; src: string; revision: number; fps: number }
@@ -16,9 +17,13 @@ type Props = {
   onSeek(t: number): void
   onRange(r: { t0: number; t1: number } | null): void
   onNote(n: Note): void
+  /** A file dragged from the Files tab dropped at t: footage goes in there, music under the film, subtitles with it. */
+  onDropFile?(rel: string, t: number): void
 }
 
-export function Scrubber({ media, duration, time, notes, range, onSeek, onRange, onNote }: Props) {
+const DROP_LABEL: Record<string, string> = { video: 'Insert here', audio: 'Use as the music', subtitles: 'Use as subtitles' }
+
+export function Scrubber({ media, duration, time, notes, range, onSeek, onRange, onNote, onDropFile }: Props) {
   const bar = useRef<HTMLDivElement>(null)
   const viewport = useRef<HTMLDivElement>(null)
   const [zoom, setZoom] = useState(1)
@@ -26,6 +31,7 @@ export function Scrubber({ media, duration, time, notes, range, onSeek, onRange,
   const center = useRef<number | null>(null)
   const [drag, setDrag] = useState<{ start: number; moved: boolean } | null>(null)
   const [hover, setHover] = useState<number | null>(null)
+  const [drop, setDrop] = useState<{ t: number; kind: string } | null>(null)
   const d = duration || 1
   const fps = media.fps || 30
   const maxZoom = frameZoom(view.width, d, fps)
@@ -116,6 +122,20 @@ export function Scrubber({ media, duration, time, notes, range, onSeek, onRange,
         onPointerUp={() => { if (drag && !drag.moved) onRange(null); setDrag(null) }}
         onPointerCancel={() => { setDrag(null); setHover(null) }}
         onPointerLeave={() => setHover(null)}
+        onDragOver={e => {
+          const kind = dragKind(e.dataTransfer.types)
+          if (!onDropFile || !kind || !DROP_LABEL[kind]) return
+          e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'
+          setDrop({ t: at(e.clientX), kind })
+        }}
+        onDragLeave={() => setDrop(null)}
+        onDrop={e => {
+          const rel = e.dataTransfer.getData(DRAG_FILE)
+          setDrop(null)
+          if (!rel || !onDropFile) return
+          e.preventDefault(); e.stopPropagation()
+          onDropFile(rel, at(e.clientX))
+        }}
       >
         <Filmstrip {...media} duration={duration} viewport={viewport} />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 truncate rounded-b bg-panel/90 px-2 py-0.5 text-[10px] font-medium text-fg">{media.src.split(/[\\/]/).pop()}</div>
@@ -130,6 +150,12 @@ export function Scrubber({ media, duration, time, notes, range, onSeek, onRange,
         {/* hover time */}
         {hover != null && !drag && (
           <div className="pointer-events-none absolute inset-y-0 border-l border-fg/50" style={{ left: pct(hover) }}><span className="absolute -top-6 -translate-x-1/2 whitespace-nowrap rounded bg-raised px-1.5 py-0.5 text-[10px] text-fg tabular">{rulerTime(hover)}</span></div>
+        )}
+        {/* where a dragged file would go */}
+        {drop && (
+          <div className="pointer-events-none absolute -inset-y-1 z-10 w-0.5 -translate-x-1/2 bg-note" style={{ left: pct(drop.kind === 'video' ? drop.t : 0) }}>
+            <span className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-note px-1.5 py-0.5 text-[10px] font-medium text-bg">{DROP_LABEL[drop.kind]}{drop.kind === 'video' ? ` at ${rulerTime(drop.t)}` : ''}</span>
+          </div>
         )}
         {/* playhead */}
         <div className="pointer-events-none absolute -inset-y-1 w-0.5 -translate-x-1/2 bg-amber shadow-[0_0_3px_#000]" style={{ left: pct(Math.max(0, Math.min(time, d))) }}><span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rounded-b-sm bg-amber" /></div>
