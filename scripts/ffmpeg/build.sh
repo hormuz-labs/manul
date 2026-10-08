@@ -29,6 +29,9 @@ OUT=$REPO/dist/ffmpeg/$TARGET
 # the build script at a fixed commit, with Manul's modules and versions added
 rm -rf "$WORK"
 mkdir -p "$WORK"
+# its downloads (plain curl) retry a few times: a moment's DNS or network failure shouldn't end an hour-long build
+printf 'retry = 5\nretry-delay = 10\nretry-all-errors\n' > "$WORK/.curlrc"
+export CURL_HOME=$WORK
 git -C "$WORK" init -q script
 git -C "$WORK/script" fetch -q --depth 1 https://git.martin-riedl.de/ffmpeg/build-script.git $SCRIPT_COMMIT
 git -C "$WORK/script" checkout -q FETCH_HEAD
