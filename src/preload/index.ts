@@ -130,6 +130,8 @@ const api = {
     /** Any file, a folder or a .zip into the project; the new paths in media/. */
     import: (dir: string, file: string) => ipcRenderer.invoke('project:import', dir, file) as Promise<string[]>,
     pickFiles: () => ipcRenderer.invoke('project:pickFiles') as Promise<string[]>,
+    /** Files out of the project, into the Trash; the ones the film uses are kept, with why. */
+    removeFiles: (dir: string, rels: string[]) => ipcRenderer.invoke('project:removeFiles', dir, rels) as Promise<{ removed: string[]; blocked: { file: string; why: string }[] }>,
     decide: (dir: string, accept: boolean) => ipcRenderer.invoke('project:decide', dir, accept) as Promise<Project>,
     setCurrent: (dir: string, id: string) => ipcRenderer.invoke('project:current', dir, id) as Promise<Project>,
     onChange: on<[Project]>('project'),

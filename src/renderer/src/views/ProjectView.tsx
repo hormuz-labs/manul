@@ -281,7 +281,7 @@ export function ProjectView({ initial, firstPrompt, firstFiles, onHome, onKeys, 
             <Tip label={<>Draw a box on the picture <Kbd>B</Kbd></>}>
               <Button size="sm" variant={drawing ? 'secondary' : 'ghost'} onClick={() => { stage.current?.video?.pause(); setDrawing(d => !d) }}><SquareDashed />Box</Button>
             </Tip>
-            <FilesPanel project={p} attached={attached} onAttach={attach} onAdd={pickFiles} />
+            <FilesPanel project={p} attached={attached} onAttach={attach} onAdd={pickFiles} onRemoved={rels => setAttached(a => a.filter(r => !rels.includes(r)))} />
           </div>
         </div>
 

@@ -8,7 +8,7 @@ import * as Files from '../src/main/files'
 import { kindByName } from '../src/shared/file-kinds'
 import { joinAttached, splitAttached } from '../src/shared/attached'
 import { parseSubtitles } from '../src/shared/subtitles'
-import { chipGroups } from '../src/renderer/src/views/FilesPanel'
+import { chipGroups, fileRows } from '../src/renderer/src/views/FilesPanel'
 import type { FileInfo } from '../src/shared/types'
 
 const root = mkdtempSync(join(tmpdir(), 'manul-files-'))
@@ -139,6 +139,36 @@ describe('adding files to a project', () => {
     expect(await Projects.syncFiles(p)).toBe(false)
   })
 
+  it('removes files into the Trash with what was made from them, but never what the film uses', async () => {
+    const p = await Projects.createFromFile(join(src, 'clip.mp4'))
+    const [srt] = await Projects.addFiles(p, join(src, 'clip.fr.srt'))
+    const kit = await Projects.addFiles(p, join(src, 'Brand Kit'))
+    p.subtitles = { 'media/clip.mp4': { file: srt, match: 0.9, offset: 0 } }
+    const trashed: string[] = []
+    const trash = async (abs: string) => { trashed.push(abs.slice(p.dir.length + 1)); rmSync(abs, { recursive: true }) }
+
+    let r = await Projects.removeFiles(p, [srt, 'media/clip.mp4'], trash)
+    expect(r).toEqual({ removed: [srt], blocked: [{ file: 'media/clip.mp4', why: 'it is the version “Original”' }] })
+    expect(trashed).toEqual([srt])
+    expect(p.files![srt]).toBeUndefined()
+    expect(p.subtitles).toEqual({}) // the video no longer has subtitles
+    expect(existsSync(join(p.dir, 'media/clip.mp4'))).toBe(true)
+
+    // every file of a folder: the folder goes as one, and the font's copy in fonts/ with it (Inter stays)
+    expect(existsSync(join(p.dir, 'fonts', 'Brand-Bold.ttf'))).toBe(true)
+    r = await Projects.removeFiles(p, kit, trash)
+    expect(r.removed.sort()).toEqual(kit.sort())
+    expect(trashed.at(-1)).toBe('media/Brand Kit')
+    expect(existsSync(join(p.dir, 'fonts', 'Brand-Bold.ttf'))).toBe(false)
+    expect(existsSync(join(p.dir, 'fonts', 'Inter-Bold.ttf'))).toBe(true)
+    expect(Object.keys(p.files!)).toEqual(['media/clip.mp4'])
+
+    // music the mix plays is kept too
+    const [song] = await Projects.addFiles(p, join(src, 'song.mp3'))
+    p.timeline!.mix = { filmDb: 0, music: { src: song, db: -14, duckDb: 10 } }
+    expect((await Projects.removeFiles(p, [song], trash)).blocked).toEqual([{ file: song, why: 'the edit uses it' }])
+  })
+
   it("won't start a project from something that isn't a video", async () => {
     await expect(Projects.createFromFile(join(src, 'clip.fr.srt'))).rejects.toThrow(/isn't a video Manul can play/)
   })
@@ -158,6 +188,14 @@ describe('files attached to a message', () => {
     const lines = Files.attachedLines(Object.keys(files), files)
     expect(lines).toHaveLength(31)
     expect(lines.at(-1)).toBe('…and 10 more (project_state lists every file)')
+  })
+
+  it('the Files list: top-level files, then each folder with its files', () => {
+    expect(fileRows(['media/kit/b.png', 'media/z.srt', 'media/kit/a.png', 'media/a.mp4'])).toEqual([
+      { kind: 'file', rel: 'media/a.mp4', depth: 0 }, { kind: 'file', rel: 'media/z.srt', depth: 0 },
+      { kind: 'folder', name: 'kit', rels: ['media/kit/a.png', 'media/kit/b.png'] },
+      { kind: 'file', rel: 'media/kit/a.png', depth: 1 }, { kind: 'file', rel: 'media/kit/b.png', depth: 1 },
+    ])
   })
 
   it("a folder's files collapse into one chip", () => {

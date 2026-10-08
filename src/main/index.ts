@@ -504,6 +504,13 @@ function wire() {
     for (const rel of rels) { ensureProxy(p, rel); autoTranscribe(p, rel) }
     return rels
   })
+  // into the Trash, with what Manul made from them; files the film uses stay (with the reason)
+  ipcMain.handle('project:removeFiles', async (_e, dir: string, rels: string[]) => {
+    const p = projectOf(dir)
+    const r = await Projects.removeFiles(p, rels, abs => shell.trashItem(abs))
+    if (r.removed.length) await checkpoint(p, `Removed ${r.removed.length === 1 ? r.removed[0] : `${r.removed.length} files`}`)
+    return r
+  })
   ipcMain.handle('project:pickFiles', async () => {
     const r = await dialog.showOpenDialog(win!, {
       title: 'Add files',

@@ -141,3 +141,54 @@ export async function addNote(p: Project, note: Omit<Note, 'id' | 'createdAt' | 
   await save(p)
   return n
 }
+
+/** Why a file can't be removed: the film uses it (a version, the edit, its music, a motion clip). */
+export function usedBy(p: Project, rel: string): string | null {
+  const v = p.versions.find(x => x.path === rel)
+  if (v) return `it is the version “${v.title}”`
+  const inEdit = (tl?: Project['timeline']) => !!tl && (tl.items.some(i => i.kind === 'media' && i.src === rel) || tl.mix?.music?.src === rel)
+  if (inEdit(p.timeline)) return 'the edit uses it'
+  const ver = p.versions.find(x => inEdit(x.timeline))
+  if (ver) return `the version “${ver.title}” uses it`
+  for (const id of Object.keys(p.clips || {})) {
+    const html = join(p.dir, 'clips', id, 'clip.html')
+    if (existsSync(html) && readFileSync(html, 'utf8').includes(rel)) return `the motion clip “${p.clips![id].title}” uses it`
+  }
+  return null
+}
+
+/** Take files out of the project: into the Trash (trash), with what Manul made from them (transcript, preview copy,
+ *  speakers, the subtitles link, a font's copy in fonts/). A folder whose files all go is trashed whole. Files the
+ *  film uses stay, with the reason. */
+export async function removeFiles(p: Project, rels: string[], trash: (abs: string) => Promise<void>) {
+  const blocked: { file: string; why: string }[] = []
+  const going = rels.filter(rel => {
+    if (!p.files?.[rel]) return false
+    const why = usedBy(p, rel)
+    if (why) blocked.push({ file: rel, why })
+    return !why
+  })
+  // a folder (media/<name>/…) whose every file goes is trashed as one
+  const folders = new Map<string, string[]>()
+  for (const rel of going) { const parts = rel.split('/'); if (parts.length > 2) folders.set(parts[1], [...(folders.get(parts[1]) || []), rel]) }
+  const whole = new Set([...folders].filter(([name, list]) => Object.keys(p.files!).filter(f => f.startsWith(`media/${name}/`)).length === list.length).map(([name]) => name))
+  const inWhole = (rel: string) => rel.split('/').length > 2 && whole.has(rel.split('/')[1])
+  for (const name of whole) await trash(join(p.dir, 'media', name))
+  for (const rel of going) if (!inWhole(rel) && existsSync(join(p.dir, rel))) await trash(join(p.dir, rel))
+
+  for (const rel of going) {
+    const font = p.files![rel].font && basename(rel)
+    delete p.files![rel]
+    delete p.media[rel]
+    for (const map of [p.transcripts, p.proxies, p.speakers]) {
+      if (map?.[rel]) { await rm(join(p.dir, map[rel]), { force: true }); delete map[rel] }
+    }
+    delete p.speakerNames?.[rel]
+    delete p.subtitles?.[rel]
+    for (const [media, link] of Object.entries(p.subtitles || {})) if (link.file === rel) delete p.subtitles![media]
+    // its copy in fonts/, unless another font in the project has the same file name
+    if (font && !Object.keys(p.files!).some(f => p.files![f].font && basename(f) === font)) await rm(join(p.dir, 'fonts', font), { force: true })
+  }
+  await save(p)
+  return { removed: going, blocked }
+}
