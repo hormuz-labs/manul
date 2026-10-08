@@ -5,7 +5,7 @@ import type { Segment } from './types'
 
 export type Turn = { speaker: string; s: number; e: number; text?: string }
 export type SpeakerInfo = { id: string; talk: number; turns: number; share: number; minor: boolean }
-export type Speakers = { duration: number; speakers: SpeakerInfo[]; turns: Turn[] }
+export type Speakers = { duration: number; speakers: SpeakerInfo[]; turns: Turn[]; /** how it was made (see main/speakers.ts) */ v?: number }
 /** voice id → the name given to it */
 export type SpeakerNames = Record<string, string>
 

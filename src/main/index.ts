@@ -182,7 +182,9 @@ async function speakersOf(p: Project, mediaRel: string, o: { make: boolean; coun
   const busy = diarizing.get(key)
   if (busy) return busy
   const name = mediaRel.split('/').pop()
-  const job = asJob(`Finding who speaks in ${name}`, 'speakers', j => Speakers.analyzeSpeakers(p.dir, abs, { speakers: o.count, onProgress: x => j.progress(x) }),
+  const job = asJob(`Finding who speaks in ${name}`, 'speakers', async j => Speakers.analyzeSpeakers(p.dir, abs, {
+    speakers: o.count, transcript: await transcriptOf(p, mediaRel, { ask: false }).catch(() => null), onProgress: x => j.progress(x),
+  }),
     { project: p.dir, doneTitle: `Found who speaks in ${name}` })
     .then(async ({ result, file }) => {
       p.speakers = { ...p.speakers, [mediaRel]: file.slice(p.dir.length + 1) }

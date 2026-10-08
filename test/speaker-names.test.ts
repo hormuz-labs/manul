@@ -55,3 +55,37 @@ describe('naming voices', () => {
     expect(speakersReport(sp, 'media/film.mp4', 'x.json')).toContain('then name them with name_speakers')
   })
 })
+
+describe('regrouping voices by their embeddings', async () => {
+  const { regroup, nearestVoices, REGROUP } = await import('../src/main/speakers')
+  // a seeded random 192-d voice, and samples of it with noise: two samples of one person agree about as much as two
+  // turns of one actor in a film (cosine ≈ 0.45)
+  let seed = 7
+  const rand = () => { seed = (seed * 1103515245 + 12345) % 2 ** 31; return seed / 2 ** 31 - 0.5 }
+  const voice = () => Array.from({ length: 192 }, rand)
+  const sample = (v: number[], noise: number) => v.map(x => x + noise * rand() * 2.2)
+
+  it("one person split into many voices comes back as one; a stranger's few seconds stay apart", () => {
+    const people = [voice(), voice(), voice()], stranger = voice()
+    const turns: { speaker: string; s: number; e: number }[] = [], emb: number[][] = []
+    let t = 0
+    // each person split by the diarizer into 5 voices, 4 turns of 3 s each
+    people.forEach((v, p) => { for (let split = 0; split < 5; split++) for (let k = 0; k < 4; k++) { turns.push({ speaker: `P${p}-${split}`, s: t, e: t + 3 }); emb.push(sample(v, 0.5)); t += 3 } })
+    // two 1-second slivers of person 0 and a stranger who says one 3 s line
+    turns.push({ speaker: 'sliver', s: t, e: t + 1 }); emb.push(sample(people[0], 0.5)); t += 1
+    turns.push({ speaker: 'sliver2', s: t, e: t + 1 }); emb.push(sample(people[0], 0.5)); t += 1
+    turns.push({ speaker: 'stranger', s: t, e: t + 3 }); emb.push(sample(stranger, 0.5))
+    const { speakers, centres } = regroup(turns, emb)
+    const of = (prefix: string) => new Set(speakers.filter((_, n) => turns[n].speaker.startsWith(prefix)))
+    for (const p of ['P0-', 'P1-', 'P2-']) expect(of(p).size).toBe(1)
+    expect(new Set([...of('P0-'), ...of('P1-'), ...of('P2-')]).size).toBe(3)
+    expect(of('sliver')).toEqual(of('P0-'))
+    expect([...of('stranger')][0]).toBe('stranger')
+    expect(centres.size).toBe(3) // the voices with real talk
+    // a line no turn covered goes to the voice it sounds like; noise to none
+    const [near] = nearestVoices([sample(people[1], 0.5)], centres)
+    expect(near).toBe([...of('P1-')][0])
+    expect(nearestVoices([voice(), null], centres)).toEqual([null, null])
+    expect(REGROUP.merge).toBeGreaterThan(REGROUP.floor)
+  })
+})

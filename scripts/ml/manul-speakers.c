@@ -6,6 +6,9 @@
 //   manul-speakers --segmentation seg.onnx --embedding emb.onnx [--speakers N] [--threshold 0.5] in.wav
 // {"speakers":2,"segments":[[0.32,4.81,0,0.93],…]}   start, end (seconds), speaker (0-based), confidence
 // Progress goes to stderr as "progress <done>/<total>" lines.
+//   manul-speakers --embedding emb.onnx --embed ranges.txt in.wav
+// A voice embedding for each "start end" line (seconds) of ranges.txt, for Manul to group voices and label every line:
+// {"dim":192,"embeddings":[[0.0123,…],null,…]}   null for a range under 0.3 s
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,8 +20,50 @@ static int32_t progress(int32_t done, int32_t total, void *arg) {
   return 0;
 }
 
+/** One embedding per range of the wave (null when too short): Manul's own grouping of voices works on these. */
+static int embed(const char *model, const char *ranges, const char *wav) {
+  SherpaOnnxSpeakerEmbeddingExtractorConfig config;
+  memset(&config, 0, sizeof(config));
+  config.model = model;
+  config.num_threads = 2;
+  config.provider = "cpu";
+  const SherpaOnnxSpeakerEmbeddingExtractor *ex = SherpaOnnxCreateSpeakerEmbeddingExtractor(&config);
+  if (!ex) { fprintf(stderr, "manul-speakers: could not load %s\n", model); return 1; }
+  const SherpaOnnxWave *wave = SherpaOnnxReadWave(wav);
+  if (!wave) { fprintf(stderr, "manul-speakers: cannot read %s\n", wav); return 1; }
+  FILE *f = fopen(ranges, "r");
+  if (!f) { fprintf(stderr, "manul-speakers: cannot read %s\n", ranges); return 1; }
+  int32_t dim = SherpaOnnxSpeakerEmbeddingExtractorDim(ex);
+  printf("{\"dim\":%d,\"embeddings\":[", dim);
+  double s, e;
+  int n = 0;
+  while (fscanf(f, "%lf %lf", &s, &e) == 2) {
+    int32_t a = (int32_t)(s * wave->sample_rate), b = (int32_t)(e * wave->sample_rate);
+    if (a < 0) a = 0;
+    if (b > wave->num_samples) b = wave->num_samples;
+    printf("%s", n++ ? "," : "");
+    if (b - a < (int32_t)(0.3 * wave->sample_rate)) { printf("null"); continue; }
+    const SherpaOnnxOnlineStream *st = SherpaOnnxSpeakerEmbeddingExtractorCreateStream(ex);
+    SherpaOnnxOnlineStreamAcceptWaveform(st, wave->sample_rate, wave->samples + a, b - a);
+    SherpaOnnxOnlineStreamInputFinished(st);
+    if (!SherpaOnnxSpeakerEmbeddingExtractorIsReady(ex, st)) { printf("null"); SherpaOnnxDestroyOnlineStream(st); continue; }
+    const float *v = SherpaOnnxSpeakerEmbeddingExtractorComputeEmbedding(ex, st);
+    putchar('[');
+    for (int32_t i = 0; i < dim; i++) printf("%s%.5f", i ? "," : "", v[i]);
+    putchar(']');
+    SherpaOnnxSpeakerEmbeddingExtractorDestroyEmbedding(v);
+    SherpaOnnxDestroyOnlineStream(st);
+    if (n % 50 == 0) fprintf(stderr, "embedded %d\n", n);
+  }
+  printf("]}\n");
+  fclose(f);
+  SherpaOnnxFreeWave(wave);
+  SherpaOnnxDestroySpeakerEmbeddingExtractor(ex);
+  return 0;
+}
+
 int main(int argc, char **argv) {
-  const char *seg = NULL, *emb = NULL, *wav = NULL;
+  const char *seg = NULL, *emb = NULL, *wav = NULL, *ranges = NULL;
   int speakers = 0;
   float threshold = 0.5f;
   for (int i = 1; i < argc; i++) {
@@ -26,10 +71,13 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "--embedding") && i + 1 < argc) emb = argv[++i];
     else if (!strcmp(argv[i], "--speakers") && i + 1 < argc) speakers = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--threshold") && i + 1 < argc) threshold = (float)atof(argv[++i]);
+    else if (!strcmp(argv[i], "--embed") && i + 1 < argc) ranges = argv[++i];
     else wav = argv[i];
   }
+  if (ranges && emb && wav) return embed(emb, ranges, wav);
   if (!seg || !emb || !wav) {
-    fprintf(stderr, "usage: manul-speakers --segmentation seg.onnx --embedding emb.onnx [--speakers N] [--threshold 0.5] in.wav\n");
+    fprintf(stderr, "usage: manul-speakers --segmentation seg.onnx --embedding emb.onnx [--speakers N] [--threshold 0.5] in.wav\n"
+                    "       manul-speakers --embedding emb.onnx --embed ranges.txt in.wav\n");
     return 2;
   }
 

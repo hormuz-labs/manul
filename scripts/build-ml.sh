@@ -8,7 +8,7 @@
 set -e
 SHERPA=1.13.8
 ORT=1.28.2 # the onnxruntime inside that sherpa-onnx release
-VERSION=1-$SHERPA
+VERSION=2-$SHERPA # 2: --embed
 cd "$(dirname "$0")/.."
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) TARGET=darwin-arm64 PKG=osx-arm64 SHA=9091bf160dc7fdacedbc906b212badf53c2993f4e5277a0e03998e96c31d60da ;;
