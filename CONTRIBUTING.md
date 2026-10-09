@@ -29,7 +29,7 @@ Add a key in **Settings → Keys** (⌘,), drop a video on the start screen, and
 | `npm test` | Unit and integration tests (Vitest) |
 | `npm run test:e2e` | The real app, end to end (Playwright) |
 | `npm run smoke` | Builds, launches, screenshots each screen (set `GEMINI_API_KEY` and pass a prompt to test the agent) |
-| `node scripts/screenshot.mjs` | Takes a demo screenshot of a staged project (`docs/screenshot.png`) |
+| `node scripts/screenshot.mjs` | Takes the README screenshots of a staged project (`docs/start.png`, `chat.png`, `inline.png`, `dark.png`) |
 | `node scripts/annotate.mjs <spec.json>` | Turns screenshots into the README's annotated images (arrows, labels, blurred areas) |
 | `npm run package` | `dist/`: macOS `.dmg` + `.zip`, or Linux `.deb` + AppImage |
 
@@ -73,7 +73,7 @@ Manul is **test-driven**: every change comes with tests, and the suites run befo
 
 ```bash
 npm test           # unit + integration (Vitest); Electron is stubbed, ffmpeg is real
-npm run test:e2e   # the real app: clips, export, menu, proxies, tabs, mix, browser, conversations
+npm run test:e2e   # the real app: clips, export, menu, proxies, projects in the sidebar, resizing, instructions at the selection, files, browser, conversations
 npm run package:dir && node test/e2e/packaged.e2e.mjs   # the packaged app: tools, clips, skills, export from the bundle
 MANUL_TEST_TOOLS=<tools folder with whisper installed> npm test   # also runs the downloaded-engine test
 ```

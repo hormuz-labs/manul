@@ -9,7 +9,7 @@
 <p align="center">
   Drop in your footage, say what you want, and point at the frame when something's off.<br>
   Manul makes the cut on your own computer and shows you a before / after of every change.<br>
-  You never have to touch a timeline, though you can.
+  You never have to touch a timeline.
 </p>
 
 <p align="center">
@@ -33,7 +33,7 @@ https://github.com/user-attachments/assets/084276fb-6129-47e2-9cba-4724c1432990
 <br>
 
 <p align="center">
-  <img src="docs/editor.png" alt="The Manul editor: the film, notes on the scrubber, the agent's steps, a note pinned to a box on the frame, and a before/after proposal" width="100%">
+  <img src="docs/chat.png" alt="Manul: your projects in the sidebar, the conversation with the agent's steps and reply, and the film beside it with a note boxed on the frame and a before/after proposal to keep or reject" width="100%">
 </p>
 
 <br>
@@ -81,11 +81,27 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 </tr>
 </table>
 
-## What a session feels like
+## Point, then say it
+
+The conversation fills the window, and your film plays beside it with each proposal ready to compare. To point at something, draw a box on the picture (<kbd>B</kbd>), drag across the timeline, or press <kbd>N</kbd> at a moment, and a message box opens right there: say what should change and press <kbd>↵</kbd>. It goes to Manul with what you pointed at, and shows in the conversation like anything else you send.
 
 <p align="center">
-  <img src="docs/start.png" alt="The start screen: drop a video and say what you want, start from an idea, or open a recent film" width="100%">
+  <img src="docs/inline.png" alt="A box drawn around the lower third on the frame, with a message box open just under it: “make the name bigger”" width="100%">
 </p>
+
+Your projects are in the sidebar, the one on screen opened up into its chats and its files: click a file to attach it to your next message, or drag footage onto the timeline to put it in the film. Drag a piece by its name to move it somewhere else; <kbd>⌘Z</kbd> takes any of it back. Drag a divider to give the film more room, or keep dragging to fold a pane away.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/start.png" alt="The start screen: drop a video and say what you want in one box, or start from an idea"></td>
+<td width="50%"><img src="docs/dark.png" alt="The same project in the dark theme"></td>
+</tr>
+</table>
+
+<sub>Light by default, dark if you prefer, or follow the system: <b>Settings → Appearance</b>.</sub>
+
+## What a session feels like
+
 
 
 > **You:** cut the ums, and the bit where I lose my train of thought
@@ -116,16 +132,12 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 <td><b>It watches the whole film first</b><br>Before it edits, Manul measures your footage on your computer: who speaks when, every shot, camera shake, exposure, frozen and black frames, where the faces and objects are, loudness and pauses, and the music's tempo, bars and drops. So "keep only Ravi's answers", "lose the shaky bits" and "cut on the beat after the drop" all mean something exact</td>
 </tr>
 <tr>
-<td width="56" align="center"><img src="docs/icons/square-split-horizontal.svg" width="36" alt=""></td>
-<td><b>Your hands on the timeline too</b><br>Split, cut a range, trim, reorder and set a piece's volume yourself when that's quicker than asking. Your edit plays at once, straight from the footage, and Manul works from it. Saving a cut copies the footage between the cuts as it is instead of encoding the whole film again, so it's quick even for a long film</td>
-</tr>
-<tr>
 <td width="56" align="center"><img src="docs/icons/type.svg" width="36" alt=""></td>
 <td><b>Titles it designs</b><br>Title cards, lower thirds, callouts, charts and animated text, timed to your film. Drag, resize or retype any word on the picture afterwards, or click one and ask for a change to just that</td>
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/audio-waveform.svg" width="36" alt=""></td>
-<td><b>A mix you hear live</b><br>Music loops to the length of your film and ducks under speech. Move a slider and you hear it at once, before anything renders</td>
+<td><b>A mix you hear live</b><br>Music loops to the length of your film and ducks under speech, and you hear the mix as the film plays, before anything renders</td>
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/ratio.svg" width="36" alt=""></td>
@@ -133,7 +145,7 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/paperclip.svg" width="36" alt=""></td>
-<td><b>Your files, put to use</b><br>Drop in subtitles, music, your logo, fonts and LUTs, or a whole folder or zip of them. Manul says what each one is, and the edit uses them</td>
+<td><b>Your files, put to use</b><br>Drop in subtitles, music, your logo, fonts and LUTs, or a whole folder or zip of them. Manul says what each one is, they sit under the project in the sidebar, and the edit uses them</td>
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/at-sign.svg" width="36" alt=""></td>
@@ -149,7 +161,7 @@ No upload queue, no cloud project, no waiting for a render farm. The editing and
 </tr>
 <tr>
 <td width="56" align="center"><img src="docs/icons/layers-2.svg" width="36" alt=""></td>
-<td><b>Tabs and any model</b><br>Several films open at once, each with its own conversation. Claude, Gemini or GPT, or any OpenAI- or Anthropic-compatible endpoint, picked per project</td>
+<td><b>Every film in the sidebar, and any model</b><br>Your projects in one list, searchable, the one on screen opened up into its chats and its files; open ones keep working in the background. Claude, Gemini or GPT, or any OpenAI- or Anthropic-compatible endpoint, picked per project</td>
 </tr>
 </table>
 
@@ -207,7 +219,7 @@ Want to hack on it? Run it from source with **[CONTRIBUTING.md](CONTRIBUTING.md)
 <table>
 <tr>
 <td width="72"><b>Now</b></td>
-<td>Directing by talking and pointing, editing by hand on the timeline, titles, music, every export shape</td>
+<td>Directing by talking and pointing, titles, music, every export shape</td>
 <td width="40" align="center"><img src="docs/icons/circle-dot.svg" width="20" alt=""></td>
 </tr>
 <tr>

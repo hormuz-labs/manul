@@ -1,14 +1,13 @@
-// The agent panel: not a chat log. The user's requests, the agent's short replies, one card per tool call
+// The conversation: not a chat log. The user's requests, the agent's short replies, one card per tool call
 // (rendered by tool), question cards, and the input, anchored to whatever is selected on the film.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { Message } from '@ag-ui/core'
-import { ArrowUp, AudioLines, Check, ChevronRight, Sparkles, Clapperboard, Crosshair, Eye, FileSearch, Images, Loader2, MessageSquareText, ScanFace, ScanSearch, Users, Square, Terminal, TriangleAlert, Wrench, X } from 'lucide-react'
+import { ArrowUp, AudioLines, Plus, Check, ChevronRight, Sparkles, Clapperboard, Crosshair, Eye, FileSearch, Images, Loader2, MessageSquareText, ScanFace, ScanSearch, Users, Square, Terminal, TriangleAlert, Wrench, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { resultsOf, type AgentState } from '@/lib/agui'
 import { ConsentCard, useConsents } from '@/components/ConsentStack'
 import { ModelPicker } from '@/components/ModelPicker'
-import { Conversations } from '@/components/Conversations'
 import type { Project } from '../../../shared/types'
 import { cn, timecode } from '@/lib/utils'
 import type { Anchor } from '../../../shared/types'
@@ -211,7 +210,7 @@ function Item({ m, project, results, busy, onAnswer, laterUser }: { m: Message; 
     const note = NOTE.exec(text)
     const msg = splitAttached(text.replace(NOTE, ''))
     return (
-      <div className="ml-6 rounded-xl bg-raised px-3 py-2" data-selectable>
+      <div className="ml-auto w-fit max-w-[85%] rounded-2xl bg-raised px-4 py-2.5 text-[14px]" data-selectable>
         {note && <div className="mb-1 inline-flex items-center gap-1 rounded bg-note/15 px-1.5 py-0.5 text-[10.5px] text-note"><MessageSquareText className="size-3" />{note[1].replace(/^@ /, '').replace(/, box [\d.,]+/, ' · box').replace(/, clip (\S+) element (\S+)/, ' · $1 · $2')}</div>}
         {msg.text && <div className="whitespace-pre-wrap">{msg.text}</div>}
         {msg.files.length > 0 && (
@@ -232,7 +231,7 @@ function Item({ m, project, results, busy, onAnswer, laterUser }: { m: Message; 
           const r = results[c.id]
           return <ToolCard key={c.id} call={call} result={r?.content} state={r ? (r.error ? 'error' : 'done') : busy ? 'running' : 'error'} />
         })}
-        {m.content && <div className="whitespace-pre-wrap leading-relaxed text-fg/95" data-selectable>{m.content}</div>}
+        {m.content && <div className="whitespace-pre-wrap font-serif text-[16px] leading-7 text-fg" data-selectable>{m.content}</div>}
       </div>
     )
   }
@@ -259,7 +258,7 @@ function MentionList({ items, query, pick, onPick, onHover }: { items: Mention[]
   useEffect(() => { list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }) }, [pick])
   return (
     <div ref={list} role="listbox" aria-label="Files, versions and clips" data-mentions
-      className="absolute inset-x-0 bottom-full z-50 mb-1 max-h-64 overflow-y-auto rounded-card border border-line bg-panel p-1 shadow-2xl shadow-black/50">
+      className="absolute inset-x-0 bottom-full z-50 mb-1 max-h-64 overflow-y-auto rounded-card border border-line bg-panel p-1 shadow-2xl shadow-shade">
       {items.length === 0 && <div className="px-2 py-1.5 text-xs text-faint">Nothing in the project called “{query}”</div>}
       {items.map((m, i) => (
         <div key={m.id} role="option" aria-selected={i === pick} title={m.id}
@@ -276,7 +275,7 @@ function MentionList({ items, query, pick, onPick, onHover }: { items: Mention[]
   )
 }
 
-export function AgentPanel({ project, projectInfo, model, agent, anchor, onClearAnchor, attached = [], onAttach, onDetach, onSend, onStop, ready, onKeys, inputRef }: {
+export function AgentPanel({ project, projectInfo, model, agent, anchor, onClearAnchor, attached = [], onAttach, onDetach, onAdd, onSend, onStop, ready, onKeys, inputRef }: {
   project: string
   projectInfo: Project
   model?: { provider: string; modelId: string }
@@ -287,6 +286,8 @@ export function AgentPanel({ project, projectInfo, model, agent, anchor, onClear
   attached?: string[]
   onAttach?(rels: string[]): void
   onDetach?(rels: string[]): void
+  /** the + in the message box: add files to the project and attach them */
+  onAdd?(): void
   onSend(text: string): void
   onStop(): void
   ready: boolean
@@ -327,92 +328,92 @@ export function AgentPanel({ project, projectInfo, model, agent, anchor, onClear
   const anchorLabel = anchor && (anchor.clip?.element ? `${anchor.clip.id} · ${anchor.clip.element}`
     : `${timecode(anchor.t0)}${anchor.t1 != null ? `–${timecode(anchor.t1)}` : ''}${anchor.box ? ' · box' : ''}`)
 
+  // the conversation is the page: one centred column, the replies set for reading
+  const col = 'mx-auto w-full max-w-[760px] px-6'
+  const empty = shown.length === 0 && !agent.busy
+  const box = !ready ? (
+    <button onClick={onKeys} className="w-full rounded-2xl border border-dashed border-amber/50 px-3 py-3 text-amber hover:bg-amber-soft">Add an API key to start editing</button>
+  ) : (
+    <div className={cn('rounded-2xl border bg-surface shadow-[0_1px_2px_var(--color-shade),0_6px_24px_-14px_var(--color-shade)] transition-colors focus-within:border-line-strong', anchor ? 'border-amber/50' : 'border-line')}>
+      {attached.length > 0 && (
+        <div className="flex flex-wrap gap-1 px-3 pt-2.5">
+          {chipGroups(attached).map(g => (
+            <FileChip key={g.rels[0]} {...chipOf(projectInfo, g)}
+              title={g.rels.map(r => `${r}${projectInfo.files?.[r] ? ` — ${projectInfo.files[r].summary}` : ''}`).join('\n')}
+              onRemove={() => onDetach?.(g.rels)} />
+          ))}
+        </div>
+      )}
+      {anchor && (
+        <div className="flex items-center gap-1.5 px-3 pt-2.5">
+          <span className="inline-flex items-center gap-1 rounded bg-amber-soft px-1.5 py-0.5 text-[11px] text-amber"><MessageSquareText className="size-3" />Note at {anchorLabel}</span>
+          <button className="text-faint hover:text-fg" onClick={onClearAnchor}><X className="size-3" /></button>
+        </div>
+      )}
+      <div className="relative px-1.5 pt-1.5">
+        {mentioning && <MentionList items={found} query={mentioning.query} pick={pick} onPick={choose} onHover={setPick} />}
+        <textarea
+          ref={inputRef}
+          rows={1}
+          value={text}
+          aria-autocomplete="list"
+          aria-expanded={!!mentioning}
+          onChange={e => { setText(e.target.value); setCaret(e.target.selectionStart) }}
+          onSelect={e => setCaret(e.currentTarget.selectionStart)}
+          onBlur={() => setDismissed(at?.start ?? null)}
+          onFocus={() => setDismissed(null)}
+          onKeyDown={e => {
+            if (mentioning) {
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setPick(i => (found.length ? (i + (e.key === 'ArrowDown' ? 1 : found.length - 1)) % found.length : 0)); return }
+              if ((e.key === 'Enter' || e.key === 'Tab') && found[pick]) { e.preventDefault(); choose(found[pick]); return }
+              if (e.key === 'Escape') { e.preventDefault(); setDismissed(mentioning.start); return }
+            }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
+            if (e.key === 'Escape') { (e.target as HTMLTextAreaElement).blur(); onClearAnchor() }
+          }}
+          placeholder={anchor ? 'What should change here?' : attached.length ? 'What should Manul do with these?' : agent.busy ? 'Steer the edit…' : 'Ask for an edit, or @ a file, version or clip…'}
+          className="max-h-60 min-h-12 w-full resize-none bg-transparent px-1.5 py-1.5 text-[15px] outline-none placeholder:text-faint [field-sizing:content]"
+        />
+      </div>
+      <div className="flex items-center gap-1 px-1.5 pb-1.5">
+        {onAdd && <button onClick={onAdd} title="Add files" aria-label="Add files" className="flex size-7 items-center justify-center rounded-lg text-dim hover:bg-hover hover:text-fg"><Plus className="size-4" /></button>}
+        <span className="flex-1" />
+        {agent.cost > 0 && <span className="px-1 text-[11px] text-faint tabular" title="Spent on AI in this project">${agent.cost.toFixed(agent.cost < 1 ? 3 : 2)}</span>}
+        <ModelPicker dir={project} picked={model} />
+        {agent.busy && !text && !attached.length ? (
+          <Button size="iconSm" variant="secondary" className="rounded-lg" onClick={onStop} title="Stop"><Square className="size-3 fill-current" /></Button>
+        ) : (
+          <Button size="iconSm" variant="primary" className="rounded-lg" disabled={!text.trim() && !attached.length} onClick={submit} aria-label="Send"><ArrowUp /></Button>
+        )}
+      </div>
+    </div>
+  )
+
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-2 px-3" data-panel-header>
-        <div className={cn('size-3 rounded-full', agent.busy ? 'orb' : 'bg-line-strong')} />
-        {agent.busy ? <span className="font-medium">Working…</span> : <Conversations project={projectInfo} />}
-        <span className="flex-1" />
-        {ready && <ModelPicker dir={project} picked={model} />}
-        {agent.cost > 0 && <span className="text-[11px] text-faint tabular" title="Spent on AI in this project">${agent.cost.toFixed(agent.cost < 1 ? 3 : 2)}</span>}
-      </div>
-
-      <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
-        {shown.length === 0 && !agent.busy && (
-          <div className="mt-8 space-y-3 px-2 text-center text-dim">
-            <p>Tell Manul what to change.</p>
-            <div className="space-y-1.5 text-left text-xs text-faint">
-              <p><Kbd>N</Kbd> note at the playhead · drag the scrubber for a range</p>
-              <p><Kbd>B</Kbd> draw a box on the picture</p>
-              <p><Kbd>Space</Kbd> play / pause</p>
-              <p><Kbd>@</Kbd> in your message: point at a file, version or clip</p>
-            </div>
+      <div ref={scroller} className="flex-1 overflow-y-auto">
+        <div className={cn(col, 'space-y-5 pb-8 pt-3')}>
+        {empty && (
+          <div className="pt-[14vh] text-center">
+            <img src="./manul.svg" alt="" className="mx-auto mb-4 size-10" draggable={false} />
+            <h2 className="font-serif text-[30px] font-normal tracking-[-0.01em]">What should change?</h2>
+            <p className="mx-auto mt-2 max-w-[460px] text-dim">Say it in your own words. To point at a moment, press <Kbd>N</Kbd> on the film, drag across the timeline, or <Kbd>B</Kbd> to box part of the picture.</p>
           </div>
         )}
         {foldSteps(shown).map(b => b.kind === 'steps'
           ? <StepGroup key={b.ms[0].id} ms={b.ms} results={results} busy={agent.busy} />
           : <Item key={b.m.id} m={b.m} project={projectInfo} results={results} busy={agent.busy} onAnswer={onSend} laterUser={shown.slice(b.i + 1).some(x => x.role === 'user')} />)}
         {Object.entries(agent.pending).map(([id, p]) => <ToolCard key={id} call={{ id, name: p.name, args: parse(p.args) }} state="streaming" />)}
-        {agent.streaming?.text && <div className="whitespace-pre-wrap leading-relaxed text-fg/95">{agent.streaming.text}</div>}
+        {agent.streaming?.text && <div className="whitespace-pre-wrap font-serif text-[16px] leading-7 text-fg">{agent.streaming.text}</div>}
         {consents.map(c => <ConsentCard key={c.id} c={c} />)}
         {agent.error && (
           <div className="flex gap-2 rounded-lg border border-bad/30 bg-bad/10 p-2.5 text-xs text-bad"><TriangleAlert className="mt-px size-3.5 shrink-0" /><span data-selectable>{agent.error}</span></div>
         )}
+        {agent.busy && <div className="flex items-center gap-2 text-dim"><div className="orb size-3.5 rounded-full" /><span>Working…</span></div>}
+        </div>
       </div>
 
-      <div className="p-2">
-        {!ready ? (
-          <button onClick={onKeys} className="w-full rounded-xl border border-dashed border-amber/50 px-3 py-3 text-amber hover:bg-amber-soft">Add an API key to start editing</button>
-        ) : (
-          <div className={cn('rounded-xl bg-raised ring-1 focus-within:ring-line-strong', anchor ? 'ring-amber/40' : 'ring-transparent')}>
-            {attached.length > 0 && (
-              <div className="flex flex-wrap gap-1 px-2.5 pt-2">
-                {chipGroups(attached).map(g => (
-                  <FileChip key={g.rels[0]} {...chipOf(projectInfo, g)}
-                    title={g.rels.map(r => `${r}${projectInfo.files?.[r] ? ` — ${projectInfo.files[r].summary}` : ''}`).join('\n')}
-                    onRemove={() => onDetach?.(g.rels)} />
-                ))}
-              </div>
-            )}
-            {anchor && (
-              <div className="flex items-center gap-1.5 px-2.5 pt-2">
-                <span className="inline-flex items-center gap-1 rounded bg-amber-soft px-1.5 py-0.5 text-[11px] text-amber"><MessageSquareText className="size-3" />Note at {anchorLabel}</span>
-                <button className="text-faint hover:text-fg" onClick={onClearAnchor}><X className="size-3" /></button>
-              </div>
-            )}
-            <div className="relative flex items-end gap-1.5 p-1.5">
-              {mentioning && <MentionList items={found} query={mentioning.query} pick={pick} onPick={choose} onHover={setPick} />}
-              <textarea
-                ref={inputRef}
-                rows={1}
-                value={text}
-                aria-autocomplete="list"
-                aria-expanded={!!mentioning}
-                onChange={e => { setText(e.target.value); setCaret(e.target.selectionStart) }}
-                onSelect={e => setCaret(e.currentTarget.selectionStart)}
-                onBlur={() => setDismissed(at?.start ?? null)}
-                onFocus={() => setDismissed(null)}
-                onKeyDown={e => {
-                  if (mentioning) {
-                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setPick(i => (found.length ? (i + (e.key === 'ArrowDown' ? 1 : found.length - 1)) % found.length : 0)); return }
-                    if ((e.key === 'Enter' || e.key === 'Tab') && found[pick]) { e.preventDefault(); choose(found[pick]); return }
-                    if (e.key === 'Escape') { e.preventDefault(); setDismissed(mentioning.start); return }
-                  }
-                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
-                  if (e.key === 'Escape') { (e.target as HTMLTextAreaElement).blur(); onClearAnchor() }
-                }}
-                placeholder={anchor ? 'What should change here?' : attached.length ? 'What should Manul do with these?' : agent.busy ? 'Steer the edit…' : 'Ask for an edit…'}
-                className="max-h-36 min-h-8 flex-1 resize-none bg-transparent px-1.5 py-1.5 outline-none placeholder:text-faint [field-sizing:content]"
-              />
-              {agent.busy && !text && !attached.length ? (
-                <Button size="iconSm" variant="secondary" className="rounded-full" onClick={onStop} title="Stop"><Square className="size-3 fill-current" /></Button>
-              ) : (
-                <Button size="iconSm" variant="primary" className="rounded-full" disabled={!text.trim() && !attached.length} onClick={submit}><ArrowUp /></Button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+      <div className={cn(col, 'pb-5')}>{box}</div>
     </div>
   )
 }

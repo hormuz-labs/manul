@@ -12,6 +12,8 @@ export type Config = {
   browser?: { mode: BrowserMode }
   /** the first-run answers: both opt-in, both off unless ticked (see src/shared/telemetry.ts) */
   telemetry?: { usage: boolean; crashes: boolean; asked: boolean }
+  /** the look: light (the default), dark, or the system's */
+  theme?: 'light' | 'dark' | 'system'
 }
 
 const file = () => join(app.getPath('userData'), 'config.json')

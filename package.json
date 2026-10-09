@@ -18,12 +18,13 @@
     "postinstall": "node scripts/fetch-ffmpeg.mjs && node scripts/fetch-bsk.mjs && node scripts/fetch-models.mjs && node scripts/copy-libs.mjs",
     "fetch:ffmpeg": "node scripts/fetch-ffmpeg.mjs",
     "fetch:bsk": "node scripts/fetch-bsk.mjs",
-    "test:e2e": "electron-vite build && node test/e2e/filmstrip.e2e.mjs && node test/e2e/clips.e2e.mjs && node test/e2e/export.e2e.mjs && node test/e2e/menu.e2e.mjs && node test/e2e/proxy.e2e.mjs && node test/e2e/tabs.e2e.mjs && node test/e2e/mix.e2e.mjs && node test/e2e/files.e2e.mjs && node test/e2e/timeline.e2e.mjs && node test/e2e/speakers.e2e.mjs && node test/e2e/browser.e2e.mjs && node test/e2e/conversations.e2e.mjs && node test/e2e/tools.e2e.mjs && node test/e2e/providers.e2e.mjs",
+    "test:e2e": "electron-vite build && node test/e2e/filmstrip.e2e.mjs && node test/e2e/clips.e2e.mjs && node test/e2e/export.e2e.mjs && node test/e2e/menu.e2e.mjs && node test/e2e/proxy.e2e.mjs && node test/e2e/tabs.e2e.mjs && node test/e2e/resize.e2e.mjs && node test/e2e/inline.e2e.mjs && node test/e2e/drag.e2e.mjs && node test/e2e/files.e2e.mjs && node test/e2e/browser.e2e.mjs && node test/e2e/conversations.e2e.mjs && node test/e2e/tools.e2e.mjs && node test/e2e/providers.e2e.mjs",
     "package": "electron-vite build && electron-builder",
     "package:dir": "electron-vite build && electron-builder --dir"
   },
   "devDependencies": {
     "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/source-serif-4": "^5.3.0",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-popover": "^1.1.23",
     "@radix-ui/react-tabs": "^1.1.21",

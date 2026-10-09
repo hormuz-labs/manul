@@ -151,7 +151,9 @@ pro editors can take a Manul rough cut into their own editor.
 - ✅ Repo, licence, CONTRIBUTING, CI (lint, typecheck, build per platform)
 - ⬜ UI mockups: start screen, Screen view with notes on the picture, agent panel (plan + tool cards + permission
       cards), Keys tabs, Tools page
-- ✅ Electron shell + React/shadcn/Tailwind design system (dark theme, warm accents)
+- ✅ Electron shell + React/shadcn/Tailwind design system (light and dark themes, warm accents, a serif for reading)
+- ✅ One window, as in Claude's app: the conversation with the film beside it; projects in a sidebar, each opening up into its chats and files; instructions given right at a box or range on the film
+- ✅ Hand editing pared down to what's quicker by hand: drag a piece to move it, drag footage in from Files (⌘Z undoes either); the agent does the cutting (the split, trim and levels tools, the mix panel and the transcript and subtitles panels are gone)
 - ✅ pi-durable agent in the main process → **AG-UI adapter** → IPC → renderer
 - ✅ Generic tool card + per-tool card registry
 - 🚧 Capability router (chat · image · voice · transcription) + bring-your-own-key keystore (keystore, Keys tabs, model picker done)

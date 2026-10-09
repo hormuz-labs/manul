@@ -1,4 +1,4 @@
-// Several projects open as tabs: each keeps its own playhead, tabs close, and they come back after a relaunch.
+// Several projects open in the sidebar: each keeps its own playhead, they close, and they come back after a relaunch.
 import { _electron as electron } from 'playwright-core'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
@@ -16,9 +16,14 @@ const menu = (app, label) => app.evaluate(({ Menu }, l) => {
   find(Menu.getApplicationMenu().items).click()
 }, label)
 
+// open projects have a close button in the sidebar; the one on screen is aria-current
+const openCount = () => win.locator('[data-project-row] button[title="Close project"]').count()
+const shown = () => win.locator('[data-project-row][aria-current="true"]').getAttribute('data-project-row')
+
+let win
 let app = await launch()
 try {
-  let win = await app.firstWindow()
+  win = await app.firstWindow()
   await win.waitForSelector('text=What are we making?')
   const openFile = async name => {
     await app.evaluate(({ ipcMain }, f) => { ipcMain.removeHandler('project:pick'); ipcMain.handle('project:pick', () => f) }, join(tmp, `${name}.mp4`))
@@ -27,38 +32,36 @@ try {
     await win.waitForSelector(`[data-project-title="${name}"]`)
   }
   await openFile('alpha')
-  assert.equal(await win.locator('[draggable="true"][title]').count(), 0, 'one project: no tab bar, its name is in its own title bar')
   await win.evaluate(() => { const v = [...document.querySelectorAll('video')].find(v => v.checkVisibility({ visibilityProperty: true })); v.currentTime = 2 })
   await menu(app, 'New Project')
   await win.waitForSelector('text=What are we making?')
   await openFile('beta')
   await win.evaluate(() => { const v = [...document.querySelectorAll('video')].find(v => v.checkVisibility({ visibilityProperty: true })); v.currentTime = 4 })
   await menu(app, 'New Project'); await openFile('gamma')
-  assert.equal(await win.locator('[draggable="true"][title]').count(), 3, 'three tabs')
+  assert.equal(await openCount(), 3, 'three projects open')
 
   // each tab keeps its own playhead
-  await win.click('[title$="/alpha"]')
+  await win.click('[data-project-row$="/alpha"]')
   await win.waitForTimeout(300)
   const t = await win.evaluate(() => [...document.querySelectorAll('video')].find(v => v.checkVisibility({ visibilityProperty: true })).currentTime)
   assert.ok(Math.abs(t - 2) < 0.2, `alpha's playhead stayed at 2 s (got ${t})`)
-  await menu(app, 'Next Tab')
+  await menu(app, 'Next Project')
   await win.waitForTimeout(300)
-  assert.match(await win.locator('[draggable="true"].bg-raised').getAttribute('title'), /beta$/, 'Next Tab goes to beta')
+  assert.match(await shown(), /beta$/, 'Next Project goes to beta')
 
   // close beta (⌘W) → gamma (the right neighbour) is on screen
-  await menu(app, 'Close Tab')
+  await menu(app, 'Close Project')
   await win.waitForTimeout(300)
-  assert.equal(await win.locator('[draggable="true"][title]').count(), 2)
-  assert.match(await win.locator('[draggable="true"].bg-raised').getAttribute('title'), /gamma$/)
-  await win.waitForTimeout(500) // tabs are saved
+  assert.equal(await openCount(), 2)
+  assert.match(await shown(), /gamma$/)
+  await win.waitForTimeout(500) // the open projects are saved
   await app.close()
 
   // relaunch: alpha and gamma come back, gamma on screen
   app = await launch()
   win = await app.firstWindow()
-  await win.waitForSelector('[title$="/gamma"]')
-  assert.equal(await win.locator('[draggable="true"][title]').count(), 2)
-  assert.match(await win.locator('[draggable="true"].bg-raised').getAttribute('title'), /gamma$/)
+  await win.waitForSelector('[data-project-row$="/gamma"][aria-current="true"]')
+  assert.equal(await openCount(), 2)
   console.log('tabs e2e: ok')
 } finally {
   await app.close()
