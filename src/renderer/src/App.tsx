@@ -4,10 +4,14 @@ import { useAgent } from '@/lib/agui'
 import { ConsentStack } from '@/components/ConsentStack'
 import { TelemetryConsent } from '@/components/TelemetryConsent'
 import { CommandPalette } from '@/components/CommandPalette'
-import { TabBar } from '@/components/TabBar'
+import { Sidebar, SidebarToggle } from '@/components/Sidebar'
+import { Resizer, useWidth } from '@/components/ui/resizer'
 import { runCommand, useCommands } from '@/lib/commands'
-import { closeTab, cycleTab, moveTab, openTab, type Tabs } from '@/lib/tabs'
+import { closeTab, cycleTab, openTab, type Tabs } from '@/lib/tabs'
 import { cn, typing } from '@/lib/utils'
+
+const stored = (k: string) => { try { return localStorage.getItem(k) } catch { return null } }
+const store = (k: string, v: string) => { try { localStorage.setItem(k, v) } catch { /* private mode */ } }
 import { SettingsDialog, type Section } from './views/SettingsDialog'
 import { ProjectView } from './views/ProjectView'
 import { Start } from './views/Start'
@@ -21,6 +25,11 @@ export function App() {
   const [ready, setReady] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   useAgent(null) // subscribe to agent events from the start, before any project view mounts
+
+  // the sidebar shown, or folded away to its rail
+  const [collapsed, setCollapsed] = useState(() => stored('manul.sidebar') === '0')
+  useEffect(() => store('manul.sidebar', collapsed ? '0' : '1'), [collapsed])
+  const sidebar = useWidth('manul.width.sidebar', 264, 200, 440)
 
   const [palette, setPalette] = useState(false)
   const [ready2update, setReady2update] = useState<string | null>(null)
@@ -63,11 +72,13 @@ export function App() {
   useCommands([
     { id: 'palette', title: 'Command palette', shortcut: `${mod}K`, run: () => setPalette(true) },
     { id: 'home', title: 'New project', keywords: 'start home open recent tab', shortcut: `${mod}N`, run: () => setTabs(t => ({ ...t, active: null })) },
-    { id: 'tab.next', title: 'Next tab', shortcut: 'Ctrl+Tab', run: () => setTabs(t => cycleTab(t, 1)) },
-    { id: 'tab.prev', title: 'Previous tab', shortcut: 'Ctrl+Shift+Tab', run: () => setTabs(t => cycleTab(t, -1)) },
-    { id: 'tab.close', title: 'Close tab', shortcut: `${mod}W`, run: () => setTabs(t => { if (t.active) setTimeout(() => close(t.active!), 0); return t }) },
-    ...Array.from({ length: 9 }, (_, i) => ({ id: `tab.${i + 1}`, title: `Go to tab ${i + 1}`, run: () => setTabs(t => (t.open[i] ? { ...t, active: t.open[i] } : t)) })),
-    { id: 'settings', title: 'Settings', shortcut: `${mod},`, run: () => setSettings('keys') },
+    { id: 'tab.next', title: 'Next project', shortcut: 'Ctrl+Tab', run: () => setTabs(t => cycleTab(t, 1)) },
+    { id: 'tab.prev', title: 'Previous project', shortcut: 'Ctrl+Shift+Tab', run: () => setTabs(t => cycleTab(t, -1)) },
+    { id: 'tab.close', title: 'Close project', shortcut: `${mod}W`, run: () => setTabs(t => { if (t.active) setTimeout(() => close(t.active!), 0); return t }) },
+    ...Array.from({ length: 9 }, (_, i) => ({ id: `tab.${i + 1}`, title: `Go to project ${i + 1}`, run: () => setTabs(t => (t.open[i] ? { ...t, active: t.open[i] } : t)) })),
+    { id: 'sidebar', title: 'Show or hide the sidebar', keywords: 'projects', shortcut: `${mod}\\`, run: () => setCollapsed(c => !c) },
+    { id: 'settings', title: 'Settings', shortcut: `${mod},`, run: () => setSettings('appearance') },
+    { id: 'settings.appearance', title: 'Settings: Appearance', keywords: 'theme light dark mode colours', run: () => setSettings('appearance') },
     { id: 'settings.keys', title: 'Settings: Keys', keywords: 'api gemini anthropic openai elevenlabs', run: () => setSettings('keys') },
     { id: 'settings.skills', title: 'Settings: Skills', keywords: 'profiles', run: () => setSettings('skills') },
     { id: 'settings.memory', title: 'Settings: Memory', keywords: 'remember', run: () => setSettings('memory') },
@@ -77,26 +88,34 @@ export function App() {
     { id: 'settings.tools', title: 'Settings: Tools', keywords: 'whisper ffmpeg download', run: () => setSettings('tools') },
   ], [close])
 
-  const titles = Object.fromEntries(Object.entries(projects).map(([d, x]) => [d, x.p.title]))
-  // tabs only once there's a choice: one open project already has its name in its own title bar
-  const tabbed = tabs.open.length > 1 || (tabs.open.length === 1 && tabs.active === null)
+  const selectDir = async (dir: string) => {
+    if (projects[dir]) return setTabs(t => ({ ...t, active: dir }))
+    try { openProject(await window.manul.project.open(dir)) } catch (e) { setNotice((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')) }
+  }
+  // the sidebar folded away entirely, as in Claude's app: its toggle sits by the traffic lights, at the start of the title bar
+  const lead = collapsed ? <SidebarToggle onClick={() => setCollapsed(false)} /> : undefined
+  const loaded = Object.fromEntries(Object.entries(projects).map(([d, x]) => [d, x.p]))
   return (
     <TooltipProvider>
-      <div className="flex h-full flex-col">
-        {tabbed && (
-          <TabBar open={tabs.open} active={tabs.active} titles={titles}
-            onSelect={d => setTabs(t => ({ ...t, active: d }))} onClose={close} onMove={(d, to) => setTabs(t => moveTab(t, d, to))} />
+      <div className="flex h-full">
+        {!collapsed && (
+          <div className="relative h-full shrink-0" style={{ width: sidebar.width }}>
+            <Sidebar open={tabs.open} active={tabs.active} loaded={loaded}
+              onNew={() => setTabs(t => ({ ...t, active: null }))} onSelect={selectDir} onClose={close}
+              onSettings={setSettings} onCollapse={() => setCollapsed(true)} />
+            <Resizer pane={sidebar} edge="right" label="Resize the sidebar" snap={{ self: setCollapsed }} />
+          </div>
         )}
-        <div className="relative min-h-0 flex-1">
+        <div className="relative min-w-0 flex-1 bg-panel">
           {tabs.open.map(d => projects[d] && (
             <div key={d} className={cn('absolute inset-0', d !== tabs.active && 'invisible')}>
-              <ProjectView initial={projects[d].p} firstPrompt={projects[d].prompt} firstFiles={projects[d].files} ready={ready} active={d === tabs.active} tabbed={tabbed}
-                onKeys={() => setSettings('keys')} onTools={() => setSettings('tools')} onHome={() => setTabs(t => ({ ...t, active: null }))} />
+              <ProjectView initial={projects[d].p} firstPrompt={projects[d].prompt} firstFiles={projects[d].files} ready={ready} active={d === tabs.active} lead={lead}
+                onKeys={() => setSettings('keys')} />
             </div>
           ))}
           {tabs.active === null && (
             <div className="absolute inset-0">
-              <Start ready={ready} tabbed={tabbed} onKeys={() => setSettings('keys')} onTools={() => setSettings('tools')} onOpen={openProject} />
+              <Start ready={ready} lead={lead} onKeys={() => setSettings('keys')} onTools={() => setSettings('tools')} onOpen={openProject} />
             </div>
           )}
         </div>
@@ -107,15 +126,15 @@ export function App() {
         onAsk={tabs.active ? q => window.manul.agent.send(tabs.active!, { text: q }).catch(e => setNotice(String(e.message))) : undefined} />
       <SettingsDialog section={settings} onSection={setSettings} onClose={() => { setSettings(null); check() }} />
       {ready2update && (
-        <div className="fixed bottom-4 left-4 z-40 flex items-center gap-3 rounded-xl border border-amber/30 bg-panel px-3 py-2 shadow-xl">
+        <div className="fixed bottom-4 left-4 z-40 flex items-center gap-3 rounded-xl border border-amber/30 bg-surface px-3 py-2 shadow-xl shadow-shade">
           <img src="./manul.svg" className="size-6" alt="" />
           <span className="text-xs">Manul {ready2update} is ready.</span>
-          <button className="rounded-md bg-amber px-2 py-1 text-xs font-medium text-[#1a1208]" onClick={() => window.manul.updates.install()}>Restart</button>
+          <button className="rounded-md bg-amber px-2 py-1 text-xs font-medium text-on-amber" onClick={() => window.manul.updates.install()}>Restart</button>
           <button className="text-xs text-faint hover:text-fg" onClick={() => setReady2update(null)}>Later</button>
         </div>
       )}
       {notice && (
-        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-bad/30 bg-panel px-4 py-2 text-bad shadow-xl" onClick={() => setNotice(null)}>{notice}</div>
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-bad/30 bg-surface px-4 py-2 text-bad shadow-xl shadow-shade" onClick={() => setNotice(null)}>{notice}</div>
       )}
     </TooltipProvider>
   )

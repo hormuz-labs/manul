@@ -62,7 +62,7 @@ try {
     const strip = document.querySelector('[data-testid="timeline-filmstrip"]')
     const imgs = [...strip.querySelectorAll('img')]
     const last = imgs.at(-1)
-    return last && last.complete && last.naturalWidth > 0 && parseFloat(last.style.left) > 95 && last.getBoundingClientRect().width <= 113
+    return last && last.complete && last.naturalWidth > 0 && last.getBoundingClientRect().right >= strip.getBoundingClientRect().right - 2 && last.getBoundingClientRect().width <= 113
   })
   const zoomFrame = await win.locator('[data-testid="timeline-filmstrip"] img').first().boundingBox()
   assert.ok(zoomFrame.width / zoomBox.width < beforeZoom.width / box.width, `each thumbnail covers a smaller time interval when zoomed: ${JSON.stringify({ zoomFrame, zoomBox, beforeZoom, box })}`)

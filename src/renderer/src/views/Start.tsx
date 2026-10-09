@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Film, KeyRound, Loader2, Package, X } from 'lucide-react'
+import { useRef, useState, type ReactNode } from 'react'
+import { ArrowUp, Film, KeyRound, Loader2, Paperclip, X } from 'lucide-react'
 import { extOf, kindByName } from '../../../shared/file-kinds'
 import { FileIcon } from './FilesPanel'
 import { JobsTray } from '@/components/JobsTray'
 import { Button } from '@/components/ui/button'
-import { cn, mediaUrl } from '@/lib/utils'
-import type { Project, RecentProject } from '../../../shared/types'
+import { cn } from '@/lib/utils'
+import type { Project } from '../../../shared/types'
 
 const IDEAS = ['Cut the ums and long pauses', 'Make a 60-second vertical for Shorts', 'Add a fade in and fade out', 'Trim to the best 30 seconds']
 
-export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOpen: (p: Project, prompt?: string, files?: string[]) => void; onKeys: () => void; onTools: () => void; ready: boolean; tabbed?: boolean }) {
+/** The home screen, as in Claude's app: a greeting and one message box. The video comes with the first message. */
+export function Start({ onOpen, onKeys, ready, lead }: { onOpen: (p: Project, prompt?: string, files?: string[]) => void; onKeys: () => void; onTools?: () => void; ready: boolean; lead?: ReactNode }) {
   const [file, setFile] = useState<string | null>(null)
   // other files dropped with the video (subtitles, music, logos…): added to the project, attached to the request
   const [extras, setExtras] = useState<string[]>([])
@@ -17,10 +18,7 @@ export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOp
   const [over, setOver] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [recent, setRecent] = useState<RecentProject[]>([])
   const input = useRef<HTMLTextAreaElement>(null)
-
-  useEffect(() => { window.manul.project.recent().then(setRecent) }, [])
 
   const choose = (path: string) => { setFile(path); setError(null); setTimeout(() => input.current?.focus(), 0) }
   /** Dropped files: the first video starts the project (unless one is chosen already); the rest come along. */
@@ -45,6 +43,7 @@ export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOp
     }
   }
 
+  const pickVideo = async () => { const f = await window.manul.project.pick(); if (f) choose(f) }
   return (
     <div
       className="flex h-full flex-col"
@@ -52,18 +51,20 @@ export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOp
       onDragLeave={e => { if (e.currentTarget === e.target) setOver(false) }}
       onDrop={e => { e.preventDefault(); setOver(false); dropped(Array.from(e.dataTransfer.files).map(f => window.manul.pathForFile(f)).filter(Boolean)) }}
     >
-      <div className={cn('flex h-11 shrink-0 items-center justify-end gap-1 px-3', !tabbed && 'drag')}>
+      <div className={cn('drag flex h-[52px] shrink-0 items-center gap-1 pr-3', lead ? 'pl-[88px]' : 'pl-3')}>
+        {lead}
+        <span className="flex-1" />
         <JobsTray />
-        <Button className="no-drag" size="sm" variant="ghost" onClick={onTools}><Package />Tools</Button>
-        <Button className="no-drag" size="sm" variant="ghost" onClick={onKeys}><KeyRound />Keys</Button>
       </div>
 
-      <div className="flex flex-1 flex-col items-center overflow-auto px-6 pb-16 pt-[12vh]">
-        <img src="./manul.svg" alt="" className="mb-4 size-16 drop-shadow-[0_8px_24px_rgba(242,165,65,0.18)]" draggable={false} />
-        <h1 className="mb-1 text-[28px] font-semibold tracking-tight">What are we making?</h1>
-        <p className="mb-8 text-dim">Drop a video, say what you want. Manul does the edit.</p>
+      <div className="flex flex-1 flex-col items-center overflow-auto px-6 pb-16 pt-[16vh]">
+        <div className="mb-8 flex items-center gap-3">
+          <img src="./manul.svg" alt="" className="size-10" draggable={false} />
+          <h1 className="font-serif text-[34px] font-normal tracking-[-0.01em] text-fg">What are we making?</h1>
+        </div>
 
-        <div className={cn('w-full max-w-[640px] rounded-2xl border bg-panel p-2 transition-colors', over ? 'border-amber bg-amber-soft' : 'border-line')}>
+        <div className={cn('w-full max-w-[680px] rounded-2xl border bg-surface p-2.5 shadow-[0_1px_2px_var(--color-shade),0_6px_24px_-12px_var(--color-shade)] transition-colors',
+          over ? 'border-amber bg-amber-soft' : 'border-line')}>
           {file ? (
             <div className="mb-1 flex items-center gap-2 rounded-xl bg-raised px-3 py-2">
               <Film className="size-4 text-amber" />
@@ -72,8 +73,8 @@ export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOp
             </div>
           ) : (
             <button
-              onClick={async () => { const f = await window.manul.project.pick(); if (f) choose(f) }}
-              className="mb-1 flex w-full flex-col items-center gap-1 rounded-xl border border-dashed border-line-strong py-8 text-dim transition-colors hover:border-amber/60 hover:text-fg"
+              onClick={pickVideo}
+              className="mb-1 flex w-full flex-col items-center gap-1 rounded-xl border border-dashed border-line-strong py-7 text-dim transition-colors hover:border-amber/60 hover:bg-amber-soft hover:text-fg"
             >
               <Film className="mb-1 size-6" />
               <span className="font-medium text-fg">Drop a video here</span>
@@ -92,17 +93,19 @@ export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOp
               ))}
             </div>
           )}
-          <div className="flex items-end gap-2">
-            <textarea
-              ref={input}
-              rows={2}
-              value={prompt}
-              onChange={e => setPrompt(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go() } }}
-              placeholder="Tell Manul what to do with it…"
-              className="max-h-40 min-h-[52px] flex-1 resize-none bg-transparent px-2 py-2 text-[14px] outline-none placeholder:text-faint"
-            />
-            <Button size="icon" variant="primary" className="mb-1 rounded-full" disabled={!file || busy} onClick={go}>
+          <textarea
+            ref={input}
+            rows={2}
+            value={prompt}
+            onChange={e => setPrompt(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go() } }}
+            placeholder="Tell Manul what to do with it…"
+            className="block max-h-40 min-h-[56px] w-full resize-none bg-transparent px-2 py-2 text-[15px] outline-none placeholder:text-faint"
+          />
+          <div className="flex items-center gap-1">
+            <button onClick={pickVideo} title="Choose a video" className="flex size-8 items-center justify-center rounded-lg text-dim hover:bg-hover hover:text-fg"><Paperclip className="size-4" /></button>
+            <span className="flex-1" />
+            <Button size="icon" variant="primary" className="rounded-lg" disabled={!file || busy} onClick={go} aria-label="Start">
               {busy ? <Loader2 className="animate-spin" /> : <ArrowUp />}
             </Button>
           </div>
@@ -115,27 +118,11 @@ export function Start({ onOpen, onKeys, onTools, ready, tabbed = false }: { onOp
           </button>
         )}
 
-        <div className="mt-4 flex max-w-[640px] flex-wrap justify-center gap-2">
+        <div className="mt-5 flex max-w-[680px] flex-wrap justify-center gap-2">
           {IDEAS.map(i => (
-            <button key={i} onClick={() => { setPrompt(i); input.current?.focus() }} className="rounded-full border border-line px-3 py-1 text-xs text-dim hover:border-line-strong hover:text-fg">{i}</button>
+            <button key={i} onClick={() => { setPrompt(i); input.current?.focus() }} className="rounded-lg border border-line bg-panel px-3 py-1.5 text-[12.5px] text-dim hover:border-line-strong hover:bg-surface hover:text-fg">{i}</button>
           ))}
         </div>
-
-        {recent.length > 0 && (
-          <div className="mt-16 w-full max-w-[880px]">
-            <div className="mb-3 text-xs font-medium uppercase tracking-wider text-faint">Recent</div>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
-              {recent.map(r => (
-                <button key={r.dir} onClick={async () => onOpen(await window.manul.project.open(r.dir))} className="group overflow-hidden rounded-card bg-panel text-left transition-colors hover:bg-hover">
-                  <div className="aspect-video bg-raised">
-                    {r.thumb && <img src={mediaUrl(r.thumb)} alt="" onError={e => { e.currentTarget.style.display = 'none' }} className="size-full object-cover opacity-90 transition-opacity group-hover:opacity-100" />}
-                  </div>
-                  <div className="truncate px-3 py-2 font-medium">{r.title}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )

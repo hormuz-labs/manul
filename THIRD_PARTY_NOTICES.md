@@ -62,6 +62,11 @@ same release with only its description changed. Manul runs the extension unmodif
 SIL Open Font License 1.1, https://github.com/rsms/inter. Used for clip typography (woff2, via @fontsource-variable/inter)
 and for burned-in captions (`Inter-Regular.ttf`, `Inter-Bold.ttf` from the v4.1 release; licence in `lib/fonts/Inter-LICENSE.txt`).
 
+## Source Serif 4 (font)
+
+SIL Open Font License 1.1, https://github.com/adobe-fonts/source-serif. Used for the app's headings and the agent's replies
+(woff2, via @fontsource-variable/source-serif-4).
+
 ## Unpacking the files users add (npm package in the app)
 
 - **yauzl 3.4.0** (unpacking .zip files): MIT, Copyright (c) 2014 Josh Wolfe, https://github.com/thejoshwolfe/yauzl;

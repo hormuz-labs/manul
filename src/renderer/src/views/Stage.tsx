@@ -1,6 +1,6 @@
 // The picture: the current (or proposed) version, or the edit playing from its pieces (with the overlays laid over it
 // live), notes' boxes while their moment plays, and the box-drawing tool.
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type PointerEvent } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { EditPlayer, type Piece, type PlayerLike } from '@/lib/editPlayer'
 import type { MixSource } from '@/lib/liveMix'
@@ -33,6 +33,8 @@ type Props = {
   edit?: LiveEdit | null
   /** what plays, for the live mix (a new one each time the source changes) */
   onSource?(s: MixSource | null): void
+  /** a message box to show at the box drawn on the picture (under it, or over it near the bottom) */
+  ask?: ReactNode
 }
 
 const clamp = (v: number) => Math.min(1, Math.max(0, v))
@@ -171,6 +173,13 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage(p, ref) {
         </div>
       ))}
       {shown && <div className="pointer-events-none absolute rounded border-2 border-amber bg-amber/10" style={boxStyle(shown)} />}
+      {p.ask && p.box && !drag && (() => {
+        // under the box if it fits, else over it; kept inside the frame
+        const b = boxStyle(p.box), fw = rect.left * 2 + rect.w, fh = rect.top * 2 + rect.h, W = Math.min(320, fw - 16)
+        const below = b.top + b.height + 8 + 130 <= fh
+        const left = Math.max(8, Math.min(fw - W - 8, b.left + b.width / 2 - W / 2))
+        return <div className="absolute z-20" style={below ? { left, top: b.top + b.height + 8, width: W } : { left, bottom: Math.max(8, fh - b.top + 8), width: W }}>{p.ask}</div>
+      })()}
       {p.drawing && !shown && (
         <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1 text-xs text-fg">Drag a box around what you want to change</div>
       )}

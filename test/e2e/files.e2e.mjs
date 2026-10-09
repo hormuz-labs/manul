@@ -1,6 +1,6 @@
-// Files besides the film: the side panel's Files tab → Add brings in subtitles, a note and a folder; the list says what
-// each is; they ride on the next message as chips, and the sent message shows them. Dragged from the list, footage goes
-// into the edit where it's dropped on the timeline (at once, no render), music under it, subtitles with the video.
+// Files besides the film, in the sidebar's project tree: Files → + brings in subtitles, a note and a folder; each says
+// what it is; they ride on the next message as chips, and the sent message shows them. @ in the message box points at
+// one; the bin moves one (or a folder) to the Trash, but never the film's own video.
 // Deleting sends files to the Trash, never the ones the film uses. Run after npm run build. The agent gets a fake key, so
 // the message fails at the model (no real call is ever paid for); what's checked is what the user sees.
 // MANUL_E2E_SHOTS=<folder> saves screenshots there.
@@ -37,18 +37,17 @@ try {
   await win.waitForSelector('video')
   const dir = await win.evaluate(() => window.manul.tabs.get().then(t => t.active))
 
-  // Files → Add (the dialog answered with three things: subtitles, a note, a folder)
+  // Files → + in the project tree (the dialog answered with three things: subtitles, a note, a folder)
   await app.evaluate(({ ipcMain }, fs) => { ipcMain.removeHandler('project:pickFiles'); ipcMain.handle('project:pickFiles', () => fs) },
     [join(tmp, 'film.srt'), join(tmp, 'notes.md'), join(tmp, 'Brand Kit')])
-  await win.click('button[role="tab"]:has-text("Files")')
-  await win.click('button:text-is("Add")')
+  await win.click('[data-project-tree] [aria-label="Add files"]')
   const composer = win.locator('textarea[placeholder="What should Manul do with these?"]')
   await composer.waitFor()
   for (const chip of ['film.srt', 'notes.md', 'Brand Kit/colours.txt', 'Brand Kit/Brand-Bold.ttf']) await win.locator(`span:has(> span.truncate:text-is("${chip}"))`).first().waitFor()
 
-  // the list says what each file is
-  await win.waitForSelector('text=SRT subtitles: 2 cues, 0:01–0:04, 3 words; starts “Hello there”')
-  await win.waitForSelector('text=font “Inter” Bold (Inter Bold)')
+  // each file says what it is (on hover)
+  await win.waitForSelector('[data-files-tree] button[title*="SRT subtitles: 2 cues, 0:01–0:04, 3 words; starts “Hello there”"]')
+  await win.waitForSelector('[data-files-tree] button[title*="font “Inter” Bold (Inter Bold)"]')
   if (shots) await win.screenshot({ path: join(shots, 'files-list.png') })
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'))
   assert.deepEqual(Object.fromEntries(Object.entries(project.files).map(([k, f]) => [k, f.kind])), {
@@ -62,7 +61,7 @@ try {
   await composer.fill('Burn these subtitles in with my font')
   if (shots) await win.screenshot({ path: join(shots, 'files-composer.png') })
   await composer.press('Enter')
-  const bubble = win.locator('div.ml-6:has-text("Burn these subtitles in with my font")')
+  const bubble = win.locator('div.ml-auto:has-text("Burn these subtitles in with my font")')
   await bubble.waitFor()
   for (const chip of ['film.srt', 'Brand Kit/colours.txt', 'Brand Kit/Brand-Bold.ttf']) await bubble.locator(`span.truncate:text-is("${chip}")`).waitFor()
   assert.equal(await bubble.locator('text=[attached files]').count(), 0, 'the raw list is not shown')
@@ -70,40 +69,8 @@ try {
   assert.equal(await win.locator('textarea[placeholder="What should Manul do with these?"]').count(), 0, 'the input has no chips after sending')
   if (shots) await win.screenshot({ path: join(shots, 'files-sent.png') })
 
-  // drag from the Files tab (HTML drag events, as the list makes them)
+  // more in the project, for @ below
   for (const f of ['b.mp4', 'song.mp3']) await win.evaluate(([d, f]) => window.manul.project.import(d, f), [dir, join(tmp, f)])
-  const dragged = await win.evaluate(() => {
-    const row = [...document.querySelectorAll('button[draggable="true"]')].find(b => b.textContent.includes('b.mp4'))
-    const dt = new DataTransfer()
-    row.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }))
-    return [dt.getData('manul/file'), [...dt.types].sort()]
-  })
-  assert.deepEqual(dragged, ['media/b.mp4', ['manul/file', 'manul/kind-video']])
-  const drop = (rel, kind, selector, x = 0.5) => win.evaluate(([rel, kind, selector, x]) => {
-    const el = [...document.querySelectorAll(selector)].find(e => e.checkVisibility())
-    const r = el.getBoundingClientRect(), dt = new DataTransfer()
-    dt.setData('manul/file', rel); dt.setData(`manul/kind-${kind}`, '1')
-    const o = { dataTransfer: dt, bubbles: true, cancelable: true, clientX: r.left + r.width * x, clientY: r.top + r.height / 2 }
-    el.dispatchEvent(new DragEvent('dragover', o)); el.dispatchEvent(new DragEvent('drop', o))
-  }, [rel, kind, selector, x])
-  // footage at the middle of the timeline: in the edit at once (no render), playing from its pieces
-  await drop('media/b.mp4', 'video', '[data-testid="timeline-scrubber"]')
-  await win.waitForSelector('[data-edited]')
-  let now = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'))
-  assert.deepEqual(now.timeline.items.map(i => [i.src, i.in, i.out]), [['media/film.mp4', 0, 2], ['media/b.mp4', 0, 2], ['media/film.mp4', 2, 4]])
-  assert.equal(now.versions.length, 1, 'nothing rendered')
-  assert.equal(await win.locator('[data-testid="timeline-scrubber"] [data-piece]').count(), 3)
-  await win.waitForFunction(() => document.querySelectorAll('video[data-edit-player]').length === 2)
-  if (shots) await win.screenshot({ path: join(shots, 'files-inserted.png') })
-  // music onto the video: it plays under the film (Mix shows a change to apply)
-  await drop('media/song.mp3', 'audio', 'video')
-  await win.locator('button:has-text("Mix") span.rounded-full').waitFor()
-  // subtitles onto the video: they go with it, and the Subtitles tab opens
-  await drop('media/film.srt', 'subtitles', 'video')
-  await win.waitForSelector('button[role="tab"][aria-selected="true"]:has-text("Subtitles")')
-  now = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'))
-  assert.equal(now.subtitles[now.versions.find(v => v.id === now.current).path].file, 'media/film.srt')
-  if (shots) await win.screenshot({ path: join(shots, 'files-subtitles-tab.png') })
 
   // @ in the message box: a list of what's in the project; Escape closes it, picking one puts its name in and attaches it
   const box = win.locator('textarea[aria-autocomplete="list"]')
@@ -130,9 +97,8 @@ try {
   const sent = await app.evaluate(() => globalThis.__sent)
   assert.deepEqual(sent.map(m => [m.text, m.files]), [['Lay @song.mp3 under the opening', ['media/song.mp3']]])
 
-  // delete from the Files tab (the Trash is stubbed: nothing of the test lands in yours)
+  // delete in the project tree (the Trash is stubbed: nothing of the test lands in yours)
   await app.evaluate(({ shell }) => { globalThis.__trashed = []; shell.trashItem = async p => { globalThis.__trashed.push(p) } })
-  await win.click('button[role="tab"]:has-text("Files")')
   const srtRow = win.locator('li:has(span.truncate:text-is("film.srt"))')
   await srtRow.hover()
   await srtRow.locator('button[aria-label="Delete film.srt"]').click()
@@ -143,7 +109,7 @@ try {
   await filmRow.hover()
   await filmRow.locator('button[aria-label="Delete film.mp4"]').click()
   await filmRow.locator('button:text-is("Delete")').click()
-  await win.waitForSelector("text=Can't delete: it is the version “Original”.")
+  await win.waitForSelector('[data-files-tree] button[title*="Can\'t delete: it is the version “Original”."]')
   if (shots) await win.screenshot({ path: join(shots, 'files-delete.png') })
   // a whole folder at once
   const kitRow = win.locator('li:has(span.truncate:text-is("Brand Kit"))')

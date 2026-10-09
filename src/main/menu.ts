@@ -22,7 +22,7 @@ export function buildMenu(win: () => BrowserWindow | null) {
       cmd('export', 'Export…', 'CmdOrCtrl+E'),
       { type: 'separator' },
       cmd('reveal', 'Show Project in Finder'),
-      cmd('tab.close', 'Close Tab', 'CmdOrCtrl+W'),
+      cmd('tab.close', 'Close Project', 'CmdOrCtrl+W'),
       ...(mac ? [] : [{ type: 'separator' } as MenuItemConstructorOptions, cmd('settings', 'Settings…', 'CmdOrCtrl+,'), { role: 'quit' } as MenuItemConstructorOptions]),
     ] },
     // Undo and Redo: a text field's own (or the browser's), else the timeline's edits (the window decides which)
@@ -31,12 +31,13 @@ export function buildMenu(win: () => BrowserWindow | null) {
       { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', click: () => undo('redo') },
       { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
       { type: 'separator' },
-      cmd('timeline.split', 'Split at Playhead', 'CmdOrCtrl+B'),
       cmd('timeline.render', 'Save Edit as Version'),
     ] },
     { label: 'View', submenu: [
       cmd('palette', 'Command Palette…', 'CmdOrCtrl+K'),
-      cmd('transcript', 'Transcript', 'CmdOrCtrl+Shift+T'),
+      { type: 'separator' },
+      cmd('sidebar', 'Sidebar', 'CmdOrCtrl+\\'),
+      { type: 'separator' },
       cmd('history', 'History', 'CmdOrCtrl+Shift+H'),
       cmd('browser', 'Browser', 'CmdOrCtrl+Shift+B'),
       { type: 'separator' },
@@ -51,8 +52,8 @@ export function buildMenu(win: () => BrowserWindow | null) {
       cmd('settings.skills', 'Skills…'), cmd('settings.memory', 'Memory…'), cmd('settings.keys', 'Keys…'), cmd('settings.browser', 'Browser…'),
     ] },
     { label: 'Window', submenu: [
-      cmd('tab.next', 'Next Tab', 'Ctrl+Tab'), cmd('tab.prev', 'Previous Tab', 'Ctrl+Shift+Tab'),
-      { label: 'Go to Tab', submenu: Array.from({ length: 9 }, (_, i) => cmd(`tab.${i + 1}`, `Tab ${i + 1}`, `CmdOrCtrl+${i + 1}`)) },
+      cmd('tab.next', 'Next Project', 'Ctrl+Tab'), cmd('tab.prev', 'Previous Project', 'Ctrl+Shift+Tab'),
+      { label: 'Go to Project', submenu: Array.from({ length: 9 }, (_, i) => cmd(`tab.${i + 1}`, `Project ${i + 1}`, `CmdOrCtrl+${i + 1}`)) },
       { type: 'separator' }, { role: 'minimize' }, { role: 'zoom' }, ...(mac ? [{ type: 'separator' } as MenuItemConstructorOptions, { role: 'front' } as MenuItemConstructorOptions] : []),
     ] },
     { role: 'help', submenu: [

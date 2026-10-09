@@ -92,10 +92,9 @@ try {
 
   // the clip editor: open the project, select the clip on the timeline strip, drag its element, click it
   await win.reload()
-  await win.waitForSelector('text=Recent')
-  await win.locator('button:has-text("src")').first().click()
-  await win.waitForSelector('button[title="Card · click to edit"]')
-  await win.click('button[title="Card · click to edit"]')
+  await win.locator('[data-project-row]:has-text("src")').first().click()
+  await win.waitForSelector('button[title^="Card · click to edit"]')
+  await win.click('button[title^="Card · click to edit"]')
   const handle = win.locator('div.cursor-move:has(span:text-is("title"))')
   await handle.waitFor({ timeout: 10000 })
   const b = await handle.boundingBox()

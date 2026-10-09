@@ -73,9 +73,6 @@ try {
   await bsk('click', ref[1], '--session', session)
   assert.match((await bsk('observe', '--session', session)).text, /Clicked by the agent/)
   await win.waitForSelector('[data-testid="browser-panel"] [data-agent-tab]', { timeout: 5000 }) // the agent's tab, marked
-  // one toolbar level with the transcript and agent headers (no second bar of lines)
-  const tops = await win.evaluate(() => [...document.querySelectorAll('[data-panel-header]')].filter(e => e.checkVisibility()).map(e => Math.round(e.getBoundingClientRect().bottom)))
-  assert.ok(tops.length >= 3 && new Set(tops).size === 1, `transcript, browser and agent headers line up (${tops})`)
   const shown = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.isVisible()).contentView.children.filter(v => v.getVisible()).length)
   assert.equal(await shown(), 1, 'the page is on screen')
   // no duplicate tabs: the address bar is the current tab; only the other tabs get pills

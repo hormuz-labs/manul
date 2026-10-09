@@ -1,6 +1,6 @@
 // Manul's main process: the window, the media protocol, projects, keys, and the agent (pi-durable → AG-UI → renderer).
 import { CRASH_DSN } from './crash' // first: crash reports must start before anything else
-import { app, BrowserWindow, dialog, ipcMain, powerMonitor, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, powerMonitor, protocol, shell } from 'electron'
 import { createReadStream, existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve, sep } from 'node:path'
@@ -35,12 +35,12 @@ import { captionCues, exportArgs, toSrt, type ExportOptions } from '../shared/ex
 import { needsProxy, proxyArgs } from '../shared/proxy'
 import { joinAttached } from '../shared/attached'
 import { extOf } from '../shared/file-kinds'
-import { matchSubtitles, parseSubtitles, shiftSubtitles } from '../shared/subtitles'
+import { matchSubtitles, parseSubtitles } from '../shared/subtitles'
 import type { Speakers as SpeakersResult } from '../shared/speakers'
 import * as Speakers from './speakers'
 import { duckEnvelope, mixArgs, mixCommands, regionsOnTimeline, type Mix } from '../shared/mix'
 import { spawn } from 'node:child_process'
-import { FFMPEG, FFPROBE, probe } from './media'
+import { FFMPEG, FFPROBE } from './media'
 import { execFile } from 'node:child_process'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import type { Anchor, BrowserMode, ClipInfo, ConsentRequest, Project, Transcript } from '../shared/types'
@@ -380,8 +380,6 @@ function undoOf(p: Project) {
   if (!u || u.base !== p.current || (u.head && u.head !== p.timeline)) { u = { base: p.current, back: [], forward: [], since: [] }; undos.set(p.dir, u) }
   return u
 }
-const undoState = (p: Project) => { const u = undoOf(p); return { back: u.back.length, forward: u.forward.length } }
-const sendUndo = (p: Project) => send('timeline-undo', p.dir, undoState(p))
 const summary = (what: string[]) => (what.length <= 3 ? what.join(', ') : `${what.slice(0, 2).join(', ')} and ${what.length - 2} more edits`)
 
 const pendingNotes = new Map<string, { timer?: NodeJS.Timeout; what: string[] }>()
@@ -412,7 +410,6 @@ async function editTimeline(p: Project, edits: Edit[]) {
   p.timeline = u.head = tl
   await publish(p)
   noteLater(p, what)
-  sendUndo(p)
   return p
 }
 
@@ -427,7 +424,6 @@ async function undoEdit(p: Project, redo: boolean) {
   p.timeline = u.head = step.tl
   await publish(p)
   noteLater(p, `${redo ? 'Redo' : 'Undo'} ${step.what.charAt(0).toLowerCase()}${step.what.slice(1)}`)
-  sendUndo(p)
   return p
 }
 
@@ -436,7 +432,6 @@ async function renderEdit(p: Project) {
   if (!Projects.edited(p)) return p.current
   const u = undoOf(p)
   const id = await proposeTimeline(p, p.timeline!, u.since.length ? summary(u.since) : 'Edited by hand', 'user', false)
-  sendUndo(p)
   return id
 }
 
@@ -515,32 +510,6 @@ function wire() {
     return r.canceled ? null : r.filePaths[0]
   })
   ipcMain.handle('transcript:get', async (_e, dir: string, mediaRel: string, make: boolean) => transcriptOf(projectOf(dir), mediaRel, { ask: make }))
-  ipcMain.handle('speakers:get', (_e, dir: string, mediaRel: string, make: boolean) => speakersOf(projectOf(dir), mediaRel, { make }))
-  ipcMain.handle('speakers:name', (_e, dir: string, mediaRel: string, names: Record<string, string>) => nameSpeakers(projectOf(dir), mediaRel, names))
-  ipcMain.handle('subtitles:get', (_e, dir: string, mediaRel: string) => subtitlesState(projectOf(dir), mediaRel))
-  ipcMain.handle('subtitles:link', async (_e, dir: string, mediaRel: string, file: string | null) => {
-    const p = projectOf(dir)
-    if (file && p.files?.[file]?.kind !== 'subtitles') throw new Error(`${file} isn't a subtitle file in this project.`)
-    const rest = { ...p.subtitles }
-    delete rest[mediaRel]
-    p.subtitles = file ? { ...rest, [mediaRel]: { file } } : rest
-    if (file) await checkSubtitles(p, mediaRel)
-    await checkpoint(p, file ? `Subtitles for ${mediaRel.split('/').pop()}: ${file.split('/').pop()}` : `No subtitles for ${mediaRel.split('/').pop()}`)
-    return subtitlesState(p, mediaRel)
-  })
-  // move the linked subtitles' times so they line up with the speech (rewrites the project's copy in media/)
-  ipcMain.handle('subtitles:shift', async (_e, dir: string, mediaRel: string) => {
-    const p = projectOf(dir)
-    const link = p.subtitles?.[mediaRel]
-    if (!link?.offset) return subtitlesState(p, mediaRel)
-    const file = join(p.dir, link.file)
-    await writeFile(file, shiftSubtitles(await readFile(file, 'utf8'), extOf(link.file), -link.offset))
-    const info = await Files.inspect(p.dir, link.file, probe)
-    p.files = { ...p.files, [link.file]: { ...info.info, addedAt: p.files?.[link.file]?.addedAt ?? Date.now() } }
-    await checkSubtitles(p, mediaRel)
-    await checkpoint(p, `Moved ${link.file.split('/').pop()} ${Math.abs(link.offset)} s ${link.offset > 0 ? 'earlier' : 'later'}`)
-    return subtitlesState(p, mediaRel)
-  })
   ipcMain.handle('media:thumbnails', (_e, dir: string, src: string, count: number, start?: number, end?: number) => {
     const p = projectOf(dir)
     const info = p.media[src]
@@ -567,6 +536,11 @@ function wire() {
   ipcMain.handle('project:recent', () => Projects.recent())
   ipcMain.handle('tabs:get', () => getConfig().tabs || { open: [], active: null })
   ipcMain.handle('tabs:set', (_e, tabs: { open: string[]; active: string | null }) => { setConfig({ tabs }) })
+  ipcMain.handle('theme:set', (_e, theme: 'light' | 'dark' | 'system') => {
+    setConfig({ theme })
+    nativeTheme.themeSource = theme
+    win?.setBackgroundColor(windowBackground())
+  })
   ipcMain.handle('project:pick', async () => {
     const r = await dialog.showOpenDialog(win!, { properties: ['openFile'], filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'm4v', 'webm', 'mkv'] }] })
     return r.canceled ? null : r.filePaths[0]
@@ -652,13 +626,6 @@ function wire() {
     const tl = versionId === 'edit' ? p.timeline! : p.versions.find(v => v.id === (versionId || p.current))?.timeline || p.timeline!
     return regionsOnTimeline(tl, await transcriptsFor(p, tl))
   })
-  ipcMain.handle('mix:apply', async (_e, dir: string, mix: Mix) => {
-    const p = projectOf(dir)
-    // while the edit isn't rendered the mix is part of it (rendered with it); otherwise mixing the version is quick
-    if (Projects.edited(p)) return editTimeline(p, [{ op: 'mix', mix }])
-    await applyMix(p, mix)
-    return p
-  })
   ipcMain.handle('history:log', (_e, dir: string) => new History(projectOf(dir).dir).log())
   ipcMain.handle('history:restore', async (_e, dir: string, id: string) => {
     const { clips } = await new History(dir).restore(id)
@@ -692,17 +659,10 @@ function wire() {
     const p = projectOf(dir)
     return proposeTimeline(p, addOverlay(p.timeline!, { clip: id, start: at, dur: p.clips![id].duration }), title)
   })
-  // the edit by hand (and footage dragged from the Files tab onto the timeline)
+  // the edit (the agent's, and its undo), and saving it as a version
   ipcMain.handle('timeline:edit', (_e, dir: string, edits: Edit[]) => editTimeline(projectOf(dir), edits))
   ipcMain.handle('timeline:undo', (_e, dir: string, redo: boolean) => undoEdit(projectOf(dir), redo))
-  ipcMain.handle('timeline:undoState', (_e, dir: string) => undoState(projectOf(dir)))
   ipcMain.handle('timeline:render', (_e, dir: string) => renderEdit(projectOf(dir)))
-  ipcMain.handle('timeline:insertMedia', async (_e, dir: string, rel: string, at: number) => {
-    const p = projectOf(dir)
-    const info = p.media[rel]
-    if (!info?.width || !(info.duration > 0)) throw new Error(`${rel.split('/').pop()} isn't footage that can go in the film.`)
-    return editTimeline(p, [{ op: 'insert', at, src: rel, in: 0, out: Math.round(info.duration * 1000) / 1000 }])
-  })
   ipcMain.handle('clip:insert', async (_e, dir: string, id: string, at: number, title: string) => {
     const p = projectOf(dir)
     const c = p.clips?.[id]
@@ -764,13 +724,16 @@ function agentRuns(dir: string, e: BaseEvent) {
 // ---------------------------------------------------------------- window
 // The app icon. Packaged builds get it from build/ through electron-builder; in development set it by hand.
 const ICON = join(import.meta.dirname, '../../build/icon.png')
+/** The window's colour before the page paints: the sidebar's, light or dark. */
+const windowBackground = () => (nativeTheme.shouldUseDarkColors ? '#0e0d0c' : '#fbfbf9')
 
 function createWindow() {
+  nativeTheme.themeSource = getConfig().theme || 'light'
   win = new BrowserWindow({
     ...(process.platform === 'linux' && existsSync(ICON) ? { icon: ICON } : {}),
     width: 1440, height: 900, minWidth: 900, minHeight: 600,
-    backgroundColor: '#0d0c0b',
-    titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 },
+    backgroundColor: windowBackground(),
+    titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 19 },
     show: false,
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })

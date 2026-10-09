@@ -24,7 +24,7 @@ export function ModelPicker({ dir, picked }: { dir: string; picked?: { provider:
         <span className="truncate">{cur?.name || info.current.modelId}</span><ChevronDown className="size-3 shrink-0" />
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content align="end" sideOffset={6} className="z-50 w-80 rounded-card border border-line bg-panel shadow-2xl shadow-black/50">
+        <Popover.Content align="end" sideOffset={6} className="z-50 w-80 rounded-card border border-line bg-panel shadow-2xl shadow-shade">
           <div className="flex items-center gap-2 bg-bg/40 px-3 py-2">
             <Search className="size-3.5 text-faint" />
             <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Find a model" className="h-6 flex-1 bg-transparent text-xs outline-none placeholder:text-faint" />

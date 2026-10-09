@@ -24,11 +24,14 @@ try {
   await win.click('text=Drop a video here')
   await win.locator('button:has(svg.lucide-arrow-up)').click()
   await win.waitForSelector('video')
-  if (!(await win.getByText(/Hello/).first().waitFor({ timeout: 60000 }).then(() => true, () => false))) { console.log('export e2e: skipped (no speech recognition)'); process.exit(0) }
+  // transcribed (the captions come from it), read from the project rather than the screen
+  const dir = await win.evaluate(() => window.manul.tabs.get().then(t => t.active))
+  const heard = await win.waitForFunction(d => window.manul.project.open(d).then(p => Object.keys(p.transcripts || {}).length > 0), dir, { timeout: 60000, polling: 1000 }).then(() => true, () => false)
+  if (!heard) { console.log('export e2e: skipped (no speech recognition)'); process.exit(0) }
 
   const exportAs = async (label, captions, file) => {
     await app.evaluate(({ dialog }, f) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: f }) }, join(tmp, file))
-    await win.click('button:has-text("Export")')
+    await win.click('button:text-is("Export")')
     await win.click(`button:has-text("${label}")`)
     await win.click(`button:has-text("${captions}")`)
     await win.locator('[role="dialog"] button:has-text("Export")').click()

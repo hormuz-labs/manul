@@ -9,7 +9,8 @@ const app = await electron.launch({ args: ['.', `--user-data-dir=${mkdtempSync(j
 const win = await app.firstWindow()
 await win.setViewportSize({ width: 1440, height: 900 }).catch(() => {})
 await win.waitForSelector('text=What are we making?')
-await win.click('button:has-text("Tools")')
+await win.click('[aria-label="Settings"]') // the sidebar's gear
+await win.click('nav >> text=Tools')
 await win.waitForSelector('text=In the cloud')
 const row = win.locator('[data-cloud-tool="upscale"]')
 const text = await row.innerText()

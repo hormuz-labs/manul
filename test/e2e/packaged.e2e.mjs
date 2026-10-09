@@ -35,7 +35,7 @@ try {
   assert.equal(r.frames, 60)
   // bundled skills are listed
   const skills = await win.evaluate(() => window.manul.skills.state())
-  assert.ok(skills.skills.some(k => k.id === 'motion-design' && k.source === 'bundled'), 'bundled skills found')
+  assert.ok(skills.skills.some(k => k.id === 'motion-design' && /Contents\/Resources\/skills\//.test(k.path)), 'bundled skills found, read from the app')
   // export with the bundled fonts (captions .srt, even if empty without speech)
   await app.evaluate(({ dialog }, f) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: f }) }, join(tmp, 'out.mp4'))
   const ex = await win.evaluate(dir => window.manul.export.run(dir, { preset: 'square', captions: 'none' }), p.dir)

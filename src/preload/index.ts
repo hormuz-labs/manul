@@ -3,7 +3,6 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { BaseEvent } from '@ag-ui/core'
 import type { Anchor, BrowserMode, BrowserState, ChromeBsk, ConsentRequest, Job, KeyInfo, OnDemandTool, Project, RecentProject, ToolStatus, Transcript, WhisperConfig, WhisperStatus } from '../shared/types'
 import type { CustomProvider, CustomProviderInfo } from '../shared/providers'
-import type { Speakers } from '../shared/speakers'
 import type { Cue } from '../shared/subtitles'
 import type { Edit } from '../shared/timeline'
 import type { SubtitleLink } from '../shared/types'
@@ -68,24 +67,12 @@ const api = {
   timeline: {
     edit: (dir: string, edits: Edit[]) => ipcRenderer.invoke('timeline:edit', dir, edits) as Promise<Project>,
     undo: (dir: string, redo = false) => ipcRenderer.invoke('timeline:undo', dir, redo) as Promise<Project>,
-    undoState: (dir: string) => ipcRenderer.invoke('timeline:undoState', dir) as Promise<UndoState>,
-    onUndo: on<[string, UndoState]>('timeline-undo'),
     /** Render the edit into a version and put it on screen; resolves to its id. */
     render: (dir: string) => ipcRenderer.invoke('timeline:render', dir) as Promise<string>,
     /** Put footage into the edit at t (seconds of the film). */
-    insertMedia: (dir: string, rel: string, at: number) => ipcRenderer.invoke('timeline:insertMedia', dir, rel, at) as Promise<Project>,
   },
   /** Who speaks when in a media file (make: work it out as a background job if not done yet). */
-  speakers: {
-    get: (dir: string, mediaRel: string, make = false) => ipcRenderer.invoke('speakers:get', dir, mediaRel, make) as Promise<Speakers | null>,
-    name: (dir: string, mediaRel: string, names: Record<string, string>) => ipcRenderer.invoke('speakers:name', dir, mediaRel, names) as Promise<Record<string, string>>,
-  },
   /** The subtitles that go with a media file, their lines, and the subtitle files there are to choose from. */
-  subtitles: {
-    get: (dir: string, mediaRel: string) => ipcRenderer.invoke('subtitles:get', dir, mediaRel) as Promise<SubtitlesState>,
-    link: (dir: string, mediaRel: string, file: string | null) => ipcRenderer.invoke('subtitles:link', dir, mediaRel, file) as Promise<SubtitlesState>,
-    shift: (dir: string, mediaRel: string) => ipcRenderer.invoke('subtitles:shift', dir, mediaRel) as Promise<SubtitlesState>,
-  },
   export: {
     run: (dir: string, req: { preset: 'original' | 'landscape' | 'vertical' | 'square'; fit?: 'pad' | 'crop'; captions: 'none' | 'burn' | 'srt'; captionColor?: string }) =>
       ipcRenderer.invoke('export:run', dir, req) as Promise<{ file: string; srt?: string } | null>,
@@ -94,7 +81,6 @@ const api = {
   mix: {
     /** Where speech is on a version's timeline ('edit': the edit by hand). */
     speech: (dir: string, versionId?: string) => ipcRenderer.invoke('mix:speech', dir, versionId) as Promise<[number, number][]>,
-    apply: (dir: string, mix: { filmDb: number; music?: { src: string; db: number; duckDb: number } }) => ipcRenderer.invoke('mix:apply', dir, mix) as Promise<Project>,
   },
   history: {
     log: (dir: string) => ipcRenderer.invoke('history:log', dir) as Promise<{ id: string; message: string; at: number }[]>,
@@ -140,6 +126,8 @@ const api = {
     get: () => ipcRenderer.invoke('tabs:get') as Promise<{ open: string[]; active: string | null }>,
     set: (t: { open: string[]; active: string | null }) => ipcRenderer.invoke('tabs:set', t),
   },
+  /** light, dark or the system's: the window and native menus follow it */
+  theme: { set: (t: 'light' | 'dark' | 'system') => ipcRenderer.invoke('theme:set', t) },
   project: {
     recent: () => ipcRenderer.invoke('project:recent') as Promise<RecentProject[]>,
     pick: () => ipcRenderer.invoke('project:pick') as Promise<string | null>,

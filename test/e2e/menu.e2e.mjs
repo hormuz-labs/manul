@@ -36,23 +36,10 @@ try {
   await win.keyboard.press('Enter')
   await win.waitForSelector('[role="dialog"] h2:text-is("Export")')
   await win.keyboard.press('Escape')
-  // menu → export directly, and transcript toggle
+  // menu → export directly
   await click('Export…')
   await win.waitForSelector('[role="dialog"] h2:text-is("Export")')
   await win.keyboard.press('Escape')
-  // View → Transcript folds the side panel into its rail and back; so do its own collapse button and the rail
-  const open = () => win.locator('[aria-label="Collapse the side panel"]').count()
-  const was = await open()
-  await click('Transcript')
-  await win.waitForTimeout(300)
-  assert.equal(await open(), was ? 0 : 1, 'View → Transcript toggles it')
-  if (!(await open())) await win.click('[aria-label="Show transcript"]')
-  await win.click('[aria-label="Collapse the side panel"]')
-  await win.waitForSelector('[aria-label="Show transcript"]')
-  assert.equal(await open(), 0, 'the collapse button folds it to the rail')
-  await win.click('[aria-label="Show files"]')
-  await win.waitForSelector('[aria-label="Collapse the side panel"]')
-  assert.match(await win.locator('button[role="tab"][aria-selected="true"]').textContent(), /^Files/, 'the rail opens the tab clicked')
   console.log('menu e2e: ok')
 } finally {
   await app.close()
