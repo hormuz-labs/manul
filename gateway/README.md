@@ -12,8 +12,8 @@ The gateway is [Bifrost](https://github.com/maximhq/bifrost). It holds the vendo
 1. The app's agent (pi-ai) sends model `manul` to Bifrost's OpenAI Responses route, `/openai/responses`, with the Manul
    key as `Authorization: Bearer` ([src/main/gateway.ts](../src/main/gateway.ts)).
 2. Bifrost checks the virtual key (whether it's known, its budget, its rate limit and its allowed models).
-3. The **routing rule** `model == 'manul'` picks the provider and model ([config.json](config.json): Claude Opus 5.5
-   today).
+3. The **routing rule** `model == 'manul'` picks the provider and model ([k8s/config.json](k8s/config.json):
+   Gemini 3.8 Flash in production; the local [config.json](config.json) still routes to Claude Opus 5.5).
 4. Bifrost translates the request to that vendor's API and the reply back.
 
 This route was chosen because Bifrost's translation through it keeps each vendor's tool-call state across a multi-step
