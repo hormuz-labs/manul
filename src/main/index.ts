@@ -11,6 +11,7 @@ import { renderClip, setClipProtocol } from './clips'
 import { buildMenu } from './menu'
 import { startUpdates } from './updates'
 import { keyStatus, loadKeys, setKey } from './keys'
+import { accountStatus, addCredit, balance, cancelSignIn, signIn, signOut } from './account'
 import { importOmp, ompAvailable, providerInfo, removeProvider, saveProvider } from './providers'
 import { asJob, listJobs, onJobs } from './jobs'
 import { toolPath, toolStatus } from './media'
@@ -525,6 +526,18 @@ function wire() {
   })
   ipcMain.handle('keys:list', () => keyStatus())
   ipcMain.handle('keys:set', (_e, name: string, value: string) => { setKey(name, value); agent?.keysChanged(); return keyStatus() })
+  // signing in to Manul: the browser, then back here with the person's Manul key (account.ts)
+  ipcMain.handle('account:status', () => accountStatus())
+  ipcMain.handle('account:signIn', async () => {
+    const s = await signIn(url => shell.openExternal(url))
+    agent?.keysChanged()
+    app.focus({ steal: true })
+    return s
+  })
+  ipcMain.handle('account:cancel', () => cancelSignIn())
+  ipcMain.handle('account:signOut', () => { const s = signOut(); agent?.keysChanged(); return s })
+  ipcMain.handle('account:balance', () => balance())
+  ipcMain.handle('account:addCredit', (_e, amount?: number) => addCredit(url => shell.openExternal(url), amount))
   // custom model providers (any OpenAI/Anthropic-compatible endpoint), and importing the ones omp already has
   const providersState = () => ({ providers: providerInfo(), omp: ompAvailable() })
   ipcMain.handle('providers:list', () => providersState())

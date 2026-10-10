@@ -1,7 +1,7 @@
 // The renderer's only door to the main process. Keys never come back through here: only whether they are set.
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { BaseEvent } from '@ag-ui/core'
-import type { Anchor, BrowserMode, BrowserState, ChromeBsk, ConsentRequest, Job, KeyInfo, OnDemandTool, Project, RecentProject, ToolStatus, Transcript, WhisperConfig, WhisperStatus } from '../shared/types'
+import type { AccountStatus, Anchor, BrowserMode, BrowserState, ChromeBsk, ConsentRequest, Job, KeyInfo, OnDemandTool, Project, RecentProject, ToolStatus, Transcript, WhisperConfig, WhisperStatus } from '../shared/types'
 import type { CustomProvider, CustomProviderInfo } from '../shared/providers'
 import type { Cue } from '../shared/subtitles'
 import type { Edit } from '../shared/timeline'
@@ -95,6 +95,17 @@ const api = {
   keys: {
     list: () => ipcRenderer.invoke('keys:list') as Promise<KeyInfo[]>,
     set: (name: string, value: string) => ipcRenderer.invoke('keys:set', name, value) as Promise<KeyInfo[]>,
+  },
+  /** Signing in to Manul: brings the person's Manul key (stays in the main process); only who is signed in comes back. */
+  account: {
+    status: () => ipcRenderer.invoke('account:status') as Promise<AccountStatus>,
+    signIn: () => ipcRenderer.invoke('account:signIn') as Promise<AccountStatus>,
+    cancel: () => ipcRenderer.invoke('account:cancel'),
+    signOut: () => ipcRenderer.invoke('account:signOut') as Promise<AccountStatus>,
+    /** USD: the credit, what's used, what's left */
+    balance: () => ipcRenderer.invoke('account:balance') as Promise<{ credit: number; used: number; left: number }>,
+    /** opens a Dodo Payments checkout in the browser */
+    addCredit: (amount?: number) => ipcRenderer.invoke('account:addCredit', amount) as Promise<void>,
   },
   /** Custom model providers (OpenAI/Anthropic-compatible endpoints); keys go in, only "set or not" comes back. */
   providers: {

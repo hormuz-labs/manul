@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Check, KeyRound, Sparkles } from 'lucide-react'
+import { Check, KeyRound, Loader2, Sparkles } from 'lucide-react'
 import { PanelHeader } from '@/components/ui/panel-header'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
-import type { KeyInfo } from '../../../shared/types'
+import type { AccountStatus, KeyInfo } from '../../../shared/types'
 import { ProvidersSection } from './ProvidersSection'
+
+const MANUL = 'MANUL_KEY'
 
 const CAPS: { cap: string; label: string }[] = [
   { cap: 'text', label: 'Editing agent' },
@@ -26,18 +28,20 @@ export function KeysPanel() {
     setValue('')
   }
   const have = new Set([...keys.filter(k => k.set).flatMap(k => k.unlocks), ...(customKeyed ? ['text'] : [])])
+  const own = keys.filter(k => k.env !== MANUL)
+  const manul = keys.find(k => k.env === MANUL)
 
   return (
     <div>
       <PanelHeader title="Keys" description="Manul talks to AI models with your keys. They are stored encrypted in your system keychain." />
-      <Tabs defaultValue="own">
+      <Tabs defaultValue={manul?.set ? 'manul' : 'own'} key={manul ? 'ready' : 'loading'}>
         <TabsList>
           <TabsTrigger value="own"><KeyRound className="size-3.5" />Your own keys</TabsTrigger>
-          <TabsTrigger value="manul"><Sparkles className="size-3.5" />Manul key<span className="rounded bg-amber-soft px-1 text-[10px] text-amber">soon</span></TabsTrigger>
+          <TabsTrigger value="manul"><Sparkles className="size-3.5" />Manul key{manul?.set && <span className="size-1.5 rounded-full bg-ok" />}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="own" className="space-y-2">
-          {keys.map(k => (
+          {own.map(k => (
             <div key={k.env} className="rounded-lg border border-line bg-raised/60 p-3">
               <div className="flex items-center gap-3">
                 <span className={cn('size-2 rounded-full', k.set ? 'bg-ok' : 'bg-line-strong')} />
@@ -76,13 +80,112 @@ export function KeysPanel() {
         </TabsContent>
 
         <TabsContent value="manul">
-          <div className="rounded-lg border border-line bg-raised/60 p-5 text-center">
-            <div className="orb mx-auto mb-3 size-10 rounded-full" />
-            <div className="text-[15px] font-semibold">One key for everything</div>
-            <p className="mx-auto mt-1 max-w-sm text-dim">Claude, Gemini, OpenAI and ElevenLabs voices with a single Manul key: no accounts to juggle, pay as you go. Coming in a future update.</p>
-          </div>
+          <ManulKey manul={manul} onKeys={setKeys} />
         </TabsContent>
       </Tabs>
+    </div>
+  )
+}
+
+const message = (e: unknown) => (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
+/** Manul key: sign in (the browser, then back here with the person's key), or paste a key. */
+function ManulKey({ manul, onKeys }: { manul?: KeyInfo; onKeys(k: KeyInfo[]): void }) {
+  const [account, setAccount] = useState<AccountStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [pasting, setPasting] = useState(false)
+  const [value, setValue] = useState('')
+  useEffect(() => { window.manul.account.status().then(setAccount) }, [])
+  const refresh = async (a?: AccountStatus) => { if (a) setAccount(a); onKeys(await window.manul.keys.list()) }
+
+  const signIn = async () => {
+    setBusy(true); setError('')
+    try { await refresh(await window.manul.account.signIn()) } catch (e) { setError(message(e)) } finally { setBusy(false) }
+  }
+  const signOut = async () => refresh(await window.manul.account.signOut())
+  const paste = async () => { onKeys(await window.manul.keys.set(MANUL, value.trim())); setValue(''); setPasting(false) }
+  const remove = async () => onKeys(await window.manul.keys.set(MANUL, ''))
+
+  if (!manul || !account) return null
+  const row = 'mx-auto mt-4 flex max-w-md items-center gap-3 rounded-lg border border-line bg-bg px-3 py-2'
+  return (
+    <div className="rounded-lg border border-line bg-raised/60 p-5">
+      <div className="text-center">
+        <div className="orb mx-auto mb-3 size-10 rounded-full" />
+        <div className="text-[15px] font-semibold">One key for everything</div>
+        <p className="mx-auto mt-1 max-w-sm text-dim">Manul picks the best model for the job and keeps it current. New accounts start with $2 of credit; add more any time. Your own keys, when set, are used first.</p>
+      </div>
+      {account.email && manul.set ? (
+        <>
+          <div className={row}>
+            <span className="size-2 rounded-full bg-ok" />
+            <span className="min-w-0 flex-1 truncate text-[13px]">Signed in as <span className="font-medium">{account.email}</span></span>
+            <Button size="sm" variant="ghost" onClick={signOut}>Sign out</Button>
+          </div>
+          <Credit />
+        </>
+      ) : manul.set && !pasting ? (
+        <div className={row}>
+          <span className="size-2 rounded-full bg-ok" />
+          <span className="flex-1 text-[13px]">Manul key added</span>
+          <Button size="sm" variant="ghost" onClick={remove}>Remove</Button>
+          <Button size="sm" onClick={() => setPasting(true)}>Replace</Button>
+        </div>
+      ) : pasting ? (
+        <form className="mx-auto mt-4 flex max-w-md gap-2" onSubmit={e => { e.preventDefault(); if (value.trim()) paste() }}>
+          <input autoFocus type="password" value={value} onChange={e => setValue(e.target.value)} placeholder="Paste your Manul key" aria-label="Manul key"
+            className="h-8 flex-1 rounded-lg border border-line bg-bg px-2.5 font-mono text-xs outline-none placeholder:font-sans placeholder:text-faint focus:border-amber/60" />
+          <Button size="md" variant="primary" type="submit">Save</Button>
+          <Button size="md" variant="ghost" type="button" onClick={() => setPasting(false)}>Cancel</Button>
+        </form>
+      ) : (
+        <div className="mt-4 flex flex-col items-center gap-2">
+          {busy ? (
+            <div className="flex items-center gap-2 text-[13px] text-dim">
+              <Loader2 className="size-3.5 animate-spin" />Finish signing in in your browser…
+              <Button size="sm" variant="ghost" onClick={() => window.manul.account.cancel()}>Cancel</Button>
+            </div>
+          ) : (
+            <Button size="md" variant="primary" disabled={!account.available} onClick={signIn}>Sign in to Manul</Button>
+          )}
+          {error && <p className="max-w-sm text-center text-xs text-bad">{error}</p>}
+          {!account.available && <p className="text-xs text-faint">Signing in isn’t available in this build.</p>}
+          <button className="text-xs text-faint underline-offset-2 hover:text-fg hover:underline" onClick={() => setPasting(true)}>Have a key? Paste it</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** What's left of the Manul credit, and adding more (a Dodo Payments checkout in the browser). */
+function Credit() {
+  const [b, setB] = useState<{ credit: number; used: number; left: number } | null>(null)
+  const [error, setError] = useState('')
+  const [opening, setOpening] = useState(false)
+  const load = () => window.manul.account.balance().then(x => { setB(x); setError('') }, e => setError(message(e)))
+  useEffect(() => {
+    load()
+    window.addEventListener('focus', load) // back from paying in the browser
+    return () => window.removeEventListener('focus', load)
+  }, [])
+  const add = async () => {
+    setOpening(true); setError('')
+    try { await window.manul.account.addCredit() } catch (e) { setError(message(e)) } finally { setOpening(false) }
+  }
+  const usd = (n: number) => `$${n.toFixed(n < 10 ? 2 : 0)}`
+  return (
+    <div className="mx-auto mt-2 max-w-md rounded-lg border border-line bg-bg px-3 py-2" data-credit>
+      <div className="flex items-center gap-3">
+        <span className="flex-1 text-[13px]">
+          {b ? <><span className="font-medium tabular">{usd(b.left)}</span> <span className="text-dim">credit left</span></> : <span className="text-faint">Credit…</span>}
+        </span>
+        <Button size="sm" variant="primary" disabled={opening} onClick={add}>{opening ? 'Opening…' : 'Add credit'}</Button>
+      </div>
+      {b && b.credit > 0 && (
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-hover"><div className="h-full rounded-full bg-amber" style={{ width: `${Math.min(100, (b.left / b.credit) * 100)}%` }} /></div>
+      )}
+      {error && <p className="mt-1.5 text-xs text-bad">{error}</p>}
     </div>
   )
 }

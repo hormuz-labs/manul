@@ -1,4 +1,5 @@
-// The model chip in the agent panel: which model this project uses, and every model the keys unlock.
+// The model chip in the agent panel: which model this project uses, and every model the keys unlock. With only the
+// Manul key it's just a label: Manul's gateway picks the model.
 import { useEffect, useMemo, useState } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { Check, ChevronDown, Image as ImageIcon, Search } from 'lucide-react'
@@ -16,6 +17,8 @@ export function ModelPicker({ dir, picked }: { dir: string; picked?: { provider:
   const list = useMemo(() => (info?.models || []).filter(m => !q || `${m.name} ${m.providerLabel}`.toLowerCase().includes(q.toLowerCase())), [info, q])
   if (!info?.current) return null
   const cur = info.models.find(m => m.provider === info.current!.provider && m.modelId === info.current!.modelId)
+  // only the Manul key: the gateway picks the model, there's nothing to choose
+  if (info.models.length === 1 && info.current.provider === 'manul') return <span className="inline-flex h-6 items-center px-1.5 text-[11px] text-dim" title="Manul picks the model">{cur?.name || 'Manul'}</span>
   const choose = async (m: { provider: string; modelId: string } | null) => { await window.manul.agent.setModel(dir, m); setOpen(false); setInfo(await window.manul.agent.models(dir)) }
 
   return (
