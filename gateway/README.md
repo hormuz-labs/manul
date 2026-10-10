@@ -131,8 +131,9 @@ Everything runs in namespace `manul` ([k8s/manul.yaml](k8s/manul.yaml)):
 Steps:
 
 1. **Secrets (once):** `manul-secrets` holds `BIFROST_ADMIN_USER`, `BIFROST_ADMIN_PASSWORD` and `BIFROST_AUTH`
-   (generated), plus the keys you fill in. Run `gateway/k8s/set-secrets.sh`: it asks for each key (Clerk, Dodo,
-   Gemini, ElevenLabs, Azure, Anthropic, OpenAI) without echoing it. Press Enter to keep a key as it is.
+   (generated), plus the keys you fill in. Copy [k8s/.env.example](k8s/.env.example) to `gateway/k8s/.env` (git
+   ignores it) and fill in the keys. deploy.sh writes every non-empty value into the secret; to update only the
+   keys, run `gateway/k8s/set-secrets.sh`, which also restarts the pods. Keys you leave out keep their values.
 
 2. **Deploy:** `gateway/k8s/deploy.sh`. It reserves the static IP, loads the config and the account code as config
    maps, applies the manifests and restarts the pods. Run it again after changing config.json, media.json or the

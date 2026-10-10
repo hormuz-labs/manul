@@ -1,22 +1,28 @@
 #!/bin/sh
-# Fill in manul-secrets interactively: asks for each key (typing is hidden), skips any left empty, then restarts the
-# pods. Values are never printed or written to disk.
+# Put the values in gateway/k8s/.env into manul-secrets (see .env.example). Only non-empty values are written; every
+# other key in the secret stays as it is. Values are never printed. Restarts the pods unless --no-restart.
 set -eu
-keys="CLERK_SECRET_KEY DODO_API_KEY DODO_WEBHOOK_SECRET GEMINI_API_KEY ELEVENLABS_API_KEY AZURE_API_KEY AZURE_ENDPOINT ANTHROPIC_API_KEY OPENAI_API_KEY"
+here=$(cd "$(dirname "$0")" && pwd)
+env_file="$here/.env"
+[ -f "$env_file" ] || { echo "No $env_file: copy .env.example to .env and fill it in."; exit 1; }
 kubectl -n manul get secret manul-secrets >/dev/null
-json='{"stringData":{'
-sep=''
-for k in $keys; do
-  printf '%s (Enter to skip): ' "$k"
-  stty -echo; read -r v; stty echo; echo
-  [ -z "$v" ] && continue
-  esc=$(printf '%s' "$v" | sed 's/\\/\\\\/g; s/"/\\"/g')
-  json="$json$sep\"$k\":\"$esc\""
-  sep=','
-done
-json="$json}}"
-[ -z "$sep" ] && { echo "Nothing to change."; exit 0; }
-kubectl -n manul patch secret manul-secrets -p "$json" >/dev/null && echo "Saved."
+patch=$(python3 - "$env_file" <<'PY'
+import json, re, sys
+data = {}
+for line in open(sys.argv[1]):
+    line = line.strip()
+    if not line or line.startswith('#') or '=' not in line: continue
+    k, v = line.split('=', 1)
+    k, v = k.strip().removeprefix('export '), v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in (chr(34), chr(39)): v = v[1:-1]  # "quoted" or 'quoted'
+    if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', k) and v: data[k] = v
+print(json.dumps({"stringData": data}) if data else '')
+PY
+)
+[ -n "$patch" ] || { echo "Nothing to change: every value in .env is empty."; exit 0; }
+printf '%s' "$patch" | kubectl -n manul patch secret manul-secrets --type merge --patch-file /dev/stdin >/dev/null
+echo "Saved: $(printf '%s' "$patch" | python3 -c 'import json,sys; print(", ".join(sorted(json.load(sys.stdin)["stringData"])))')"
+[ "${1:-}" = "--no-restart" ] && exit 0
 kubectl -n manul rollout restart deploy/bifrost deploy/account
 kubectl -n manul rollout status deploy/bifrost --timeout=180s
 kubectl -n manul rollout status deploy/account --timeout=120s
