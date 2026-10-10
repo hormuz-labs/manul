@@ -1,0 +1,21 @@
+Package: manul
+Architecture: arm64
+Version: 0.2.0
+Priority: optional
+Section: video
+Maintainer: Hormuz Labs <hello@hormuz-labs.dev>
+Installed-Size: 660578
+Depends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, libasound2t64 | libasound2
+Recommends: libappindicator3-1
+Filename: pool/v0.2.0/manul_0.2.0_arm64.deb
+Size: 234353024
+MD5sum: 8b6465a1328ac92ecdb1dafd992e74bd
+SHA1: 17a9c65565a8d7fe7631d8d78ddf9e9e0d2da5b4
+SHA256: b60e675dc19112abb0f6ca97800acc7a88d6f3e57fd53dde114d7522bab380a7
+SHA512: ad82f1c9000a030810cde3a6d1839d5c8afcdc446c7c5f9646d58bf5197793b00fe6419ac2dfd8712d6eddc59ea0e17449648abe64d8b1c9bec4c69fe7604002
+Homepage: https://github.com/hormuz-labs/manul
+Description: An agentic video editor
+  Drop in a video, say what you want, and Manul does the edit.
+License: FSL-1.1-ALv2
+Vendor: Hormuz Labs <hello@hormuz-labs.dev>
+

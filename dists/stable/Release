@@ -1,0 +1,27 @@
+Architectures: amd64 arm64
+Codename: stable
+Components: main
+Date: Sat, 10 Oct 2026 21:02:10 +0000
+Label: Manul
+Origin: Hormuz Labs
+Suite: stable
+MD5Sum:
+ b6172d0576c62de8e832bb2cc4b89bef              897 main/binary-amd64/Packages
+ a41d04f71b5ff2b1fba7d89cd6052956              603 main/binary-amd64/Packages.gz
+ d213bf1086fc065c6dfe9edff8cd4c7e              897 main/binary-arm64/Packages
+ 41b994abeba14630271c9891e9241c6f              605 main/binary-arm64/Packages.gz
+SHA1:
+ 93ffd8b9aa91fc165d4537e7fe6af8801a3157a0              897 main/binary-amd64/Packages
+ c415425e9c4edd7cd486515771869185fb05d4dd              603 main/binary-amd64/Packages.gz
+ dfec86c9f448c4c32bd906807d62ed1ad3350030              897 main/binary-arm64/Packages
+ c57dc84ef51b3ebccc5bdc596b397edfaad59367              605 main/binary-arm64/Packages.gz
+SHA256:
+ 0d4b79afe2988f3fa1f92c89619279f1638c1aafe19ad838ee8ba88e9407f4a5              897 main/binary-amd64/Packages
+ 521fea3ad147b6ded6ea3ab82421dd3b6f78fadd1fc3de3ced09c3340a99208d              603 main/binary-amd64/Packages.gz
+ 6554839d963dbbbf2340561248d3abc03ae3f496bce38265c37283e0fc03bebe              897 main/binary-arm64/Packages
+ 4687ff4811e9ac7527039239a4fa65da2dc385784e58cd7731f8944158c2b258              605 main/binary-arm64/Packages.gz
+SHA512:
+ b9f1bd03fcc515d9a874c8e3b406907306a0e7a2cdb3fbb80989b9f925cf1570a3c72d9bf02ef5a2e0ad81ca8f008da51d2fd234cd2577b129cacfc3ecdaf9e5              897 main/binary-amd64/Packages
+ 634bd9cc3c9a9c46f19a7e72fbec22cf13eb8c5d5b6934dd23a8d3853b1d670ab8dd1c885a9d012cf770d3bdfd1c5d28fd5ca7620d0d014ac5fa2c08e70c546d              603 main/binary-amd64/Packages.gz
+ c8b569b1f18b908d8255d4461aee8e031642c9e80e1952e1824d9095bb75f910b991b2d8138f4240341f8df5c006bd55984055c5385a0afba7fdd293a69e3ea8              897 main/binary-arm64/Packages
+ d0ba76c65e5ad0f2d90430b04c3108891cefc5d127a54b4b5ad5dd0f84a60dfbc49a9bfe17921afd2a72dce5e97fa9384f33b164ff44a2e9544c21501062686d              605 main/binary-arm64/Packages.gz
