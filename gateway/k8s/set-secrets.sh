@@ -1,13 +1,17 @@
 #!/bin/sh
-# Put the values in gateway/k8s/.env into manul-secrets (see .env.example). Only non-empty values are written; every
-# other key in the secret stays as it is. Values are never printed. Restarts the pods unless --no-restart.
+# Put the production keys from gateway/.env into manul-secrets (see gateway/.env.example). Only those keys, and only
+# non-empty, non-placeholder values, are written; every other key in the secret stays as it is. Values are never
+# printed. Restarts the pods unless --no-restart.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
-env_file="$here/.env"
-[ -f "$env_file" ] || { echo "No $env_file: copy .env.example to .env and fill it in."; exit 1; }
+env_file="$here/../.env"
+[ -f "$env_file" ] || { echo "No gateway/.env: copy gateway/.env.example to gateway/.env and fill it in."; exit 1; }
 kubectl -n manul get secret manul-secrets >/dev/null
 patch=$(python3 - "$env_file" <<'PY'
 import json, re, sys
+PRODUCTION = {'GEMINI_API_KEY', 'ELEVENLABS_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'AZURE_ENDPOINT', 'AZURE_API_KEY',
+              'CLERK_SECRET_KEY', 'DODO_API_KEY', 'DODO_WEBHOOK_SECRET', 'DODO_PRODUCT_ID'}
+PLACEHOLDER = re.compile(r'^(<.*>|…|\.\.\.|fake|test|dummy|change-?me|x+)$', re.I)
 data = {}
 for line in open(sys.argv[1]):
     line = line.strip()
@@ -15,11 +19,11 @@ for line in open(sys.argv[1]):
     k, v = line.split('=', 1)
     k, v = k.strip().removeprefix('export '), v.strip()
     if len(v) >= 2 and v[0] == v[-1] and v[0] in (chr(34), chr(39)): v = v[1:-1]  # "quoted" or 'quoted'
-    if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', k) and v: data[k] = v
+    if k in PRODUCTION and v and not PLACEHOLDER.match(v): data[k] = v
 print(json.dumps({"stringData": data}) if data else '')
 PY
 )
-[ -n "$patch" ] || { echo "Nothing to change: every value in .env is empty."; exit 0; }
+[ -n "$patch" ] || { echo "Nothing to change: no production key in gateway/.env has a value."; exit 0; }
 printf '%s' "$patch" | kubectl -n manul patch secret manul-secrets --type merge --patch-file /dev/stdin >/dev/null
 echo "Saved: $(printf '%s' "$patch" | python3 -c 'import json,sys; print(", ".join(sorted(json.load(sys.stdin)["stringData"])))')"
 [ "${1:-}" = "--no-restart" ] && exit 0

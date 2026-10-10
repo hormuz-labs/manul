@@ -131,9 +131,10 @@ Everything runs in namespace `manul` ([k8s/manul.yaml](k8s/manul.yaml)):
 Steps:
 
 1. **Secrets (once):** `manul-secrets` holds `BIFROST_ADMIN_USER`, `BIFROST_ADMIN_PASSWORD` and `BIFROST_AUTH`
-   (generated), plus the keys you fill in. Copy [k8s/.env.example](k8s/.env.example) to `gateway/k8s/.env` (git
-   ignores it) and fill in the keys. deploy.sh writes every non-empty value into the secret; to update only the
-   keys, run `gateway/k8s/set-secrets.sh`, which also restarts the pods. Keys you leave out keep their values.
+   (generated), plus the keys you fill in, in the same `gateway/.env` as for running it locally
+   ([.env.example](.env.example); git ignores `.env`). deploy.sh writes the production keys that have a value into
+   the secret; to update only the keys, run `gateway/k8s/set-secrets.sh`, which also restarts the pods. Empty keys,
+   placeholders and the local-only keys are never written.
 
 2. **Deploy:** `gateway/k8s/deploy.sh`. It reserves the static IP, loads the config and the account code as config
    maps, applies the manifests and restarts the pods. Run it again after changing config.json, media.json or the
