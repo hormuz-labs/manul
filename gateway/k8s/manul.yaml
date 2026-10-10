@@ -1,6 +1,7 @@
 # Manul's gateway (Bifrost) and account service, in namespace manul on the silverfish cluster. Applied by deploy.sh.
-# Public: gateway.manul.si (/openai, /v1: the models, Manul keys only) and account.manul.si (/v1/key: signing in).
-# Private: Bifrost's dashboard and admin API (/api): kubectl -n manul port-forward svc/bifrost 8089:8080.
+# Public: gateway.manul.si (/openai, /v1: the models, Manul keys only) and account.manul.si (signing in, credit,
+# Dodo Payments' webhook).
+# Admin: admin.manul.si is Bifrost's dashboard and admin API, behind its admin login (manul-secrets).
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -84,10 +85,16 @@ spec:
           command: [node, /app/server.mjs]
           ports: [{ name: http, containerPort: 8080 }]
           env:
-            - { name: CLERK_ISSUER, value: https://good-wildcat-5360.clerk.accounts.dev }
-            - { name: BIFROST_URL, value: "http://bifrost:8080" }   # the admin API, inside the cluster only
+            - { name: CLERK_ISSUER, value: https://clerk.manul.si }          # Clerk production
+            - { name: BIFROST_URL, value: "http://bifrost:8080" }   # the admin API, over the cluster network
             - { name: CLERK_SECRET_KEY, valueFrom: { secretKeyRef: { name: manul-secrets, key: CLERK_SECRET_KEY } } }
             - { name: BIFROST_AUTH, valueFrom: { secretKeyRef: { name: manul-secrets, key: BIFROST_AUTH } } }
+            # credit: $2 to start, then Dodo Payments (test mode until going live)
+            - { name: FREE_CREDIT, value: "2" }
+            - { name: DODO_API, value: https://test.dodopayments.com }
+            - { name: DODO_PRODUCT_ID, valueFrom: { secretKeyRef: { name: manul-secrets, key: DODO_PRODUCT_ID, optional: true } } }
+            - { name: DODO_API_KEY, valueFrom: { secretKeyRef: { name: manul-secrets, key: DODO_API_KEY, optional: true } } }
+            - { name: DODO_WEBHOOK_SECRET, valueFrom: { secretKeyRef: { name: manul-secrets, key: DODO_WEBHOOK_SECRET, optional: true } } }
           volumeMounts: [{ name: code, mountPath: /app, readOnly: true }]
           readinessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 10 }
           resources:
@@ -125,6 +132,14 @@ metadata:
 spec:
   domains: [gateway.manul.si, account.manul.si]
 ---
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: manul-admin
+  namespace: manul
+spec:
+  domains: [admin.manul.si]
+---
 apiVersion: networking.gke.io/v1beta1
 kind: FrontendConfig
 metadata:
@@ -141,10 +156,10 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: gce
     kubernetes.io/ingress.global-static-ip-name: manul-gateway
-    networking.gke.io/managed-certificates: manul
+    networking.gke.io/managed-certificates: manul,manul-admin
     networking.gke.io/v1beta1.FrontendConfig: manul
 spec:
-  defaultBackend:                 # anything else (the dashboard, /api…) gets the account service's 404
+  defaultBackend:                 # anything else gets the account service's 404
     service: { name: account, port: { number: 8080 } }
   rules:
     - host: gateway.manul.si
@@ -152,7 +167,11 @@ spec:
         paths:
           - { path: /openai, pathType: Prefix, backend: { service: { name: bifrost, port: { number: 8080 } } } }
           - { path: /v1, pathType: Prefix, backend: { service: { name: bifrost, port: { number: 8080 } } } }
+    - host: admin.manul.si          # the dashboard: Bifrost's admin login
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: bifrost, port: { number: 8080 } } } }
     - host: account.manul.si
       http:
         paths:
-          - { path: /v1/key, pathType: Exact, backend: { service: { name: account, port: { number: 8080 } } } }
+          - { path: /, pathType: Prefix, backend: { service: { name: account, port: { number: 8080 } } } }

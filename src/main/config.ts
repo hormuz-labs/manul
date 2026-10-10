@@ -17,7 +17,7 @@ export type Config = {
   /** where the Manul key's models are reached (gateway.ts): unset means Manul's own gateway */
   gateway?: string
   /** who is signed in to Manul (account.ts); their key is in the keychain */
-  account?: { email?: string }
+  account?: { email?: string; keyId?: string }
 }
 
 const file = () => join(app.getPath('userData'), 'config.json')

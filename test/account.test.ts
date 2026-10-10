@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { accountStatus, signIn, signOut } from '../src/main/account'
+import { accountStatus, addCredit, balance, signIn, signOut } from '../src/main/account'
+import { getConfig } from '../src/main/config'
+import { friendly } from '../src/main/agui'
 
 // A fake Clerk (token endpoint) and a fake account service, on one local server. The "browser" follows the authorize
 // URL straight back to the app's callback, as Clerk would after the person signs in.
@@ -16,7 +18,12 @@ const server = createServer((req, res) => {
     }
     if (req.url === '/v1/key') {
       seen.keyAuth = req.headers.authorization
-      return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ key: 'sk-bf-ada', email: 'ada@example.com' }))
+      return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ key: 'sk-bf-ada', key_id: 'vk_1', email: 'ada@example.com' }))
+    }
+    if (req.url === '/v1/balance' || req.url === '/v1/checkout') {
+      seen[req.url] = { auth: req.headers.authorization, keyId: req.headers['x-manul-key-id'], body }
+      const out = req.url === '/v1/balance' ? { credit: 2, used: 0.5, left: 1.5 } : { url: 'https://checkout.dodo.test/cks_1' }
+      return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(out))
     }
     res.writeHead(404).end()
   })
@@ -48,6 +55,22 @@ describe('signing in to Manul', () => {
     expect(seen.page).toContain('Signed in')
     expect(status).toEqual({ email: 'ada@example.com', available: true })
     expect(process.env.MANUL_KEY).toBe('sk-bf-ada')
+    expect(getConfig().account).toEqual({ email: 'ada@example.com', keyId: 'vk_1' })
+  })
+
+  it('asks for the credit left and opens a checkout to add more, as the key', async () => {
+    expect(await balance()).toEqual({ credit: 2, used: 0.5, left: 1.5 })
+    expect(seen['/v1/balance']).toMatchObject({ auth: 'Bearer sk-bf-ada', keyId: 'vk_1' })
+    let opened = ''
+    await addCredit(url => { opened = url }, 10)
+    expect(opened).toBe('https://checkout.dodo.test/cks_1')
+    expect(JSON.parse(seen['/v1/checkout'].body)).toEqual({ amount: 10 })
+  })
+
+  it('says what to do when the gateway refuses', () => {
+    expect(friendly('manul API error (402): {"type":"budget_exceeded","error":{"message":"Budget exceeded: …"}}')).toMatch(/out of Manul credit/)
+    expect(friendly('401 {"error":{"message":"access not found. The provided credential does not exist"}}')).toMatch(/Sign in again/)
+    expect(friendly('something else')).toBe('something else')
   })
 
   it('refuses a callback with the wrong state', async () => {

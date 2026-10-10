@@ -114,14 +114,17 @@ function ManulKey({ manul, onKeys }: { manul?: KeyInfo; onKeys(k: KeyInfo[]): vo
       <div className="text-center">
         <div className="orb mx-auto mb-3 size-10 rounded-full" />
         <div className="text-[15px] font-semibold">One key for everything</div>
-        <p className="mx-auto mt-1 max-w-sm text-dim">Manul picks the best model for the job and keeps it current. No vendor accounts to juggle. Your own keys, when set, are used first.</p>
+        <p className="mx-auto mt-1 max-w-sm text-dim">Manul picks the best model for the job and keeps it current. New accounts start with $2 of credit; add more any time. Your own keys, when set, are used first.</p>
       </div>
       {account.email && manul.set ? (
-        <div className={row}>
-          <span className="size-2 rounded-full bg-ok" />
-          <span className="min-w-0 flex-1 truncate text-[13px]">Signed in as <span className="font-medium">{account.email}</span></span>
-          <Button size="sm" variant="ghost" onClick={signOut}>Sign out</Button>
-        </div>
+        <>
+          <div className={row}>
+            <span className="size-2 rounded-full bg-ok" />
+            <span className="min-w-0 flex-1 truncate text-[13px]">Signed in as <span className="font-medium">{account.email}</span></span>
+            <Button size="sm" variant="ghost" onClick={signOut}>Sign out</Button>
+          </div>
+          <Credit />
+        </>
       ) : manul.set && !pasting ? (
         <div className={row}>
           <span className="size-2 rounded-full bg-ok" />
@@ -151,6 +154,38 @@ function ManulKey({ manul, onKeys }: { manul?: KeyInfo; onKeys(k: KeyInfo[]): vo
           <button className="text-xs text-faint underline-offset-2 hover:text-fg hover:underline" onClick={() => setPasting(true)}>Have a key? Paste it</button>
         </div>
       )}
+    </div>
+  )
+}
+
+/** What's left of the Manul credit, and adding more (a Dodo Payments checkout in the browser). */
+function Credit() {
+  const [b, setB] = useState<{ credit: number; used: number; left: number } | null>(null)
+  const [error, setError] = useState('')
+  const [opening, setOpening] = useState(false)
+  const load = () => window.manul.account.balance().then(x => { setB(x); setError('') }, e => setError(message(e)))
+  useEffect(() => {
+    load()
+    window.addEventListener('focus', load) // back from paying in the browser
+    return () => window.removeEventListener('focus', load)
+  }, [])
+  const add = async () => {
+    setOpening(true); setError('')
+    try { await window.manul.account.addCredit() } catch (e) { setError(message(e)) } finally { setOpening(false) }
+  }
+  const usd = (n: number) => `$${n.toFixed(n < 10 ? 2 : 0)}`
+  return (
+    <div className="mx-auto mt-2 max-w-md rounded-lg border border-line bg-bg px-3 py-2" data-credit>
+      <div className="flex items-center gap-3">
+        <span className="flex-1 text-[13px]">
+          {b ? <><span className="font-medium tabular">{usd(b.left)}</span> <span className="text-dim">credit left</span></> : <span className="text-faint">Credit…</span>}
+        </span>
+        <Button size="sm" variant="primary" disabled={opening} onClick={add}>{opening ? 'Opening…' : 'Add credit'}</Button>
+      </div>
+      {b && b.credit > 0 && (
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-hover"><div className="h-full rounded-full bg-amber" style={{ width: `${Math.min(100, (b.left / b.credit) * 100)}%` }} /></div>
+      )}
+      {error && <p className="mt-1.5 text-xs text-bad">{error}</p>}
     </div>
   )
 }

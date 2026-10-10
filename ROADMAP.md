@@ -213,8 +213,9 @@ pro editors can take a Manul rough cut into their own editor.
       keys; a Manul key is one of its virtual keys (budget, rate limit, allowed models). The app's side is done: with a
       Manul key the agent uses one model, "Manul", and the gateway's routing rule picks the real one (Claude, Gemini or
       GPT), changeable without an app release. Signing in (Clerk, [account/](account/README.md)) gives each person their own
-      key under their own Bifrost customer. Gateway and account service run on the silverfish cluster (manul.si). Left: Clerk production, payment
-      (Stripe) raising a person's budget, and voice and images through the gateway
+      key under their own Bifrost customer. Gateway and account service run on the silverfish cluster (manul.si), Clerk in production. New
+      accounts get $2 of credit; Dodo Payments top-ups raise it (Test Mode). Left: Dodo Live Mode, and voice and images
+      through the gateway
 - ⬜ Optional accounts, licence check (works offline for a month), credits, top-ups
 - ⬜ Pro plan: AI included, cloud versions of heavy tools (demucs, upscaling), publishing automation, premium skill packs
 - 🚧 **Cloud tools on Manul's worker** (`worker.trypitch.co`): Upscale (Real-ESRGAN) has its place in Tools as *Coming soon*; only the shot being processed is sent

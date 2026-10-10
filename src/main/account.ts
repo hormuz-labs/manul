@@ -1,6 +1,8 @@
 // Signing in to Manul (Settings → Keys → Manul key): Clerk in the system browser (OAuth with PKCE, Manul being a public
 // client), back to a one-shot server on 127.0.0.1, then Manul's account service swaps the sign-in for the person's
-// Manul key (account/src/index.ts), kept in the keychain like any key. Who's signed in (their email) is in config.json.
+// Manul key (account/src/index.ts), kept in the keychain like any key. Who's signed in (their email, and the key's id
+// for asking about credit) is in config.json. Credit: what's left of the key's budget; adding credit is a Dodo Payments
+// checkout in the browser.
 import { createServer, type Server } from 'node:http'
 import { createHash, randomBytes } from 'node:crypto'
 import { getConfig, setConfig } from './config'
@@ -8,11 +10,12 @@ import { MANUL_KEY } from './gateway'
 import { setKey } from './keys'
 import type { AccountStatus } from '../shared/types'
 
-/** Clerk's Frontend API (the OAuth issuer), the "Manul desktop" OAuth app's client id (public, PKCE), and the account
- *  service. Clerk's development instance until the production one (clerk.manul.si) is set up. */
+/** Clerk's Frontend API (the OAuth issuer, production), the "Manul desktop" OAuth app's client id (public, PKCE), and the
+ *  account service. For the development instance: MANUL_AUTH_ISSUER=https://good-wildcat-5360.clerk.accounts.dev
+ *  MANUL_AUTH_CLIENT_ID=5E3y3JppmCuVr1UD (and an account service pointed at it). */
 export const AUTH = {
-  issuer: () => (process.env.MANUL_AUTH_ISSUER || 'https://good-wildcat-5360.clerk.accounts.dev').replace(/\/+$/, ''),
-  clientId: () => process.env.MANUL_AUTH_CLIENT_ID ?? '5E3y3JppmCuVr1UD',
+  issuer: () => (process.env.MANUL_AUTH_ISSUER || 'https://clerk.manul.si').replace(/\/+$/, ''),
+  clientId: () => process.env.MANUL_AUTH_CLIENT_ID ?? 'cYz60VvV9IL4cGH5',
   account: () => (process.env.MANUL_ACCOUNT || 'https://account.manul.si').replace(/\/+$/, ''),
 }
 /** Registered in the Clerk OAuth app as the redirect URI. */
@@ -63,11 +66,31 @@ export async function signIn(open: (url: string) => Promise<void> | void, timeou
   const { access_token } = await tok.json() as { access_token: string }
 
   const got = await fetch(`${AUTH.account()}/v1/key`, { method: 'POST', headers: { authorization: `Bearer ${access_token}` } })
-  const body = await got.json().catch(() => ({})) as { key?: string; email?: string; error?: string }
+  const body = await got.json().catch(() => ({})) as { key?: string; key_id?: string; email?: string; error?: string }
   if (!got.ok || !body.key) throw new Error(body.error || 'Could not get your Manul key. Try again in a moment.')
   setKey(MANUL_KEY, body.key)
-  setConfig({ account: { email: body.email } })
+  setConfig({ account: { email: body.email, keyId: body.key_id } })
   return accountStatus()
+}
+
+/** The account service, as the signed-in key. */
+async function asKey(path: string, init: RequestInit = {}) {
+  const keyId = getConfig().account?.keyId
+  const key = process.env[MANUL_KEY]
+  if (!keyId || !key) throw new Error('Sign in to Manul first.')
+  const r = await fetch(`${AUTH.account()}${path}`, { ...init, headers: { authorization: `Bearer ${key}`, 'x-manul-key-id': keyId, 'content-type': 'application/json' } })
+  const body = await r.json().catch(() => ({})) as Record<string, unknown>
+  if (!r.ok) throw new Error((body.error as string) || 'Could not reach Manul. Try again in a moment.')
+  return body
+}
+
+/** What's left of the signed-in person's credit, in USD. */
+export const balance = async () => (await asKey('/v1/balance')) as { credit: number; used: number; left: number }
+
+/** Add credit: a Dodo Payments checkout in the browser (amount in USD, or chosen there). */
+export async function addCredit(open: (url: string) => Promise<void> | void, amount?: number) {
+  const { url } = await asKey('/v1/checkout', { method: 'POST', body: JSON.stringify(amount != null ? { amount } : {}) }) as { url: string }
+  await open(url)
 }
 
 export function cancelSignIn() { pending?.cancel() }

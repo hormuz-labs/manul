@@ -25,28 +25,43 @@ App ◀── { key, email }  (key into the keychain, email shown in Settings)
 - **What a new key gets:** `NEW_KEY` in [src/index.ts](src/index.ts), or the `NEW_KEY` environment variable as JSON. By
   default that's a $1/month budget, 300 requests an hour, and the models the gateway's `manul` rule may route to.
 
+## Credit and payments
+
+- **Starting credit:** a new person starts with **$2** (`FREE_CREDIT`). This is their key's budget in Bifrost, with a
+  `100Y` reset period so it never resets. Bifrost stops the key with `402 budget_exceeded` when it runs out, and the
+  app then says to add credit.
+- **Adding credit:** Settings → Keys → Manul key → **Add credit** calls `/v1/checkout`, which opens a Dodo Payments
+  checkout for the **Manul credit** product. It's a one-time product where the buyer picks the amount ($5 minimum, $10
+  suggested), with tax added on top.
+- **Applying a payment:** Dodo's signed `payment.succeeded` webhook to `/v1/dodo/webhook` raises the budget by the price
+  before tax. The budget keeps what was already used. Each payment ID is applied once and recorded in the Clerk
+  user's private metadata, `payments`.
+- **Test mode:** this runs in Dodo's **Test Mode**, on the Trypitch business. The product is
+  `pdt_0NpQ911WjTgC2ZbB2ljyX` and the webhook endpoint is `ep_3KUfoABJlmYJnHsTr2tDwMurU4T`. Going live means
+  creating the same product and webhook in Live Mode, putting their IDs and keys in `manul-secrets`, and setting
+  `DODO_API` in manul.yaml to `https://live.dodopayments.com`.
+- **Secrets:** `DODO_API_KEY` (Developer → API Keys) and `DODO_WEBHOOK_SECRET` (the endpoint's signing secret) go in
+  `manul-secrets`. `DODO_PRODUCT_ID` is already there.
+
 ## Clerk
 
-Clerk application **Manul** has a development instance, `good-wildcat-5360.clerk.accounts.dev`, with email and Google
-sign-in. Its OAuth application **Manul desktop** is set up like this:
+Clerk application **Manul** runs on its **production** instance, `clerk.manul.si`. Its DNS records (`clerk`,
+`accounts`, `clkmail`, `clk._domainkey`, `clk2._domainkey`) are in Cloudflare, DNS only. The OAuth application
+**Manul desktop** is set up like this:
 
-- Client ID: `5E3y3JppmCuVr1UD`
+- Client ID: `cYz60VvV9IL4cGH5`
 - Type: public client (PKCE, no secret)
 - Scopes: `openid email profile`
 - Redirect URI: `http://127.0.0.1:47619/oauth/callback`
 
-The app's defaults are in [src/main/account.ts](../src/main/account.ts). You can override them with
-`MANUL_AUTH_ISSUER`, `MANUL_AUTH_CLIENT_ID` and `MANUL_ACCOUNT`. The service's `CLERK_ISSUER` is set in
-[gateway/k8s/manul.yaml](../gateway/k8s/manul.yaml).
+The account service needs that instance's secret key in `manul-secrets` as `CLERK_SECRET_KEY`.
 
-Before launch, move to Clerk's production instance:
+Google sign-in in production uses our own Google OAuth client. That's Google Cloud project **Manul**
+(`manul-511207`), whose consent screen is set to External, with redirect URI
+`https://clerk.manul.si/v1/oauth_callback`. Its client ID and secret go in Clerk → SSO connections → Google.
 
-1. Click **Go to prod** in the Clerk dashboard and add the DNS records it lists for `manul.si`. Its Frontend API
-   becomes `https://clerk.manul.si`.
-2. Create the same OAuth application there.
-3. Point `AUTH.issuer` and `AUTH.clientId` in account.ts, and `CLERK_ISSUER` in manul.yaml, at the new instance.
-4. Put that instance's secret key in `manul-secrets` as `CLERK_SECRET_KEY`.
-5. Set up Google sign-in with your own Google OAuth credentials, which production requires.
+The development instance (`good-wildcat-5360.clerk.accounts.dev`, client `5E3y3JppmCuVr1UD`) stays available for
+local work. Point the app at it with `MANUL_AUTH_ISSUER` and `MANUL_AUTH_CLIENT_ID`.
 
 ## Tests
 

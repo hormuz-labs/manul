@@ -11,7 +11,7 @@ import { renderClip, setClipProtocol } from './clips'
 import { buildMenu } from './menu'
 import { startUpdates } from './updates'
 import { keyStatus, loadKeys, setKey } from './keys'
-import { accountStatus, cancelSignIn, signIn, signOut } from './account'
+import { accountStatus, addCredit, balance, cancelSignIn, signIn, signOut } from './account'
 import { importOmp, ompAvailable, providerInfo, removeProvider, saveProvider } from './providers'
 import { asJob, listJobs, onJobs } from './jobs'
 import { toolPath, toolStatus } from './media'
@@ -536,6 +536,8 @@ function wire() {
   })
   ipcMain.handle('account:cancel', () => cancelSignIn())
   ipcMain.handle('account:signOut', () => { const s = signOut(); agent?.keysChanged(); return s })
+  ipcMain.handle('account:balance', () => balance())
+  ipcMain.handle('account:addCredit', (_e, amount?: number) => addCredit(url => shell.openExternal(url), amount))
   // custom model providers (any OpenAI/Anthropic-compatible endpoint), and importing the ones omp already has
   const providersState = () => ({ providers: providerInfo(), omp: ompAvailable() })
   ipcMain.handle('providers:list', () => providersState())
