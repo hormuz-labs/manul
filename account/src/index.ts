@@ -89,7 +89,7 @@ export const NEW_KEY = {
     { provider: 'anthropic', allowed_models: ['claude-opus-5-5', 'claude-sonnet-5-5'], key_ids: ['*'], weight: 1 },
     { provider: 'gemini', allowed_models: ['gemini-3.8-flash', 'gemini-3.1-pro-preview'], key_ids: ['*'], weight: 1 },
     { provider: 'openai', allowed_models: ['gpt-5.5'], key_ids: ['*'], weight: 1 },
-    { provider: 'azure', allowed_models: ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-6-astra'], key_ids: ['*'], weight: 1 },
+    { provider: 'azure', allowed_models: ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna', 'gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'], key_ids: ['*'], weight: 1 },
   ],
 }
 

@@ -40,8 +40,8 @@ In the dashboard, go to **Routing Rules → `manul`** and change the target prov
 The routed model must also be in each virtual key's `allowed_models`. It must handle at least the limits the app
 assumes in gateway.ts: 400k context, 64k output tokens, images, and tool calls with reasoning.
 
-Providers in production: Gemini, Azure AI Foundry (`azure`: gpt-5.5, gpt-5.6-sol/terra/luna and gpt-6-astra, named by
-their deployment names; endpoint and key are `AZURE_ENDPOINT` and `AZURE_API_KEY`), and Anthropic and OpenAI once
+Providers in production: Gemini, Azure AI Foundry (`azure`: gpt-6.1-sol, gpt-6-sol, gpt-6-luna, gpt-6-astra,
+gpt-5.6-sol/terra/luna and gpt-5.5, named by their deployment names; endpoint and key are `AZURE_ENDPOINT` and `AZURE_API_KEY`), and Anthropic and OpenAI once
 their keys are set. New keys may use all of them (`NEW_KEY` in account/src/index.ts); a key made before a provider was
 added needs it added in the dashboard (Virtual Keys → the key → providers) before the rule can route its traffic there.
 
