@@ -7,10 +7,20 @@
 //   POST /v1/checkout       same, body { amount? } (USD)                   → { url }  (Dodo Payments checkout)
 //   POST /v1/dodo/webhook   Dodo Payments, signed (Standard Webhooks)      → payment.succeeded raises the budget
 //   GET  /paid              where the checkout returns to
+//   GET  /v1/voices         as the key                                     → { voices: [{ name, about }] }
+//   POST /v1/voice          as the key, body VoiceRequest (media.ts)       → the audio (MP3 or WAV)
+//   POST /v1/music          as the key, body MusicRequest (media.ts)       → the audio
+//
+// Voice and music are made with Manul's own vendor keys; which vendor and model, the voices and the prices are in
+// media.json (MEDIA_CONFIG, re-read every 30 s so a changed ConfigMap applies without a restart). The app is never
+// told who made it. The price is taken off the key's credit after the audio is made.
 //
 // Which key is whose, and which payments were already credited, live in the Clerk user's private metadata:
 // { bifrost: { customer_id, virtual_key_id }, payments: { <payment_id>: <dollars> } }. The key's name is the Clerk user
 // id. A key turned off in the gateway's dashboard stays off: signing in again doesn't make a new one.
+
+import { readFile } from 'node:fs/promises'
+import { checkMusic, checkVoice, compose, KEY_ENV, MediaError, speak, VENDOR_NAME, VOICES, type Choice, type MusicRequest, type Voice, type VoiceRequest } from './media.ts'
 
 export interface Env {
   /** Clerk's Frontend API, e.g. https://clerk.manul.si (the OAuth issuer) */
@@ -34,6 +44,39 @@ export interface Env {
   DODO_WEBHOOK_SECRET?: string
   /** where the account service is reached, for the checkout's return page; default https://account.manul.si */
   PUBLIC_URL?: string
+  /** path to media.json (which vendor makes voice and music, the voices, the prices); default MEDIA below */
+  MEDIA_CONFIG?: string
+  GEMINI_API_KEY?: string
+  ELEVENLABS_API_KEY?: string
+  OPENAI_API_KEY?: string
+}
+
+/** What a person pays (USD) per model: per 1,000 characters said, per minute of music, and/or per request. */
+export type Price = { per_1k_chars?: number; per_minute?: number; per_request?: number }
+export type MediaConfig = { voice: Choice; music: Choice; prices: Record<string, Price>; voices?: Record<string, Voice> }
+
+/** Without a media.json (tests, local runs): Gemini for both. */
+export const MEDIA: MediaConfig = {
+  voice: { provider: 'gemini', model: 'gemini-3.8-flash-tts' },
+  music: { provider: 'gemini', model: 'lyria-3.5' },
+  prices: { 'gemini-3.8-flash-tts': { per_1k_chars: 0.02 }, 'lyria-3.5': { per_request: 0.08 } },
+}
+
+let media: { at: number; config: MediaConfig } | undefined
+async function mediaConfig(env: Env): Promise<MediaConfig> {
+  if (!env.MEDIA_CONFIG) return MEDIA
+  if (media && Date.now() - media.at < 30_000) return media.config
+  let config = media?.config ?? MEDIA
+  try { config = JSON.parse(await readFile(env.MEDIA_CONFIG, 'utf8')) } catch (e) { console.error('media.json:', (e as Error).message) }
+  media = { at: Date.now(), config }
+  return config
+}
+
+/** The price of one request, or undefined when the model has none (then it isn't offered). */
+export function price(p: Price | undefined, r: { text?: string; seconds?: number }) {
+  if (!p) return undefined
+  const usd = (p.per_request || 0) + (p.per_1k_chars || 0) * ((r.text?.length || 0) / 1000) + (p.per_minute || 0) * ((r.seconds || 0) / 60)
+  return Math.max(0.0001, Math.round(usd * 10000) / 10000)
 }
 
 /** A budget that never resets: credit, used up and topped up. */
@@ -46,6 +89,7 @@ export const NEW_KEY = {
     { provider: 'anthropic', allowed_models: ['claude-opus-5-5', 'claude-sonnet-5-5'], key_ids: ['*'], weight: 1 },
     { provider: 'gemini', allowed_models: ['gemini-3.8-flash', 'gemini-3.1-pro-preview'], key_ids: ['*'], weight: 1 },
     { provider: 'openai', allowed_models: ['gpt-5.5'], key_ids: ['*'], weight: 1 },
+    { provider: 'azure', allowed_models: ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-6-astra'], key_ids: ['*'], weight: 1 },
   ],
 }
 
@@ -97,6 +141,14 @@ export async function handle(req: Request, env: Env): Promise<Response> {
   }
   if (url.pathname === '/v1/checkout' && req.method === 'POST') return checkout()
   if (url.pathname === '/v1/dodo/webhook' && req.method === 'POST') return webhook()
+  if (url.pathname === '/v1/voices' && req.method === 'GET') {
+    const vk = await caller()
+    if (vk instanceof Response) return vk
+    const cfg = await mediaConfig(env)
+    return json({ voices: Object.entries({ ...VOICES, ...cfg.voices }).map(([name, v]) => ({ name, about: v.about })) })
+  }
+  if (url.pathname === '/v1/voice' && req.method === 'POST') return generate('voice')
+  if (url.pathname === '/v1/music' && req.method === 'POST') return generate('music')
   if (url.pathname === '/paid') return page('Payment received. Your credit is added in a moment: go back to Manul.')
   return fail(404, 'Not found.')
 
@@ -169,6 +221,48 @@ export async function handle(req: Request, env: Env): Promise<Response> {
     const out = await r.json().catch(() => ({})) as { checkout_url?: string }
     if (!r.ok || !out.checkout_url) return fail(502, 'Could not start the payment. Try again in a moment.')
     return json({ url: out.checkout_url })
+  }
+
+  /** Voice or music, made with Manul's keys and paid for with the caller's credit. */
+  async function generate(kind: 'voice' | 'music') {
+    const vk = await caller()
+    if (vk instanceof Response) return vk
+    const body = await req.json().catch(() => null) as VoiceRequest & MusicRequest
+    const cfg = await mediaConfig(env)
+    const choice = cfg[kind], voices = { ...VOICES, ...cfg.voices }
+    const what = kind === 'voice' ? 'Voice' : 'Music'
+    try { kind === 'voice' ? checkVoice(body, voices) : checkMusic(body) } catch (e) { return fail(400, (e as Error).message) }
+    const cost = price(cfg.prices?.[choice.model], body)
+    const key = env[KEY_ENV[choice.provider] as keyof Env]
+    if (cost == null || !key) {
+      console.error(`media: ${kind} → ${choice.provider}/${choice.model} has no ${cost == null ? 'price in media.json' : 'key'}`)
+      return fail(503, `${what} isn’t available right now. Try again later.`)
+    }
+    const b = vk.budgets?.[0]
+    const left = (b?.max_limit ?? 0) - (b?.current_usage ?? 0)
+    if (left < cost) return fail(402, `You're out of Manul credit: this needs $${cost.toFixed(2)} and $${Math.max(0, left).toFixed(2)} is left. Add credit in Settings → Keys → Manul key.`)
+
+    let audio
+    try {
+      audio = kind === 'voice' ? await speak(choice, key, body, { voices }) : await compose(choice, key, body)
+    } catch (e) {
+      if (!(e instanceof MediaError)) throw e
+      console.error(`media: ${kind} → ${choice.provider}/${choice.model}: ${e.message}`)
+      if (e.status !== 422) return fail(e.status === 429 ? 429 : 502, `${what} couldn't be made right now. Try again in a moment.`)
+      // the request itself was refused (a named artist, a blocked word): say why, without saying who refused it
+      const hide = new RegExp([choice.model, choice.provider, VENDOR_NAME[choice.provider]].map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi')
+      return fail(422, `${what} couldn't be made: ${e.message.replace(hide, 'the model')}.`)
+    }
+
+    // pay: the credit goes down by the price (a fresh read, so a payment that just landed isn't undone)
+    const now = await getKey(vk.id)
+    const nb = now?.budgets?.[0]
+    const up = nb && await bifrost(`/virtual-keys/${encodeURIComponent(vk.id)}`, {
+      method: 'PUT', body: JSON.stringify({ budgets: [{ id: nb.id, max_limit: Math.round((nb.max_limit - cost) * 10000) / 10000, reset_duration: nb.reset_duration }] }),
+    })
+    if (!up || !up.ok) console.error(`media: could not charge ${vk.name} $${cost} for ${kind}`)
+    console.log(JSON.stringify({ media: kind, user: vk.name, provider: choice.provider, model: choice.model, usd: cost }))
+    return new Response(audio.data as Uint8Array<ArrayBuffer>, { headers: { 'content-type': audio.type, 'x-manul-cost': cost.toFixed(4) } })
   }
 
   async function webhook() {

@@ -2,7 +2,7 @@
 # Fill in manul-secrets interactively: asks for each key (typing is hidden), skips any left empty, then restarts the
 # pods. Values are never printed or written to disk.
 set -eu
-keys="CLERK_SECRET_KEY DODO_API_KEY DODO_WEBHOOK_SECRET ANTHROPIC_API_KEY GEMINI_API_KEY OPENAI_API_KEY"
+keys="CLERK_SECRET_KEY DODO_API_KEY DODO_WEBHOOK_SECRET GEMINI_API_KEY ELEVENLABS_API_KEY AZURE_API_KEY AZURE_ENDPOINT ANTHROPIC_API_KEY OPENAI_API_KEY"
 kubectl -n manul get secret manul-secrets >/dev/null
 json='{"stringData":{'
 sep=''

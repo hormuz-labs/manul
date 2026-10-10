@@ -1,6 +1,6 @@
 # Manul's gateway (Bifrost) and account service, in namespace manul on the silverfish cluster. Applied by deploy.sh.
 # Public: gateway.manul.si (/openai, /v1: the models, Manul keys only) and account.manul.si (signing in, credit,
-# Dodo Payments' webhook).
+# Dodo Payments' webhook, voice and music).
 # Admin: admin.manul.si is Bifrost's dashboard and admin API, behind its admin login (manul-secrets).
 apiVersion: v1
 kind: Namespace
@@ -95,14 +95,24 @@ spec:
             - { name: DODO_PRODUCT_ID, valueFrom: { secretKeyRef: { name: manul-secrets, key: DODO_PRODUCT_ID, optional: true } } }
             - { name: DODO_API_KEY, valueFrom: { secretKeyRef: { name: manul-secrets, key: DODO_API_KEY, optional: true } } }
             - { name: DODO_WEBHOOK_SECRET, valueFrom: { secretKeyRef: { name: manul-secrets, key: DODO_WEBHOOK_SECRET, optional: true } } }
-          volumeMounts: [{ name: code, mountPath: /app, readOnly: true }]
+            # voice and music for Manul keys: which vendor and model, the voices and the prices (re-read every 30 s,
+            # so `kubectl -n manul edit configmap manul-media` applies within about a minute, no restart)
+            - { name: MEDIA_CONFIG, value: /config/media.json }
+            - { name: GEMINI_API_KEY, valueFrom: { secretKeyRef: { name: manul-secrets, key: GEMINI_API_KEY, optional: true } } }
+            - { name: ELEVENLABS_API_KEY, valueFrom: { secretKeyRef: { name: manul-secrets, key: ELEVENLABS_API_KEY, optional: true } } }
+            - { name: OPENAI_API_KEY, valueFrom: { secretKeyRef: { name: manul-secrets, key: OPENAI_API_KEY, optional: true } } }
+          volumeMounts:
+            - { name: code, mountPath: /app, readOnly: true }
+            - { name: media, mountPath: /config, readOnly: true }
           readinessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 10 }
           resources:
-            requests: { cpu: 25m, memory: 64Mi }
-            limits: { memory: 256Mi }
+            requests: { cpu: 25m, memory: 96Mi }
+            limits: { memory: 512Mi }    # a song comes back as base64 JSON
       volumes:
         - name: code
           configMap: { name: account-code }
+        - name: media
+          configMap: { name: manul-media }
 ---
 apiVersion: v1
 kind: Service
@@ -121,7 +131,7 @@ metadata:
   name: account
   namespace: manul
 spec:
-  timeoutSec: 30
+  timeoutSec: 600                 # making music takes a minute or two
   healthCheck: { type: HTTP, requestPath: /healthz, port: 8080 }
 ---
 apiVersion: networking.gke.io/v1

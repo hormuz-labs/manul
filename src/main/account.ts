@@ -74,14 +74,24 @@ export async function signIn(open: (url: string) => Promise<void> | void, timeou
 }
 
 /** The account service, as the signed-in key. */
-async function asKey(path: string, init: RequestInit = {}) {
+async function asKeyRaw(path: string, init: RequestInit = {}) {
   const keyId = getConfig().account?.keyId
   const key = process.env[MANUL_KEY]
   if (!keyId || !key) throw new Error('Sign in to Manul first.')
   const r = await fetch(`${AUTH.account()}${path}`, { ...init, headers: { authorization: `Bearer ${key}`, 'x-manul-key-id': keyId, 'content-type': 'application/json' } })
-  const body = await r.json().catch(() => ({})) as Record<string, unknown>
-  if (!r.ok) throw new Error((body.error as string) || 'Could not reach Manul. Try again in a moment.')
-  return body
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({})) as Record<string, unknown>
+    throw new Error((body.error as string) || 'Could not reach Manul. Try again in a moment.')
+  }
+  return r
+}
+const asKey = async (path: string, init: RequestInit = {}) => await (await asKeyRaw(path, init)).json().catch(() => ({})) as Record<string, unknown>
+
+/** Voice or music made by Manul (it picks the vendor), paid with the signed-in person's credit. */
+export async function manulMedia(kind: 'voice' | 'music', body: unknown, signal?: AbortSignal) {
+  const r = await asKeyRaw(`/v1/${kind}`, { method: 'POST', body: JSON.stringify(body), signal })
+  const type = r.headers.get('content-type') || ''
+  return { data: new Uint8Array(await r.arrayBuffer()), ext: /wav/.test(type) ? 'wav' : 'mp3', cost: Number(r.headers.get('x-manul-cost')) || 0 }
 }
 
 /** What's left of the signed-in person's credit, in USD. */

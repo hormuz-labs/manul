@@ -40,6 +40,32 @@ In the dashboard, go to **Routing Rules → `manul`** and change the target prov
 The routed model must also be in each virtual key's `allowed_models`. It must handle at least the limits the app
 assumes in gateway.ts: 400k context, 64k output tokens, images, and tool calls with reasoning.
 
+Providers in production: Gemini, Azure AI Foundry (`azure`: gpt-5.5, gpt-5.6-sol/terra/luna and gpt-6-astra, named by
+their deployment names; endpoint and key are `AZURE_ENDPOINT` and `AZURE_API_KEY`), and Anthropic and OpenAI once
+their keys are set. New keys may use all of them (`NEW_KEY` in account/src/index.ts); a key made before a provider was
+added needs it added in the dashboard (Virtual Keys → the key → providers) before the rule can route its traffic there.
+
+## Voice and music
+
+Bifrost has no music, and every vendor names its voices differently, so voice and music for Manul keys go through the
+account service instead (`account.manul.si/v1/voice` and `/v1/music`). It makes them with our vendor keys and takes
+the price off the person's credit. The app never learns which vendor made it. People with their own ElevenLabs,
+Gemini or OpenAI key still use it directly from the app.
+
+[k8s/media.json](k8s/media.json) (the `manul-media` ConfigMap) decides everything:
+
+- `voice` and `music`: the `provider` (`gemini`, `elevenlabs` or `openai` for voice; `gemini` or `elevenlabs` for
+  music) and its `model`. In production both are Gemini: `gemini-3.8-flash-tts` and `lyria-3.5`. For ElevenLabs,
+  use `eleven_v3` and `music_v2_5` once `ELEVENLABS_API_KEY` is in the secret.
+- `prices`: what a person pays per model, as `per_1k_chars`, `per_minute` and/or `per_request` (USD). A model
+  with no price is never used.
+- `voices` (optional): Manul's voice names (narrator, guide, anchor…) mapped to each vendor's voice, overriding
+  `VOICES` in account/src/media.ts.
+
+To change it, run `kubectl -n manul edit configmap manul-media`. The service re-reads the file, so the change applies
+within about a minute without a restart. Put the same change in media.json so the next deploy keeps it. Each request
+is logged as one JSON line (`kubectl -n manul logs deploy/account`): who, which vendor and model, and the price.
+
 ## Run it locally
 
 ```bash
@@ -98,20 +124,19 @@ Everything runs in namespace `manul` ([k8s/manul.yaml](k8s/manul.yaml)):
   service. It reaches Bifrost's admin API inside the cluster.
 - **One Google load balancer**, static IP `manul-gateway`, with a Google-managed certificate:
   - `gateway.manul.si` serves `/openai` and `/v1` (the models, with a Manul key);
-  - `account.manul.si` serves `/v1/key` (signing in);
-  - everything else is a 404, so the dashboard and `/api` are never public.
+  - `account.manul.si` serves signing in, credit, payments, and voice and music;
+  - `admin.manul.si` serves Bifrost's dashboard, behind its admin login;
+  - everything else is a 404.
 
 Steps:
 
 1. **Secrets (once):** `manul-secrets` holds `BIFROST_ADMIN_USER`, `BIFROST_ADMIN_PASSWORD` and `BIFROST_AUTH`
-   (generated), plus the keys you fill in. Each key is base64-encoded:
-
-   ```bash
-   kubectl -n manul patch secret manul-secrets -p '{"stringData":{"ANTHROPIC_API_KEY":"…","GEMINI_API_KEY":"…","OPENAI_API_KEY":"…","CLERK_SECRET_KEY":"sk_…"}}'
-   ```
+   (generated), plus the keys you fill in. Run `gateway/k8s/set-secrets.sh`: it asks for each key (Clerk, Dodo,
+   Gemini, ElevenLabs, Azure, Anthropic, OpenAI) without echoing it. Press Enter to keep a key as it is.
 
 2. **Deploy:** `gateway/k8s/deploy.sh`. It reserves the static IP, loads the config and the account code as config
-   maps, applies the manifests and restarts the pods. Run it again after changing config.json or the account code.
+   maps, applies the manifests and restarts the pods. Run it again after changing config.json, media.json or the
+   account code.
 3. **DNS (once):** in Cloudflare, add `A` records for `gateway.manul.si` and `account.manul.si` pointing at the
    static IP. Set them to **DNS only** (grey cloud), so Google can issue the certificate (this takes up to about an
    hour).

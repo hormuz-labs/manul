@@ -23,7 +23,8 @@ App ◀── { key, email }  (key into the keychain, email shown in Settings)
 - **Turning someone off:** deactivate their virtual key in Bifrost's dashboard, and signing in again won't make a new
   one. If the key is deleted instead, the next sign-in makes a new one under the same customer.
 - **What a new key gets:** `NEW_KEY` in [src/index.ts](src/index.ts), or the `NEW_KEY` environment variable as JSON. By
-  default that's a $1/month budget, 300 requests an hour, and the models the gateway's `manul` rule may route to.
+  default that's 300 requests an hour and the models the gateway's `manul` rule may route to. The budget is the credit
+  (below).
 
 ## Credit and payments
 
@@ -42,6 +43,15 @@ App ◀── { key, email }  (key into the keychain, email shown in Settings)
   `DODO_API` in manul.yaml to `https://live.dodopayments.com`.
 - **Secrets:** `DODO_API_KEY` (Developer → API Keys) and `DODO_WEBHOOK_SECRET` (the endpoint's signing secret) go in
   `manul-secrets`. `DODO_PRODUCT_ID` is already there.
+
+## Voice and music
+
+`POST /v1/voice` (`{ text, voice?, style? }`) and `POST /v1/music` (`{ prompt, seconds, instrumental?, sections? }`),
+as the key, return the audio. The request shapes and the vendor calls are in [src/media.ts](src/media.ts), which the
+app also uses with a person's own keys. The service picks the vendor and model from media.json (`MEDIA_CONFIG`; see
+[gateway/README.md → Voice and music](../gateway/README.md#voice-and-music)). It turns the request away when the
+credit left doesn't cover the price (402). Otherwise it makes the audio with our vendor key and lowers the key's
+budget by the price. Errors never name the vendor. `GET /v1/voices` lists Manul's voice names.
 
 ## Clerk
 

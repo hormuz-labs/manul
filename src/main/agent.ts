@@ -28,6 +28,8 @@ import { FencedEnv, fencedArgv, fenceFor, realish, type Fence } from './fence'
 import { homedir } from 'node:os'
 import { analyze, contactSheet, report, sheetFrames } from './analysis'
 import { analyzeMusic, musicReport } from './music'
+import { generate } from './generate'
+import { VOICES } from '../../account/src/media.ts'
 import { cachedSpeakers, speakersReport, withSentences } from './speakers'
 import { nameOf, speakerOfSegments, type SpeakerNames, type Speakers } from '../shared/speakers'
 import { findSubjects, shotSubjects, subjectsReport, track } from './subjects'
@@ -169,7 +171,8 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenc
       `A note on "clip <id> element <name>" is about that element (data-manul-id) of clips/<id>/clip.html: edit only it (read + edit tools), ` +
       `then render_clip and rerender_timeline.\n` +
       `- Skills: read video-editing before any edit, and the skill for the kind of video (talking-head, short-form, promos-and-montages, ` +
-      `tutorials, cleanup-and-repair, motion-design, music-generation) — see the skills list.\n` +
+      `tutorials, cleanup-and-repair, motion-design, music-generation, voiceover) — see the skills list.\n` +
+      `- Voice and music: generate_voice and generate_music (they use the user's own key or their Manul key; never call voice or music APIs with curl).\n` +
       `- Fonts for text you draw with ffmpeg: ${FONTS_DIR} (Inter-Regular.ttf, Inter-Bold.ttf; drawtext fontfile=…, subtitles fontsdir=…). ` +
       `Fonts the user added are in the project's fonts/ folder with Inter: then use fontsdir=fonts (never fontsdir=media).\n` +
       `- Prefer one well-built ffmpeg command over many small ones. Keep codecs sensible: libx264 -crf 18 -preset veryfast, aac 192k, -movflags +faststart.\n` +
@@ -238,6 +241,50 @@ function editorExtension(bridge: Bridge, dirOf: (convId: string) => string, fenc
           const p = proj(api)
           const { music, beatsFile } = await analyzeMusic(p.dir, inProject(p, args.media), api.signal)
           return text(musicReport(music, args.media, beatsFile.slice(p.dir.length + 1)))
+        },
+      }),
+      defineTool({
+        name: 'generate_voice',
+        description: 'Say a script in a generated voice (voiceover, narration, a read line) and save it to generated/. Read the voiceover skill first. ' +
+          'Costs the user money: only when they asked for a voice, or after ask_user. One take; split scripts over 5,000 characters. ' +
+          `Voices: ${Object.entries(VOICES).map(([n, v]) => `${n} (${v.about})`).join('; ')}.`,
+        parameters: Type.Object({
+          text: Type.String({ description: 'exactly what to say' }),
+          voice: Type.Optional(Type.String({ description: 'one of the voices; default narrator' })),
+          style: Type.Optional(Type.String({ description: 'how to say it, e.g. "calm and warm", "excited", "whispering"' })),
+          name: Type.String({ description: 'short file name, e.g. intro' }),
+          provider: Type.Optional(Type.String({ description: 'only when the user asks for one of their own keys: elevenlabs, gemini or openai' })),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const { rel, by } = await generate('voice', { text: args.text, voice: args.voice, style: args.style }, p.dir, args.name, args.provider, api.signal)
+          const d = await probe(join(p.dir, rel)).then(i => i.duration).catch(() => 0)
+          return text(`Saved ${rel} (${d.toFixed(1)} s), made by ${by}. import_media it to use it in the edit.`)
+        },
+      }),
+      defineTool({
+        name: 'generate_music',
+        description: 'Make original music (a bed, a score, a sting, a jingle) to a length, optionally in timed sections that land on the film\'s moments, ' +
+          'and save it to generated/. Read the music-generation skill first. Costs the user money: only when they asked for music, or after ask_user. One take.',
+        parameters: Type.Object({
+          prompt: Type.String({ description: 'genre, mood, lead instruments, BPM, key, the energy curve; never a named artist or song' }),
+          seconds: Type.Number({ description: '3–600' }),
+          instrumental: Type.Optional(Type.Boolean({ description: 'default true' })),
+          sections: Type.Optional(Type.Array(Type.Object({
+            name: Type.String({ description: 'e.g. Intro, Build, Drop, Outro' }),
+            seconds: Type.Number({ description: '3–120; all sections add up to seconds' }),
+            description: Type.Optional(Type.String()),
+            lyrics: Type.Optional(Type.String({ description: 'only when not instrumental' })),
+          }))),
+          name: Type.String({ description: 'short file name, e.g. bed' }),
+          provider: Type.Optional(Type.String({ description: 'only when the user asks for one of their own keys: elevenlabs or gemini' })),
+        }),
+        execute: async (args: Any, api: Any) => {
+          const p = proj(api)
+          const req = { prompt: args.prompt, seconds: args.seconds, instrumental: args.instrumental, sections: args.sections }
+          const { rel, by } = await generate('music', req, p.dir, args.name, args.provider, api.signal)
+          const d = await probe(join(p.dir, rel)).then(i => i.duration).catch(() => 0)
+          return text(`Saved ${rel} (${d.toFixed(1)} s; asked for ${args.seconds} s), made by ${by}. Check it with analyze_music before using it.`)
         },
       }),
       defineTool({
