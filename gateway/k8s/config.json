@@ -1,0 +1,97 @@
+{
+  "$schema": "https://www.getbifrost.ai/schema",
+  "client": {
+    "enforce_auth_on_inference": true,
+    "drop_excess_requests": false
+  },
+  "providers": {
+    "anthropic": {
+      "keys": [
+        {
+          "name": "anthropic",
+          "value": "env.ANTHROPIC_API_KEY",
+          "models": [
+            "*"
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "gemini": {
+      "keys": [
+        {
+          "name": "gemini",
+          "value": "env.GEMINI_API_KEY",
+          "models": [
+            "*"
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "openai": {
+      "keys": [
+        {
+          "name": "openai",
+          "value": "env.OPENAI_API_KEY",
+          "models": [
+            "*"
+          ],
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  "governance": {
+    "budgets": [],
+    "rate_limits": [],
+    "virtual_keys": [],
+    "routing_rules": [
+      {
+        "id": "manul",
+        "name": "manul",
+        "cel_expression": "model == 'manul'",
+        "targets": [
+          {
+            "provider": "anthropic",
+            "model": "claude-opus-5-5",
+            "weight": 1.0
+          }
+        ],
+        "scope": "global",
+        "enabled": true,
+        "priority": 0
+      }
+    ],
+    "auth_config": {
+      "admin_username": "env.BIFROST_ADMIN_USER",
+      "admin_password": "env.BIFROST_ADMIN_PASSWORD",
+      "is_enabled": true
+    }
+  },
+  "config_store": {
+    "enabled": true,
+    "type": "postgres",
+    "config": {
+      "host": "env.PG_HOST",
+      "port": "5432",
+      "user": "env.PG_USER",
+      "password": "env.PG_PASSWORD",
+      "db_name": "bifrost",
+      "ssl_mode": "require"
+    }
+  },
+  "logs_store": {
+    "enabled": true,
+    "type": "postgres",
+    "config": {
+      "host": "env.PG_HOST",
+      "port": "5432",
+      "user": "env.PG_USER",
+      "password": "env.PG_PASSWORD",
+      "db_name": "bifrost",
+      "ssl_mode": "require",
+      "retention_days": 90
+    }
+  }
+}

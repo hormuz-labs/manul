@@ -122,7 +122,7 @@ pro editors can take a Manul rough cut into their own editor.
 
 - **Your own keys** tab (v1): Anthropic, Gemini, OpenAI, ElevenLabs. Each shows what it unlocks, plus a "what works
   with your keys" summary.
-- **Manul key** tab: shown as *soon*, with an early-access sign-up in v1. It ships in a later update (see phase 3).
+- **Manul key** tab: paste a Manul key and the agent uses the model Manul's gateway picks (see phase 3).
 
 ### Updates
 
@@ -209,8 +209,12 @@ pro editors can take a Manul rough cut into their own editor.
 - ⬜ Manul key early-access sign-up live
 
 ### Phase 3: Manul key and Pro
-- ⬜ **Manul gateway**: an LLM endpoint (pi-ai uses a custom base URL) plus a media endpoint (voice, images,
-      transcription). It checks the key, counts usage, and forwards to providers with our keys
+- 🚧 **Manul gateway** ([gateway/](gateway/README.md)): [Bifrost](https://github.com/maximhq/bifrost) holds our provider
+      keys; a Manul key is one of its virtual keys (budget, rate limit, allowed models). The app's side is done: with a
+      Manul key the agent uses one model, "Manul", and the gateway's routing rule picks the real one (Claude, Gemini or
+      GPT), changeable without an app release. Signing in (Clerk, [account/](account/README.md)) gives each person their own
+      key under their own Bifrost customer. Gateway and account service run on the silverfish cluster (manul.si). Left: Clerk production, payment
+      (Stripe) raising a person's budget, and voice and images through the gateway
 - ⬜ Optional accounts, licence check (works offline for a month), credits, top-ups
 - ⬜ Pro plan: AI included, cloud versions of heavy tools (demucs, upscaling), publishing automation, premium skill packs
 - 🚧 **Cloud tools on Manul's worker** (`worker.trypitch.co`): Upscale (Real-ESRGAN) has its place in Tools as *Coming soon*; only the shot being processed is sent

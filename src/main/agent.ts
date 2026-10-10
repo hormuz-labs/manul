@@ -20,6 +20,7 @@ import { AguiAdapter } from './agui'
 import { liveEnv } from './bsk'
 import { chooseModel, describeModels } from './models'
 import { buildProviders, listProviders } from './providers'
+import { manulProvider } from './gateway'
 import type { Memory } from './memory'
 import type { Skills } from './skills'
 import { BIN, FFMPEG, FONTS_DIR, probe } from './media'
@@ -615,7 +616,7 @@ export async function startAgent(opts: {
   fence?: FenceConfig
 }) {
   const models = createModels({ authContext: { env: async (n: string) => process.env[n], fileExists: async (p: string) => existsSync(p) } })
-  for (const p of [anthropicProvider, googleProvider, openaiProvider]) models.setProvider(p())
+  for (const p of [anthropicProvider, googleProvider, openaiProvider, manulProvider]) models.setProvider(p())
   // custom providers (Azure AI Foundry, gateways, local servers): rebuilt when they or their keys change
   let custom: string[] = []
   const loadCustom = () => {

@@ -104,6 +104,8 @@ export type Project = {
 export type RecentProject = { id: string; title: string; dir: string; openedAt: number; thumb?: string }
 
 export type KeyInfo = { env: string; label: string; unlocks: string[]; hint: string; set: boolean }
+/** Who is signed in to Manul (never their key), and whether this build can sign in at all. */
+export type AccountStatus = { email?: string; available: boolean }
 
 export type ToolStatus = { name: string; version?: string; path?: string; bundled: boolean; ok: boolean }
 
